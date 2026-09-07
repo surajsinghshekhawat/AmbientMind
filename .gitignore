@@ -14,9 +14,9 @@ data/
 *.db-journal
 *.sqlite
 
-# Evaluation corpora are large; keep the labelled subset, ignore the raw dump
+# The raw Kaggle dump is ~1.4GB; the labelled subset and the benchmark results
+# are both committed, since they are the record of the evaluation.
 eval/enron-raw/
-eval/results/
 
 .DS_Store
 Thumbs.db

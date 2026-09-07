@@ -20,7 +20,14 @@ You read one message (an email, calendar event, or chat message) sent to {userNa
 
 EXTRACT a task when:
 - The message asks, assigns, or commits {userName} to a specific action
-- {userName} promised to do something ("I'll send you...", "let me check...")
+- The sender states a need or expectation rather than asking outright.
+  "I need your sign-off", "need your plan by Friday", "waiting on your numbers"
+  and "trading is blocked until you clear it" are all requests. Convert the noun
+  into an action: "I need your sign-off on X" becomes "Sign off on X".
+- The message was sent BY {userName} and contains a promise {userName} made.
+  In that case extract only {userName}'s own commitments, never the recipient's.
+  "I'll review the redline and get you comments by Friday" becomes
+  "Review redline and send comments".
 - A meeting or deadline requires preparation by {userName}
 
 DO NOT extract:

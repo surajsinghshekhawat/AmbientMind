@@ -1,8 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { extractTasks, isAvailable, type ExtractedTask } from '../electron/services/ollama'
+import { embed, extractTasks, isAvailable, type ExtractedTask } from '../electron/services/ollama'
 import { aggregate, scoreMessage, type ScoredMessage } from './score'
+import { buildIndex, embeddingText, renderFewShot, retrieve, type IndexedExample } from './retrieval'
 import type { LabelledMessage, Metrics } from './types'
 
 const { values } = parseArgs({
@@ -10,8 +11,16 @@ const { values } = parseArgs({
     corpus: { type: 'string', default: 'eval/corpus/seed.jsonl' },
     model: { type: 'string', default: 'qwen2.5:3b' },
     limit: { type: 'string' },
-    /** Ablation switch: the RAG arm of the study is wired in Phase 5. */
+    /** Ablation switch: retrieves leave-one-out few-shot examples from the corpus. */
     rag: { type: 'boolean', default: false },
+    k: { type: 'string', default: '5' },
+    embedModel: { type: 'string', default: 'nomic-embed-text' },
+    // Who the corpus belongs to. Without this the model cannot tell which
+    // messages are addressed to the user, nor recognise the user's own
+    // commitments, and recall collapses.
+    userName: { type: 'string', default: 'Sally Beck' },
+    userEmail: { type: 'string', default: 'sally.beck@enron.com' },
+    minConfidence: { type: 'string', default: '0.6' },
     out: { type: 'string' },
     verbose: { type: 'boolean', default: false }
   }
@@ -54,19 +63,40 @@ async function main() {
 
   console.log(`Scoring ${messages.length} message(s) from ${values.corpus} with ${values.model}...`)
 
+  let index: IndexedExample[] = []
+  if (values.rag) {
+    process.stdout.write('Embedding corpus for retrieval... ')
+    index = await buildIndex(messages, values.embedModel!, (done, total) =>
+      process.stdout.write(`\rEmbedding corpus for retrieval... ${done}/${total}`)
+    )
+    console.log(` done (${index[0]?.embedding.length ?? 0}-dim)`)
+  }
+
   const scored: ScoredMessage[] = []
-  for (const [index, message] of messages.entries()) {
+  for (const [position, message] of messages.entries()) {
+    let fewShotExamples: string | undefined
+    if (values.rag) {
+      const queryEmbedding = await embed(embeddingText(message), values.embedModel!)
+      fewShotExamples = renderFewShot(retrieve(index, queryEmbedding, message.id, Number(values.k)))
+    }
+
     const started = performance.now()
     let predicted: ExtractedTask[] = []
     try {
-      predicted = await extractTasks(message, { model: values.model! })
+      predicted = await extractTasks(message, {
+        model: values.model!,
+        userName: values.userName!,
+        userEmail: values.userEmail!,
+        minConfidence: Number(values.minConfidence),
+        ...(fewShotExamples ? { fewShotExamples } : {})
+      })
     } catch (err) {
       console.error(`  ${message.id}: extraction failed — ${(err as Error).message}`)
     }
     const latency = performance.now() - started
     scored.push(scoreMessage(message, predicted, latency))
 
-    process.stdout.write(`\r  ${index + 1}/${messages.length}`)
+    process.stdout.write(`\r  ${position + 1}/${messages.length}`)
 
     if (values.verbose) {
       console.log(`\n  [${message.id}] ${message.subject}`)
