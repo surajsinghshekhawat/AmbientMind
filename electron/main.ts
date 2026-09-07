@@ -1,6 +1,11 @@
 import { app, globalShortcut, ipcMain, session } from 'electron'
 import { IPC, QUICK_ADD_SHORTCUT } from '@shared/ipc'
-import { createOverlayWindow, getOverlayWindow, setMouseCapture } from './overlay'
+import {
+  createOverlayWindow,
+  getOverlayWindow,
+  setMouseCapture,
+  setOverlayExpanded
+} from './overlay'
 import { createQuickAddWindow, hideQuickAdd, toggleQuickAdd } from './quickAdd'
 import { createTray } from './tray'
 import {
@@ -33,6 +38,8 @@ function broadcastTasks() {
 
 function registerIpc() {
   ipcMain.on(IPC.SetMouseCapture, (_event, capture: boolean) => setMouseCapture(capture))
+
+  ipcMain.on(IPC.SetOverlayExpanded, (_event, expanded: boolean) => setOverlayExpanded(expanded))
 
   ipcMain.handle(IPC.GetTasks, () => listActive())
 

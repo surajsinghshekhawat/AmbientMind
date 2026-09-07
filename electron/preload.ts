@@ -4,6 +4,8 @@ import type { Task } from '@shared/types'
 
 const api = {
   setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
+  setOverlayExpanded: (expanded: boolean) =>
+    ipcRenderer.send(IPC.SetOverlayExpanded, expanded),
 
   getTasks: (): Promise<Task[]> => ipcRenderer.invoke(IPC.GetTasks),
   addTask: (title: string): Promise<Task[]> => ipcRenderer.invoke(IPC.AddTask, title),
@@ -15,6 +17,14 @@ const api = {
     ipcRenderer.on(IPC.TasksChanged, listener)
     return () => {
       ipcRenderer.off(IPC.TasksChanged, listener)
+    }
+  },
+
+  onSyncStatus: (handler: (status: { state: 'running' | 'idle' }) => void): (() => void) => {
+    const listener = (_event: unknown, status: { state: 'running' | 'idle' }) => handler(status)
+    ipcRenderer.on(IPC.SyncStatus, listener)
+    return () => {
+      ipcRenderer.off(IPC.SyncStatus, listener)
     }
   },
 

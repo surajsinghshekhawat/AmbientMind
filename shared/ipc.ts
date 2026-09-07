@@ -9,6 +9,9 @@ export const IPC = {
   /** Main -> renderer, pushed whenever the task store changes. */
   TasksChanged: 'tasks:changed',
 
+  /** Renderer -> main, resizes the window between orb and panel. */
+  SetOverlayExpanded: 'overlay:set-expanded',
+
   ConnectGoogle: 'accounts:connect-google',
   DisconnectGoogle: 'accounts:disconnect-google',
   GetAccountStatus: 'accounts:status',
