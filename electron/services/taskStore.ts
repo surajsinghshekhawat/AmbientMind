@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
+import * as sqliteVec from 'sqlite-vec'
 import type { Task, TaskPriority, TaskSource } from '@shared/types'
 import { migrate } from './migrations'
 
@@ -58,6 +59,8 @@ export function openTaskStore(filename?: string) {
   db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+  // Must precede migrate(): migration 002 creates a vec0 virtual table.
+  db.loadExtension(sqliteVec.getLoadablePath())
   migrate(db)
   return db
 }
