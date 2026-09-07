@@ -1,0 +1,41 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-urgency-neutral: #e8eaed;
+  --color-urgency-approaching: #f5c26b;
+  --color-urgency-urgent: #ff8a65;
+  --color-urgency-overdue: #ff5c5c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  /* The window is transparent; anything opaque here would show as a rectangle. */
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+}
+
+@keyframes overdue-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-overdue-pulse {
+  animation: overdue-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-overdue-pulse {
+    animation: none;
+  }
+}

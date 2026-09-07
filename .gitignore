@@ -1,0 +1,22 @@
+node_modules/
+out/
+dist/
+release/
+.vite/
+
+# Local secrets: OAuth client config, Picovoice/API keys
+.env
+.env.local
+
+# Runtime data (SQLite store, vector index, logs)
+data/
+*.db
+*.db-journal
+*.sqlite
+
+# Evaluation corpora are large; keep the labelled subset, ignore the raw dump
+eval/enron-raw/
+eval/results/
+
+.DS_Store
+Thumbs.db
