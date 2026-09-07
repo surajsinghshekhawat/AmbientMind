@@ -9,10 +9,12 @@
     "build": "tsc --noEmit && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
@@ -25,6 +27,7 @@
     "vite": "^7.0.0"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   }

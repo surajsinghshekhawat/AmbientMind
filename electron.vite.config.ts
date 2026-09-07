@@ -33,7 +33,8 @@ export default defineConfig({
       outDir: 'out/renderer',
       rollupOptions: {
         input: {
-          overlay: resolve(__dirname, 'src/overlay/index.html')
+          overlay: resolve(__dirname, 'src/overlay/index.html'),
+          quickadd: resolve(__dirname, 'src/quickadd/index.html')
         }
       }
     }

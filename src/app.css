@@ -20,6 +20,14 @@ body,
   font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
 }
 
+/* Restores normal text behaviour inside the quick-add field, which the
+   overlay-wide selection lock would otherwise suppress. */
+input,
+textarea {
+  user-select: text;
+  cursor: text;
+}
+
 @keyframes overdue-pulse {
   0%,
   100% {

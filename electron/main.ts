@@ -1,30 +1,71 @@
-import { app, ipcMain, session } from 'electron'
-import { IPC } from '@shared/ipc'
-import type { Task } from '@shared/types'
+import { app, globalShortcut, ipcMain, session } from 'electron'
+import { IPC, QUICK_ADD_SHORTCUT } from '@shared/ipc'
 import { createOverlayWindow, getOverlayWindow, setMouseCapture } from './overlay'
+import { createQuickAddWindow, hideQuickAdd, toggleQuickAdd } from './quickAdd'
 import { createTray } from './tray'
-import { seedTasks } from './seedTasks'
+import {
+  addTask,
+  archiveStaleCompleted,
+  closeTaskStore,
+  deleteTask,
+  listActive,
+  openTaskStore,
+  setStatus
+} from './services/taskStore'
+import { seedIfEmpty } from './seedTasks'
 
-// Phase 1 keeps state in memory; Phase 2 swaps this for the SQLite task store.
-let tasks: Task[] = seedTasks
+const ARCHIVE_SWEEP_MS = 15 * 60_000
 
 function broadcastTasks() {
-  getOverlayWindow()?.webContents.send(IPC.TasksChanged, tasks)
+  getOverlayWindow()?.webContents.send(IPC.TasksChanged, listActive())
 }
 
 function registerIpc() {
   ipcMain.on(IPC.SetMouseCapture, (_event, capture: boolean) => setMouseCapture(capture))
 
-  ipcMain.handle(IPC.GetTasks, () => tasks)
+  ipcMain.handle(IPC.GetTasks, () => listActive())
+
+  ipcMain.handle(IPC.AddTask, (_event, title: string) => {
+    addTask({ title, source: 'manual' })
+    broadcastTasks()
+    return listActive()
+  })
 
   ipcMain.handle(IPC.CompleteTask, (_event, id: string) => {
-    tasks = tasks.map((task) =>
-      task.id === id
-        ? { ...task, status: 'done' as const, completedAt: new Date().toISOString() }
-        : task
-    )
+    setStatus(id, 'done')
     broadcastTasks()
-    return tasks
+    return listActive()
+  })
+
+  ipcMain.handle(IPC.DeleteTask, (_event, id: string) => {
+    deleteTask(id)
+    broadcastTasks()
+    return listActive()
+  })
+
+  ipcMain.on(IPC.QuickAddSubmit, (_event, title: string) => {
+    const trimmed = title.trim()
+    if (trimmed) {
+      addTask({ title: trimmed, source: 'manual' })
+      broadcastTasks()
+    }
+    hideQuickAdd()
+  })
+
+  ipcMain.on(IPC.QuickAddCancel, () => hideQuickAdd())
+}
+
+function applyProductionCsp() {
+  // Applied as a header rather than a meta tag so the dev server's HMR
+  // websocket and inline styles are not blocked during development.
+  if (!app.isPackaged) return
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self'; style-src 'self' 'unsafe-inline'"]
+      }
+    })
   })
 }
 
@@ -35,24 +76,28 @@ if (!app.requestSingleInstanceLock()) {
   app.dock?.hide()
 
   void app.whenReady().then(() => {
-    // Applied as a header rather than a meta tag so the dev server's HMR
-    // websocket and inline styles are not blocked during development.
-    if (app.isPackaged) {
-      session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            'Content-Security-Policy': ["default-src 'self'; style-src 'self' 'unsafe-inline'"]
-          }
-        })
-      })
-    }
-
+    applyProductionCsp()
+    openTaskStore()
+    if (!app.isPackaged) seedIfEmpty()
+    archiveStaleCompleted()
     registerIpc()
+
     createOverlayWindow()
+    createQuickAddWindow()
     createTray()
+
+    globalShortcut.register(QUICK_ADD_SHORTCUT, toggleQuickAdd)
+
+    setInterval(() => {
+      if (archiveStaleCompleted() > 0) broadcastTasks()
+    }, ARCHIVE_SWEEP_MS)
   })
 
-  // Tray-resident app: closing the overlay must not terminate the process.
+  // Tray-resident app: closing a window must not terminate the process.
   app.on('window-all-closed', () => {})
+
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+    closeTaskStore()
+  })
 }
