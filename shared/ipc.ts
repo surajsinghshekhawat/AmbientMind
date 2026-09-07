@@ -9,6 +9,13 @@ export const IPC = {
   /** Main -> renderer, pushed whenever the task store changes. */
   TasksChanged: 'tasks:changed',
 
+  ConnectGoogle: 'accounts:connect-google',
+  DisconnectGoogle: 'accounts:disconnect-google',
+  GetAccountStatus: 'accounts:status',
+  RunSyncNow: 'sync:run-now',
+  /** Main -> renderer, so the overlay can show a quiet sync indicator. */
+  SyncStatus: 'sync:status',
+
   QuickAddSubmit: 'quickadd:submit',
   QuickAddCancel: 'quickadd:cancel',
   /** Main -> quick-add renderer, so it can reset and focus its input. */

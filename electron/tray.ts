@@ -1,5 +1,12 @@
-import { app, Menu, Tray, nativeImage } from 'electron'
+import { app, dialog, Menu, Tray, nativeImage } from 'electron'
 import { getOverlayWindow } from './overlay'
+import {
+  connectGoogle,
+  connectedGoogleAccount,
+  disconnectGoogle,
+  isGoogleConnected,
+  loadCredentials
+} from './services/googleAuth'
 
 let tray: Tray | null = null
 
@@ -23,12 +30,19 @@ function placeholderIcon() {
   return nativeImage.createFromBuffer(buffer, { width: size, height: size })
 }
 
-export function createTray() {
+export interface TrayActions {
+  onSyncNow: () => Promise<unknown>
+}
+
+export function createTray(actions: TrayActions) {
   tray = new Tray(placeholderIcon())
   tray.setToolTip('AmbientMind')
 
   const rebuild = () => {
     const overlay = getOverlayWindow()
+    const connected = isGoogleConnected()
+    const email = connectedGoogleAccount()
+
     tray?.setContextMenu(
       Menu.buildFromTemplate([
         {
@@ -38,6 +52,40 @@ export function createTray() {
             overlay.isVisible() ? overlay.hide() : overlay.showInactive()
             rebuild()
           }
+        },
+        { type: 'separator' },
+        {
+          label: connected ? `Google: ${email ?? 'connected'}` : 'Google: not connected',
+          enabled: false
+        },
+        {
+          label: connected ? 'Disconnect Google' : 'Connect Google account…',
+          click: async () => {
+            try {
+              if (connected) {
+                await disconnectGoogle()
+              } else if (!loadCredentials()) {
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Google setup required',
+                  message: 'No OAuth client configured',
+                  detail:
+                    'Create a Desktop OAuth client in Google Cloud Console and save it as ' +
+                    'google-credentials.json in the app data folder. See docs/google-setup.md.'
+                })
+              } else {
+                await connectGoogle()
+              }
+            } catch (err) {
+              dialog.showErrorBox('Google connection failed', (err as Error).message)
+            }
+            rebuild()
+          }
+        },
+        {
+          label: 'Sync now',
+          enabled: connected,
+          click: () => void actions.onSyncNow()
         },
         { type: 'separator' },
         {
@@ -53,5 +101,5 @@ export function createTray() {
   }
 
   rebuild()
-  return tray
+  return { tray, refresh: rebuild }
 }

@@ -171,6 +171,55 @@ export function deleteTask(id: string): void {
   handle().prepare(`DELETE FROM tasks WHERE id = ?`).run(id)
 }
 
+export type ProcessOutcome = 'extracted' | 'skipped' | 'failed'
+
+export function isProcessed(source: TaskSource, sourceId: string): boolean {
+  return (
+    handle()
+      .prepare(`SELECT 1 FROM processed_messages WHERE source = ? AND source_id = ?`)
+      .get(source, sourceId) !== undefined
+  )
+}
+
+export function markProcessed(
+  source: TaskSource,
+  sourceId: string,
+  outcome: ProcessOutcome,
+  tasksFound = 0
+): void {
+  handle()
+    .prepare(
+      `INSERT INTO processed_messages (source, source_id, outcome, tasks_found, processed_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (source, source_id) DO UPDATE SET
+         outcome = excluded.outcome,
+         tasks_found = excluded.tasks_found,
+         processed_at = excluded.processed_at`
+    )
+    .run(source, sourceId, outcome, tasksFound, new Date().toISOString())
+}
+
+export function getSyncState(source: string): { cursor: string | null; lastRun: string | null } {
+  const row = handle()
+    .prepare<[string], { cursor: string | null; last_run: string | null }>(
+      `SELECT cursor, last_run FROM sync_state WHERE source = ?`
+    )
+    .get(source)
+  return { cursor: row?.cursor ?? null, lastRun: row?.last_run ?? null }
+}
+
+export function setSyncState(source: string, cursor: string | null, error?: string | null): void {
+  handle()
+    .prepare(
+      `INSERT INTO sync_state (source, cursor, last_run, last_error) VALUES (?, ?, ?, ?)
+       ON CONFLICT (source) DO UPDATE SET
+         cursor = excluded.cursor,
+         last_run = excluded.last_run,
+         last_error = excluded.last_error`
+    )
+    .run(source, cursor, new Date().toISOString(), error ?? null)
+}
+
 /** Sweeps completed tasks out of the overlay once they have aged out. */
 export function archiveStaleCompleted(now = Date.now()): number {
   const cutoff = new Date(now - ARCHIVE_AFTER_HOURS * 3_600_000).toISOString()

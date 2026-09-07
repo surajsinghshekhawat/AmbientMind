@@ -1,5 +1,8 @@
+import { similarity } from '../shared/similarity'
 import type { ExtractedTask } from '../electron/services/ollama'
 import type { GoldTask, LabelledMessage, Metrics } from './types'
+
+export { similarity }
 
 /**
  * A predicted title never matches a gold title verbatim, so pairs are matched on
@@ -7,31 +10,6 @@ import type { GoldTask, LabelledMessage, Metrics } from './types'
  * against "send Q3 budget to Sarah" while rejecting unrelated tasks.
  */
 const MATCH_THRESHOLD = 0.5
-
-const STOPWORDS = new Set([
-  'a', 'an', 'the', 'to', 'for', 'of', 'and', 'on', 'in', 'at', 'by', 'with',
-  'from', 'about', 'please', 'my', 'our', 'your', 'this', 'that', 'it'
-])
-
-function tokens(title: string): Set<string> {
-  return new Set(
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((word) => word.length > 1 && !STOPWORDS.has(word))
-  )
-}
-
-/** Dice coefficient over content words. */
-export function similarity(a: string, b: string): number {
-  const ta = tokens(a)
-  const tb = tokens(b)
-  if (ta.size === 0 || tb.size === 0) return 0
-  let shared = 0
-  for (const token of ta) if (tb.has(token)) shared++
-  return (2 * shared) / (ta.size + tb.size)
-}
 
 function sameCalendarDay(a: string | null, b: string | null): boolean {
   if (a === null && b === null) return true

@@ -14,6 +14,15 @@ import {
   updateTask
 } from './services/taskStore'
 import { enrichTask } from './services/ollama'
+import {
+  connectGoogle,
+  connectedGoogleAccount,
+  disconnectGoogle,
+  isGoogleConnected,
+  loadCredentials
+} from './services/googleAuth'
+import { runSync, startScheduler, stopScheduler, type SyncReport } from './services/sync'
+import { DEFAULT_CONFIG } from '@shared/types'
 import { seedIfEmpty } from './seedTasks'
 
 const ARCHIVE_SWEEP_MS = 15 * 60_000
@@ -68,6 +77,33 @@ function registerIpc() {
   })
 
   ipcMain.on(IPC.QuickAddCancel, () => hideQuickAdd())
+
+  ipcMain.handle(IPC.GetAccountStatus, () => ({
+    google: isGoogleConnected(),
+    googleEmail: connectedGoogleAccount(),
+    credentialsConfigured: loadCredentials() !== null
+  }))
+
+  ipcMain.handle(IPC.ConnectGoogle, async () => {
+    const result = await connectGoogle()
+    await triggerSync()
+    return result
+  })
+
+  ipcMain.handle(IPC.DisconnectGoogle, async () => {
+    await disconnectGoogle()
+    return { google: false }
+  })
+
+  ipcMain.handle(IPC.RunSyncNow, () => triggerSync())
+}
+
+async function triggerSync(): Promise<SyncReport> {
+  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'running' })
+  const report = await runSync({ model: DEFAULT_CONFIG.ollamaModel })
+  if (report.added > 0) broadcastTasks()
+  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle', report })
+  return report
 }
 
 function applyProductionCsp() {
@@ -99,9 +135,10 @@ if (!app.requestSingleInstanceLock()) {
 
     createOverlayWindow()
     createQuickAddWindow()
-    createTray()
+    createTray({ onSyncNow: triggerSync })
 
     globalShortcut.register(QUICK_ADD_SHORTCUT, toggleQuickAdd)
+    startScheduler(DEFAULT_CONFIG.syncIntervalMinutes, { model: DEFAULT_CONFIG.ollamaModel })
 
     setInterval(() => {
       if (archiveStaleCompleted() > 0) broadcastTasks()
@@ -113,6 +150,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    stopScheduler()
     closeTaskStore()
   })
 }
