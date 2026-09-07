@@ -10,6 +10,9 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
+    "test": "node --import tsx --test \"eval/**/*.test.ts\"",
+    "eval": "tsx eval/evaluate.ts",
+    "eval:prepare": "tsx eval/prepare-enron.ts",
     "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
@@ -23,6 +26,7 @@
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
     "tailwindcss": "^4.1.11",
+    "tsx": "^4.23.13",
     "typescript": "^5.8.3",
     "vite": "^7.0.0"
   },

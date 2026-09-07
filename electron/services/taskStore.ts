@@ -128,6 +128,36 @@ export function addTasksIgnoringDuplicates(inputs: NewTask[]): Task[] {
   return inserted
 }
 
+export interface TaskPatch {
+  title?: string
+  deadline?: string | null
+  priority?: TaskPriority
+  people?: string[]
+}
+
+export function updateTask(id: string, patch: TaskPatch): void {
+  const columns: Record<keyof TaskPatch, string> = {
+    title: 'title',
+    deadline: 'deadline',
+    priority: 'priority',
+    people: 'people'
+  }
+
+  const assignments: string[] = []
+  const params: unknown[] = []
+  for (const [key, column] of Object.entries(columns) as [keyof TaskPatch, string][]) {
+    if (!(key in patch)) continue
+    assignments.push(`${column} = ?`)
+    params.push(key === 'people' ? JSON.stringify(patch.people ?? []) : patch[key])
+  }
+  if (assignments.length === 0) return
+
+  params.push(id)
+  handle()
+    .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = ?`)
+    .run(...params)
+}
+
 export function setStatus(id: string, status: Task['status']): void {
   handle()
     .prepare(`UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?`)

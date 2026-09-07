@@ -10,8 +10,10 @@ import {
   deleteTask,
   listActive,
   openTaskStore,
-  setStatus
+  setStatus,
+  updateTask
 } from './services/taskStore'
+import { enrichTask } from './services/ollama'
 import { seedIfEmpty } from './seedTasks'
 
 const ARCHIVE_SWEEP_MS = 15 * 60_000
@@ -45,11 +47,24 @@ function registerIpc() {
 
   ipcMain.on(IPC.QuickAddSubmit, (_event, title: string) => {
     const trimmed = title.trim()
-    if (trimmed) {
-      addTask({ title: trimmed, source: 'manual' })
-      broadcastTasks()
-    }
     hideQuickAdd()
+    if (!trimmed) return
+
+    // Insert immediately so the overlay never waits on the model, then upgrade
+    // the row in place once enrichment resolves. Quick-add has to feel instant.
+    const task = addTask({ title: trimmed, source: 'manual' })
+    broadcastTasks()
+
+    void enrichTask(trimmed).then((enriched) => {
+      if (enriched.title === trimmed && enriched.deadline === null) return
+      updateTask(task.id, {
+        title: enriched.title,
+        deadline: enriched.deadline,
+        priority: enriched.priority,
+        people: enriched.people
+      })
+      broadcastTasks()
+    })
   })
 
   ipcMain.on(IPC.QuickAddCancel, () => hideQuickAdd())
