@@ -26,3 +26,5 @@ export const IPC = {
 } as const
 
 export const QUICK_ADD_SHORTCUT = 'CommandOrControl+Shift+A'
+/** Reads the current screen and turns it into a task. */
+export const CAPTURE_SCREEN_SHORTCUT = 'CommandOrControl+Shift+S'

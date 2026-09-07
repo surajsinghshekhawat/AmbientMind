@@ -1,5 +1,6 @@
-import { app, globalShortcut, ipcMain, session } from 'electron'
-import { IPC, QUICK_ADD_SHORTCUT } from '@shared/ipc'
+import { userInfo } from 'node:os'
+import { app, globalShortcut, ipcMain, Notification, session } from 'electron'
+import { CAPTURE_SCREEN_SHORTCUT, IPC, QUICK_ADD_SHORTCUT } from '@shared/ipc'
 import {
   createOverlayWindow,
   getOverlayWindow,
@@ -27,6 +28,7 @@ import {
   loadCredentials
 } from './services/googleAuth'
 import { runSync, startScheduler, stopScheduler, type SyncReport } from './services/sync'
+import { disposeScreenContext, screenToTask } from './services/screenContext'
 import { DEFAULT_CONFIG } from '@shared/types'
 import { seedIfEmpty } from './seedTasks'
 
@@ -105,6 +107,65 @@ function registerIpc() {
   ipcMain.handle(IPC.RunSyncNow, () => triggerSync())
 }
 
+/**
+ * Who the prompts should treat as "me". A connected mailbox is the best signal;
+ * failing that the OS account name is a reasonable guess, since screens
+ * typically address the user by first name. Replaced by an explicit setting
+ * once the settings window exists.
+ */
+function currentUserName(): string {
+  const account = connectedGoogleAccount()
+  if (account) return account.split('@')[0] ?? account
+  return userInfo().username || 'the user'
+}
+
+/**
+ * Reads whatever is on screen and files it as a task. Exposed as a plain
+ * function so the voice pipeline can call it with a spoken instruction once
+ * Phase 6 lands; today it is driven by a global shortcut.
+ */
+async function captureScreenAsTask(instruction = ''): Promise<void> {
+  const overlay = getOverlayWindow()
+  overlay?.webContents.send(IPC.SyncStatus, { state: 'running' })
+
+  try {
+    const result = await screenToTask(instruction, {
+      model: DEFAULT_CONFIG.ollamaModel,
+      userName: currentUserName()
+    })
+    if (!result) {
+      new Notification({
+        title: 'AmbientMind',
+        body: 'Nothing actionable found on screen.'
+      }).show()
+      return
+    }
+
+    addTask({
+      title: result.title,
+      deadline: result.deadline,
+      priority: result.priority,
+      source: 'manual',
+      people: result.people,
+      // The summary is the whole point: it lets the task be acted on later
+      // without going back to whatever was on screen at the time.
+      rawContext: result.summary,
+      confidence: 1
+    })
+    broadcastTasks()
+
+    new Notification({ title: result.title, body: result.summary || 'Added from screen' }).show()
+  } catch (err) {
+    console.error('[screen] failed:', err)
+    new Notification({
+      title: 'AmbientMind',
+      body: `Screen capture failed: ${(err as Error).message}`
+    }).show()
+  } finally {
+    overlay?.webContents.send(IPC.SyncStatus, { state: 'idle' })
+  }
+}
+
 async function triggerSync(): Promise<SyncReport> {
   getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'running' })
   const report = await runSync({ model: DEFAULT_CONFIG.ollamaModel })
@@ -144,7 +205,14 @@ if (!app.requestSingleInstanceLock()) {
     createQuickAddWindow()
     createTray({ onSyncNow: triggerSync })
 
-    globalShortcut.register(QUICK_ADD_SHORTCUT, toggleQuickAdd)
+    const registered = {
+      quickAdd: globalShortcut.register(QUICK_ADD_SHORTCUT, toggleQuickAdd),
+      capture: globalShortcut.register(CAPTURE_SCREEN_SHORTCUT, () => {
+        console.log('[shortcut] screen capture')
+        void captureScreenAsTask()
+      })
+    }
+    console.log('[shortcuts]', JSON.stringify(registered))
     startScheduler(DEFAULT_CONFIG.syncIntervalMinutes, { model: DEFAULT_CONFIG.ollamaModel })
 
     setInterval(() => {
@@ -158,6 +226,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
     stopScheduler()
+    void disposeScreenContext()
     closeTaskStore()
   })
 }

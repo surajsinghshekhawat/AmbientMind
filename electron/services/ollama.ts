@@ -1,3 +1,5 @@
+import { resolveDeadline } from '@shared/deadline'
+import { formatPromptTime } from '@shared/promptTime'
 import type { TaskPriority } from '@shared/types'
 import { EXTRACTION_SCHEMA, buildExtractionPrompt } from '../../prompts/taskExtraction'
 import { ENRICHMENT_SCHEMA, buildEnrichmentPrompt } from '../../prompts/taskEnrichment'
@@ -75,6 +77,41 @@ async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promi
   return (await response.json()) as T
 }
 
+export interface ChatOptions {
+  system: string
+  user: string
+  model?: string
+  /** JSON schema passed to Ollama's `format`, compiled to a decoding grammar. */
+  format?: unknown
+  numPredict?: number
+  numCtx?: number
+  signal?: AbortSignal
+}
+
+/** Single grammar-constrained, deterministic chat call shared by every prompt. */
+export async function chat(options: ChatOptions): Promise<string> {
+  const data = await post<{ message?: { content?: string } }>(
+    '/api/chat',
+    {
+      model: options.model ?? DEFAULTS.model,
+      messages: [
+        { role: 'system', content: options.system },
+        { role: 'user', content: options.user }
+      ],
+      ...(options.format ? { format: options.format } : {}),
+      stream: false,
+      options: {
+        temperature: 0,
+        top_p: 0.9,
+        num_ctx: options.numCtx ?? 8192,
+        num_predict: options.numPredict ?? 800
+      }
+    },
+    options.signal
+  )
+  return data.message?.content ?? ''
+}
+
 export async function isAvailable(): Promise<boolean> {
   try {
     const response = await fetch(`${OLLAMA_URL}/api/tags`, {
@@ -114,10 +151,7 @@ function sanitise(raw: unknown, minConfidence: number): ExtractedTask[] {
         : 0
     if (confidence < minConfidence) continue
 
-    const deadline =
-      typeof task.deadline === 'string' && !Number.isNaN(Date.parse(task.deadline))
-        ? new Date(task.deadline).toISOString()
-        : null
+    const deadline = resolveDeadline(task.deadline)
 
     cleaned.push({
       title,
@@ -143,6 +177,11 @@ export async function extractTasks(
     userName: config.userName,
     userEmail: config.userEmail,
     fewShotExamples: options.fewShotExamples ? `${options.fewShotExamples}\n\n` : '',
+    // The message date is passed through as-is. Naming the weekday here was
+    // tried and measured: it did not improve extraction and appeared to cost
+    // deadline accuracy, so the extractor keeps the raw header. The weekday
+    // treatment is reserved for "now" in the quick-add and screen prompts,
+    // where there is no message body competing for attention.
     ...message
   })
 
@@ -199,7 +238,7 @@ export async function enrichTask(
   try {
     const { system, user } = buildEnrichmentPrompt({
       input,
-      currentTime: new Date().toISOString()
+      currentTime: formatPromptTime()
     })
 
     const data = await post<{ message?: { content?: string } }>(
@@ -222,10 +261,7 @@ export async function enrichTask(
 
     return {
       title: title || fallback.title,
-      deadline:
-        typeof parsed.deadline === 'string' && !Number.isNaN(Date.parse(parsed.deadline))
-          ? new Date(parsed.deadline).toISOString()
-          : null,
+      deadline: resolveDeadline(parsed.deadline),
       priority: PRIORITIES.includes(parsed.priority as TaskPriority)
         ? (parsed.priority as TaskPriority)
         : 'medium',
