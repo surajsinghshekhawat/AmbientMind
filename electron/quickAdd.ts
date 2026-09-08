@@ -8,6 +8,8 @@ const HEIGHT = 76
 const VERTICAL_FRACTION = 0.22
 
 let quickAddWindow: BrowserWindow | null = null
+/** True while the mic is open — blur must not dismiss the palette mid-utterance. */
+let recording = false
 
 export function createQuickAddWindow(): BrowserWindow {
   quickAddWindow = new BrowserWindow({
@@ -42,13 +44,21 @@ export function createQuickAddWindow(): BrowserWindow {
     void quickAddWindow.loadFile(join(__dirname, '../renderer/quickadd/index.html'))
   }
 
-  // Dismiss on focus loss so the palette never lingers behind another window.
-  quickAddWindow.on('blur', () => hideQuickAdd())
+  // Dismiss on focus loss so the palette never lingers behind another window,
+  // except while recording — grabbing the mic often steals focus briefly.
+  quickAddWindow.on('blur', () => {
+    if (!recording) hideQuickAdd()
+  })
   quickAddWindow.on('closed', () => {
     quickAddWindow = null
+    recording = false
   })
 
   return quickAddWindow
+}
+
+export function setQuickAddRecording(next: boolean) {
+  recording = next
 }
 
 function centerOnActiveDisplay(win: BrowserWindow) {

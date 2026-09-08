@@ -7,7 +7,12 @@ import {
   setMouseCapture,
   setOverlayExpanded
 } from './overlay'
-import { createQuickAddWindow, hideQuickAdd, toggleQuickAdd } from './quickAdd'
+import {
+  createQuickAddWindow,
+  hideQuickAdd,
+  setQuickAddRecording,
+  toggleQuickAdd
+} from './quickAdd'
 import { createTray } from './tray'
 import {
   addTask,
@@ -29,6 +34,8 @@ import {
 } from './services/googleAuth'
 import { runSync, startScheduler, stopScheduler, type SyncReport } from './services/sync'
 import { disposeScreenContext, screenToTask } from './services/screenContext'
+import { disposeSpeech, transcribePcm, warmSpeechModel } from './services/speech'
+import { isScreenCaptureIntent } from '@shared/voiceIntent'
 import { DEFAULT_CONFIG } from '@shared/types'
 import { seedIfEmpty } from './seedTasks'
 
@@ -66,7 +73,15 @@ function registerIpc() {
   ipcMain.on(IPC.QuickAddSubmit, (_event, title: string) => {
     const trimmed = title.trim()
     hideQuickAdd()
+    setQuickAddRecording(false)
     if (!trimmed) return
+
+    // Voice (and typed) "add what's on my screen" routes into the same
+    // capture pipeline as Ctrl+Shift+S, with the utterance as instruction.
+    if (isScreenCaptureIntent(trimmed)) {
+      void captureScreenAsTask(trimmed)
+      return
+    }
 
     // Insert immediately so the overlay never waits on the model, then upgrade
     // the row in place once enrichment resolves. Quick-add has to feel instant.
@@ -85,7 +100,19 @@ function registerIpc() {
     })
   })
 
-  ipcMain.on(IPC.QuickAddCancel, () => hideQuickAdd())
+  ipcMain.on(IPC.QuickAddCancel, () => {
+    setQuickAddRecording(false)
+    hideQuickAdd()
+  })
+
+  ipcMain.on(IPC.QuickAddRecording, (_event, next: boolean) => {
+    setQuickAddRecording(Boolean(next))
+  })
+
+  ipcMain.handle(IPC.TranscribeAudio, async (_event, buffer: ArrayBuffer) => {
+    const samples = new Float32Array(buffer)
+    return transcribePcm(samples)
+  })
 
   ipcMain.handle(IPC.GetAccountStatus, () => ({
     google: isGoogleConnected(),
@@ -120,9 +147,8 @@ function currentUserName(): string {
 }
 
 /**
- * Reads whatever is on screen and files it as a task. Exposed as a plain
- * function so the voice pipeline can call it with a spoken instruction once
- * Phase 6 lands; today it is driven by a global shortcut.
+ * Reads whatever is on screen and files it as a task. The same entry point
+ * serves Ctrl+Shift+S and spoken/typed "add what's on my screen" intents.
  */
 async function captureScreenAsTask(instruction = ''): Promise<void> {
   const overlay = getOverlayWindow()
@@ -196,6 +222,16 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     applyProductionCsp()
+
+    // Mic access is requested from the QuickAdd renderer; without this grant
+    // Electron denies getUserMedia even when the OS dialog would allow it.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'media' || permission === 'mediaKeySystem')
+    })
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+      return permission === 'media' || permission === 'mediaKeySystem'
+    })
+
     openTaskStore()
     if (!app.isPackaged) seedIfEmpty()
     archiveStaleCompleted()
@@ -215,6 +251,9 @@ if (!app.requestSingleInstanceLock()) {
     console.log('[shortcuts]', JSON.stringify(registered))
     startScheduler(DEFAULT_CONFIG.syncIntervalMinutes, { model: DEFAULT_CONFIG.ollamaModel })
 
+    // First mic use would otherwise stall on a ~75MB model download/load.
+    void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
+
     setInterval(() => {
       if (archiveStaleCompleted() > 0) broadcastTasks()
     }, ARCHIVE_SWEEP_MS)
@@ -227,6 +266,7 @@ if (!app.requestSingleInstanceLock()) {
     globalShortcut.unregisterAll()
     stopScheduler()
     void disposeScreenContext()
+    disposeSpeech()
     closeTaskStore()
   })
 }

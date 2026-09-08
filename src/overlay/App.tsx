@@ -20,7 +20,19 @@ export function App() {
 
   useEffect(() => {
     void window.ambient.getTasks().then(setTasks)
-    return window.ambient.onTasksChanged(setTasks)
+    return window.ambient.onTasksChanged((next) => {
+      setTasks((prev) => {
+        const prevPending = prev.filter((task) => task.status === 'pending').length
+        const nextPending = next.filter((task) => task.status === 'pending').length
+        // Opening QuickAdd collapses attention onto typing; expand so the new
+        // row is actually visible instead of only bumping the orb count.
+        if (nextPending > prevPending) {
+          setExpanded(true)
+          window.ambient.setOverlayExpanded(true)
+        }
+        return next
+      })
+    })
   }, [])
 
   useEffect(() => window.ambient.onSyncStatus((s) => setSyncing(s.state === 'running')), [])

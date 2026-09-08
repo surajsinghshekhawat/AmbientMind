@@ -22,7 +22,11 @@ export const IPC = {
   QuickAddSubmit: 'quickadd:submit',
   QuickAddCancel: 'quickadd:cancel',
   /** Main -> quick-add renderer, so it can reset and focus its input. */
-  QuickAddOpened: 'quickadd:opened'
+  QuickAddOpened: 'quickadd:opened',
+  /** Renderer -> main: keep the window open while the mic is live. */
+  QuickAddRecording: 'quickadd:recording',
+  /** Renderer -> main: float32 PCM @ 16 kHz ArrayBuffer in, transcript out. */
+  TranscribeAudio: 'speech:transcribe'
 } as const
 
 export const QUICK_ADD_SHORTCUT = 'CommandOrControl+Shift+A'

@@ -31,6 +31,11 @@ const api = {
   quickAdd: {
     submit: (title: string) => ipcRenderer.send(IPC.QuickAddSubmit, title),
     cancel: () => ipcRenderer.send(IPC.QuickAddCancel),
+    setRecording: (recording: boolean) =>
+      ipcRenderer.send(IPC.QuickAddRecording, recording),
+    /** Mono float32 PCM at 16 kHz. Returns the transcript, or "" if silent. */
+    transcribe: (pcm: ArrayBuffer): Promise<string> =>
+      ipcRenderer.invoke(IPC.TranscribeAudio, pcm),
     onOpened: (handler: () => void): (() => void) => {
       const listener = () => handler()
       ipcRenderer.on(IPC.QuickAddOpened, listener)
