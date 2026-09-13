@@ -48,6 +48,14 @@ export interface Config {
   maxTasksVisible: number
   ollamaModel: string
   embeddingModel: string
+  /** What the prompts should call the user. Empty falls back to the OS account. */
+  displayName: string
+  /**
+   * Free text the user writes about their life, injected into prompts so the
+   * model can tell what matters. Naming the user already measurably improved
+   * extraction; this is the same lever, made explicit.
+   */
+  aboutMe: string
 }
 
 export interface ModelHealth {
@@ -98,5 +106,10 @@ export const DEFAULT_CONFIG: Config = {
   syncIntervalMinutes: 15,
   maxTasksVisible: 7,
   ollamaModel: 'qwen2.5:3b',
-  embeddingModel: 'nomic-embed-text'
+  embeddingModel: 'nomic-embed-text',
+  displayName: '',
+  aboutMe: ''
 }
+
+/** Long enough for real context, short enough not to crowd out the message. */
+export const ABOUT_ME_MAX_CHARS = 1200

@@ -7,6 +7,8 @@
 export interface ExtractionVars {
   userName: string
   userEmail: string
+  /** Optional free text about the user. Empty string when not configured. */
+  aboutMe?: string
   fewShotExamples: string
   sender: string
   recipients: string
@@ -17,7 +19,7 @@ export interface ExtractionVars {
 
 export const TASK_EXTRACTION_SYSTEM = `You are a task extraction engine embedded in a desktop productivity app.
 You read one message (an email, calendar event, or chat message) sent to {userName} <{userEmail}> and extract ONLY the genuine actionable tasks that {userName} personally needs to do.
-
+{aboutBlock}
 EXTRACT a task when:
 - The message asks, assigns, or commits {userName} to a specific action
 - The sender states a need or expectation rather than asking outright.
@@ -68,8 +70,25 @@ function fill(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => vars[key] ?? match)
 }
 
+/**
+ * Placed in the system prompt, next to the identity that measurably improved
+ * extraction — not in the message block, where added context was measured to
+ * crowd out the body and cost recall.
+ */
+export function buildAboutBlock(userName: string, aboutMe?: string): string {
+  const text = aboutMe?.trim()
+  if (!text) return ''
+  return `
+ABOUT ${userName} (background only; never turn this into a task):
+${text}
+`
+}
+
 export function buildExtractionPrompt(vars: ExtractionVars) {
-  const dict = vars as unknown as Record<string, string>
+  const dict = {
+    ...(vars as unknown as Record<string, string>),
+    aboutBlock: buildAboutBlock(vars.userName, vars.aboutMe)
+  }
   return {
     system: fill(TASK_EXTRACTION_SYSTEM, dict),
     user: fill(TASK_EXTRACTION_USER, dict)

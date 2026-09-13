@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import type {
-  Config,
-  HealthReport,
-  OverlayCorner,
-  RecurrenceSuggestion,
-  SyncSummary
+import {
+  ABOUT_ME_MAX_CHARS,
+  type Config,
+  type HealthReport,
+  type OverlayCorner,
+  type RecurrenceSuggestion,
+  type SyncSummary
 } from '@shared/types'
 import type { RecurrenceRule } from '@shared/recurrence'
 import { CAPTURE_SCREEN_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
@@ -279,6 +280,37 @@ export function App() {
             ))}
           </select>
         </label>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          About you
+        </h2>
+        <label className="flex flex-col gap-1 text-sm">
+          What your mail calls you
+          <input
+            value={config.displayName}
+            placeholder="Suraj"
+            onChange={(e) => void patch({ displayName: e.target.value })}
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Context for the model
+          <textarea
+            rows={5}
+            value={config.aboutMe}
+            maxLength={ABOUT_ME_MAX_CHARS}
+            placeholder={'College until 4pm on weekdays.\nTuition is non-negotiable.\nI handle the fees, not my brother.'}
+            onChange={(e) => void patch({ aboutMe: e.target.value })}
+            className={`${inputClass} resize-y leading-relaxed`}
+          />
+        </label>
+        <p className="text-[12px] text-white/40">
+          Added to the prompt as background when reading mail and your screen. It is never
+          turned into a task, and never leaves this machine. {config.aboutMe.length}/
+          {ABOUT_ME_MAX_CHARS}
+        </p>
       </section>
 
       <Recurring

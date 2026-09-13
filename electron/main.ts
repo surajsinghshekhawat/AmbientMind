@@ -85,6 +85,7 @@ function syncOptions(config: Config = loadConfig(), extra: { force?: boolean } =
     model: config.ollamaModel,
     embeddingModel: config.embeddingModel,
     userName: currentUserName(),
+    ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
     ...(email ? { userEmail: email } : {}),
     ...extra
   }
@@ -341,6 +342,10 @@ function registerIpc() {
  * once the settings window exists.
  */
 function currentUserName(): string {
+  // An explicit setting wins: only the user knows what their mail calls them.
+  const configured = loadConfig().displayName.trim()
+  if (configured) return configured
+
   // OS account is usually a real first name ("Suraj"). The Gmail local-part
   // is often a handle, and the extractor then misses mail that says "Hi Suraj".
   const os = userInfo().username?.trim()
@@ -359,9 +364,11 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
   overlay?.webContents.send(IPC.SyncStatus, { state: 'running' })
 
   try {
+    const config = loadConfig()
     const result = await screenToTask(instruction, {
-      model: loadConfig().ollamaModel,
-      userName: currentUserName()
+      model: config.ollamaModel,
+      userName: currentUserName(),
+      ...(config.aboutMe ? { aboutMe: config.aboutMe } : {})
     })
     if (!result) {
       new Notification({

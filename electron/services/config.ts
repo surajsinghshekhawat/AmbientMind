@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { DEFAULT_CONFIG, type Config, type OverlayCorner } from '@shared/types'
+import { ABOUT_ME_MAX_CHARS, DEFAULT_CONFIG, type Config, type OverlayCorner } from '@shared/types'
 
 const CORNERS: OverlayCorner[] = ['top-right', 'top-left', 'bottom-right', 'bottom-left']
 const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
@@ -37,7 +37,9 @@ function sanitize(raw: Partial<Config>): Config {
     maxTasksVisible: clamp(Math.round(Number(raw.maxTasksVisible) || DEFAULT_CONFIG.maxTasksVisible), 3, 20),
     ollamaModel: (raw.ollamaModel ?? DEFAULT_CONFIG.ollamaModel).trim() || DEFAULT_CONFIG.ollamaModel,
     embeddingModel:
-      (raw.embeddingModel ?? DEFAULT_CONFIG.embeddingModel).trim() || DEFAULT_CONFIG.embeddingModel
+      (raw.embeddingModel ?? DEFAULT_CONFIG.embeddingModel).trim() || DEFAULT_CONFIG.embeddingModel,
+    displayName: (raw.displayName ?? '').trim().slice(0, 80),
+    aboutMe: (raw.aboutMe ?? '').trim().slice(0, ABOUT_ME_MAX_CHARS)
   }
 }
 

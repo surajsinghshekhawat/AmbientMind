@@ -94,7 +94,7 @@ export async function readScreenText(png: Buffer): Promise<string> {
 
 export async function screenToTask(
   instruction: string,
-  options: { model?: string; userName?: string } = {}
+  options: { model?: string; userName?: string; aboutMe?: string } = {}
 ): Promise<ScreenTask | null> {
   const capture = await captureScreen()
   console.log(`[screen] captured "${capture.windowTitle}" (${capture.png.length} bytes)`)
@@ -108,6 +108,7 @@ export async function screenToTask(
     // Without a name the model cannot tell which of the people on screen is
     // the one being asked to do something, and it returns nothing.
     userName: options.userName?.trim() || 'the user',
+    ...(options.aboutMe ? { aboutMe: options.aboutMe } : {}),
     instruction: instruction.trim() || 'none given; use your judgement',
     currentTime: formatPromptTime(),
     windowTitle: capture.windowTitle,

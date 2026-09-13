@@ -32,6 +32,7 @@ export interface SyncOptions {
   embeddingModel?: string
   userName?: string
   userEmail?: string
+  aboutMe?: string
   /** Re-read recent mail instead of skipping IDs already seen. Used by Sync now. */
   force?: boolean
   maxExtractionsPerRun?: number
@@ -90,6 +91,7 @@ async function syncGmail(
         model: options.model,
         userName,
         userEmail,
+        ...(options.aboutMe ? { aboutMe: options.aboutMe } : {}),
         ...(fewShotExamples ? { fewShotExamples } : {})
       })
       console.log(

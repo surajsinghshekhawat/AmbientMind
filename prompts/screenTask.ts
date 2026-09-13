@@ -1,5 +1,8 @@
+import { buildAboutBlock } from './taskExtraction'
+
 export interface ScreenTaskVars {
   userName: string
+  aboutMe?: string
   instruction: string
   currentTime: string
   windowTitle: string
@@ -33,7 +36,8 @@ Rules:
 - List other people involved, never {userName} themselves
 - If {userName} gave an instruction, let it steer what you focus on
 - Leave the title empty ONLY if the screen has no readable content at all,
-  such as an empty desktop or a blank window`
+  such as an empty desktop or a blank window
+{aboutBlock}`
 
 export const SCREEN_TASK_USER = `Current time: {currentTime}
 Foreground window: {windowTitle}
@@ -56,7 +60,10 @@ export const SCREEN_TASK_SCHEMA = {
 } as const
 
 export function buildScreenTaskPrompt(vars: ScreenTaskVars) {
-  const dict = vars as unknown as Record<string, string>
+  const dict: Record<string, string> = {
+    ...(vars as unknown as Record<string, string>),
+    aboutBlock: buildAboutBlock(vars.userName, vars.aboutMe)
+  }
   const fill = (template: string) =>
     template.replace(/\{(\w+)\}/g, (match, key: string) => dict[key] ?? match)
 

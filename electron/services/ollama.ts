@@ -42,6 +42,7 @@ export interface ExtractOptions {
   model?: string
   userName?: string
   userEmail?: string
+  aboutMe?: string
   fewShotExamples?: string
   /** Tasks scoring below this are treated as noise and dropped. */
   minConfidence?: number
@@ -176,6 +177,7 @@ export async function extractTasks(
   const { system, user } = buildExtractionPrompt({
     userName: config.userName,
     userEmail: config.userEmail,
+    ...(options.aboutMe ? { aboutMe: options.aboutMe } : {}),
     fewShotExamples: options.fewShotExamples ? `${options.fewShotExamples}\n\n` : '',
     // The message date is passed through as-is. Naming the weekday here was
     // tried and measured: it did not improve extraction and appeared to cost
