@@ -47,8 +47,11 @@ quantisation. It would spill into system RAM that is already shared with
 Windows and Electron (a full Chromium). The live model is **Qwen2.5 3B** via
 Ollama (`qwen2.5:3b`). Embeddings use **nomic-embed-text** (768 dimensions).
 
-Speech uses **whisper-tiny.en** through Transformers.js (ONNX, ~75 MB), not a
-native whisper.cpp build. Screen understanding uses **Tesseract**
+Speech uses **Whisper** through Transformers.js (ONNX), not a native
+whisper.cpp build. The size is a setting — tiny (~75 MB), base (~145 MB,
+default) or small (~480 MB). All three run on CPU, so this trades seconds of
+latency against accuracy and does not compete with the 3B model for VRAM; tiny
+was the old default and is visibly weak on accented English. Screen understanding uses **Tesseract**
 (`tesseract.js`), not a vision-language model. Both of those substitutions are
 VRAM decisions, not quality decisions. They are reversible if the machine
 changes; the swap points are named in the code (`readScreenText`, the Whisper
@@ -102,7 +105,7 @@ All under `%APPDATA%\ambientmind\` (not the generic Electron folder):
 | `corpus-*.jsonl` | Optional export of your own mail for accuracy measurement (§4.10). |
 | `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (DPAPI). |
 | `google-credentials.json` | Desktop OAuth client JSON from Google Cloud Console. |
-| `whisper/` | Cached ONNX + tokenizer for whisper-tiny.en. |
+| `whisper/` | Cached ONNX + tokenizer for the selected Whisper size. |
 | `tesseract/` | Cached OCR language data. |
 
 Schema version is SQLite `user_version`. Migrations are append-only SQL files
@@ -301,7 +304,8 @@ Misreads. Occasional invented deadlines. Maximise the window you care about.
 
 ### 4.8 Voice
 
-**Done.** Transformers.js whisper-tiny.en, warmed after launch. Shortcut opens
+**Done.** Transformers.js Whisper (size selectable, base.en by default), warmed
+after launch; switching size reloads in the background rather than mid-sentence. Shortcut opens
 QuickAdd and starts the mic; after speech, **3 seconds of silence** ends
 recording, transcribes, submits. Screen-intent routing. Docs: `docs/voice.md`.
 
@@ -388,9 +392,24 @@ IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
 - Overlay is on top of apps, not in the wallpaper layer.
 - 3B ceiling on nuance and dates.
 - RAG starts empty; no user feedback loop on examples.
-- **Accuracy numbers still come from Enron mail, not yours.** Settings can now
-  export your own mail pre-labelled (§4.10), but nobody has labelled it yet, so
-  every precision/recall figure in this document is about someone else's inbox.
+- **Recall on your own mail is unmeasured, because there is nothing to measure
+  it on.** The export has now been run against 30 days of real mail: 50
+  messages, 37 rejected by the header pre-filter (30 `List-Unsubscribe`, 7 bulk
+  senders, all correct on inspection), 13 reaching the model, and **zero tasks
+  extracted**. Reading all 13 confirms zero is the right answer for essentially
+  every one: recommendation and marketing mail, automated acknowledgements, an invoice, and a mass mail that only looks personal
+  because a human sent it. The one arguable miss is a service nudge
+  asking the user to pick "re-surface" or "wait".
+  - What this *does* establish is precision: 13 noisy messages, nothing
+    invented. Hallucinated tasks are the failure that would make the overlay
+    unusable, and it is not happening.
+  - What it does not establish is recall, and no amount of labelling will fix
+    that while the inbox holds no "send me the numbers by Friday" mail. **The
+    premise that mail carries this user's todos does not currently hold**, which
+    is why Phase D work went to voice, screen and recurrence instead.
+  - Gmail's fetch is capped at 50 messages per call, so the 30-day window came
+    back truncated. A larger sample needs pagination.
+- Precision/recall figures elsewhere in this document are still Enron's.
 - **No installer.** Run via `npm start` / `electron .` from this repo. The app
   icon exists (`build/icon.png`) but `electron-builder` is not configured.
 - No mobile client.
@@ -512,7 +531,8 @@ exists. Chat cannot invent a job you never had.
 | **OS notification scraping** | **Defer.** No clean Windows API; looks like spyware. Mail/calendar/voice already cover appointments. |
 | Wake word | **Defer.** Shortcut is v1. |
 | Outlook / Teams | **Defer.** Graph permissions. After Google is boringly reliable. |
-| Multi-monitor / DPI | Small fix |
+| Multi-monitor / DPI | **Done.** Capture follows the cursor's display, not the primary one. |
+| Foreground-window capture | **Blocked.** Electron cannot identify the foreground window; `desktopCapturer` returns window sources in no documented order. Needs a native Win32 call. |
 | macOS | After Windows installer |
 
 ### Phase E — Companion mobile app
