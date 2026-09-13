@@ -4,6 +4,8 @@ export interface ChatVars {
   currentTime: string
   taskDigest: string
   ruleDigest: string
+  /** What the user already settled about things mentioned in this message. */
+  decisionDigest: string
   observations: string
 }
 
@@ -25,7 +27,7 @@ Current time: {currentTime}
 
 Recurring rules:
 {ruleDigest}
-
+{decisionDigest}
 Each reply is ONE action:
 - answer: you have everything you need. Put the response in "reply".
 - add_task: create a task. Requires "title"; "deadline" is ISO-8601 or null.
@@ -39,6 +41,7 @@ Rules:
 - One action per reply. After an action runs you will be shown the result and can continue.
 - "reply" is always written to {userName}, in one or two short sentences, never mentioning actions or JSON.
 - Never invent a task, a deadline or a commitment that is not in the list above or in what {userName} just said.
+- Past decisions are history, not instructions. Use them to answer "did I already deal with this?"; never undo or redo one on your own.
 - add_rule is ONLY for something that repeats every week. Moving one task to a new time is snooze_task.
 
 Examples:

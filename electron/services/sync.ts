@@ -23,6 +23,7 @@ import {
   type NewTask
 } from './taskStore'
 import { exampleCount, nearestExamples, renderFewShot, storeExample } from './vectorStore'
+import { suppressionFor } from './decisionStore'
 
 export interface SyncReport {
   ranAt: string
@@ -31,6 +32,8 @@ export interface SyncReport {
   extracted: number
   added: number
   deduped: number
+  /** Dropped because the user has repeatedly deleted this kind of task. */
+  suppressed: number
   errors: string[]
 }
 
@@ -202,6 +205,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
     extracted: 0,
     added: 0,
     deduped: 0,
+    suppressed: 0,
     errors: []
   }
 
@@ -241,7 +245,14 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
 
     const { accepted, rejected } = rejectDuplicates(candidates, existing)
     report.deduped = rejected.length
-    report.added = addTasksIgnoringDuplicates(accepted).length
+
+    // Deleting the same thing three times without ever doing it is a
+    // preference. Applied here rather than at extraction so the model stays
+    // free of user-specific rules, and only to newly-arriving tasks: anything
+    // already on the list was put there before the lesson was learned.
+    const wanted = accepted.filter((task) => !suppressionFor(task.title).suppressed)
+    report.suppressed = accepted.length - wanted.length
+    report.added = addTasksIgnoringDuplicates(wanted).length
 
     setSyncState('gmail', null, report.errors.length > 0 ? report.errors[0]! : null)
     return report

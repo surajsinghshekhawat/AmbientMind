@@ -8,6 +8,8 @@ import { CHAT_SCHEMA, buildChatSystem } from '../../prompts/chat'
 import { chat } from './ollama'
 import { addRule } from './ruleStore'
 import { addTask, deleteTask, listActive, setStatus, snoozeTask } from './taskStore'
+import { describeDecisions } from '@shared/decisions'
+import { recallDecisions, recordDecision } from './decisionStore'
 
 /**
  * How many actions one message may trigger before the assistant must answer.
@@ -42,6 +44,19 @@ function digestTasks(tasks: Task[]): string {
         }`
     )
     .join('\n')
+}
+
+/**
+ * What the user already settled about whatever they just asked about.
+ *
+ * Keyed off the message rather than dumping the whole log: a 3B model given
+ * every past decision would start treating them as a to-do list. Empty when
+ * nothing matches, so the prompt does not grow for ordinary questions.
+ */
+function digestDecisions(message: string): string {
+  const lines = describeDecisions(recallDecisions(message, 4))
+  if (lines.length === 0) return ''
+  return `\nAlready decided about this:\n${lines.join('\n')}\n`
 }
 
 /** Resolves the model's loose wording onto a real row, or refuses. */
@@ -81,6 +96,9 @@ function perform(action: Action): { observation: string; changed: boolean } {
       const task = findTask(tasks, action.query ?? action.title ?? '')
       if (!task) return { observation: 'FAILED: no pending task matches that.', changed: false }
       setStatus(task.id, 'done')
+      // Acting through chat is still the user deciding, so it is remembered
+      // the same way as clicking the overlay.
+      recordDecision({ kind: 'completed', title: task.title, source: task.source })
       return { observation: `OK: completed "${task.title}".`, changed: true }
     }
 
@@ -92,6 +110,12 @@ function perform(action: Action): { observation: string; changed: boolean } {
         return { observation: 'FAILED: needs a future time to snooze until.', changed: false }
       }
       snoozeTask(task.id, new Date(until).toISOString())
+      recordDecision({
+        kind: 'snoozed',
+        title: task.title,
+        source: task.source,
+        detail: new Date(until).toISOString().slice(0, 16).replace('T', ' ')
+      })
       return { observation: `OK: snoozed "${task.title}".`, changed: true }
     }
 
@@ -99,6 +123,7 @@ function perform(action: Action): { observation: string; changed: boolean } {
       const task = findTask(tasks, action.query ?? action.title ?? '')
       if (!task) return { observation: 'FAILED: no pending task matches that.', changed: false }
       deleteTask(task.id)
+      recordDecision({ kind: 'deleted', title: task.title, source: task.source })
       return { observation: `OK: deleted "${task.title}".`, changed: true }
     }
 
@@ -164,6 +189,7 @@ export async function runChat(
           : rules
               .map((rule) => `- ${rule.title}: ${describeRule(rule)}${rule.enabled ? '' : ' (paused)'}`)
               .join('\n'),
+      decisionDigest: digestDecisions(message),
       observations: observations.length
         ? `\nWhat has happened while answering this message:\n${observations.join('\n')}`
         : ''

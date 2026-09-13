@@ -47,6 +47,8 @@ export const IPC = {
   GetSyncSummary: 'sync:summary',
 
   /** Writes recent mail to JSONL, pre-labelled, for accuracy measurement. */
+  GetLearned: 'learned:get',
+  ForgetLearned: 'learned:forget',
   ExportCorpus: 'eval:export-corpus',
 
   OpenUserData: 'settings:open-user-data',

@@ -31,6 +31,7 @@ import {
   archiveStaleCompleted,
   closeTaskStore,
   deleteTask,
+  getTask,
   getTaskStore,
   listActive,
   listSyncStates,
@@ -78,6 +79,7 @@ import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
 import type { ChatTurn, Config, SyncSummary } from '@shared/types'
 import { powerMonitor } from 'electron'
+import { forgetSubject, learnedSuppressions, recordDecision } from './services/decisionStore'
 import {
   removeRuleFromCalendar,
   syncAllRulesToCalendar,
@@ -193,14 +195,19 @@ function registerIpc() {
   })
 
   ipcMain.handle(IPC.CompleteTask, (_event, id: string) => {
+    // Recorded before the status change, while the task is still readable.
+    const task = getTask(id)
     setStatus(id, 'done')
+    if (task) recordDecision({ kind: 'completed', title: task.title, source: task.source })
     broadcastTasks()
     trayHandle?.refresh()
     return listActive()
   })
 
   ipcMain.handle(IPC.DeleteTask, (_event, id: string) => {
+    const task = getTask(id)
     deleteTask(id)
+    if (task) recordDecision({ kind: 'deleted', title: task.title, source: task.source })
     broadcastTasks()
     trayHandle?.refresh()
     return listActive()
@@ -213,7 +220,16 @@ function registerIpc() {
   })
 
   ipcMain.handle(IPC.SnoozeTask, (_event, id: string, until: string) => {
+    const task = getTask(id)
     snoozeTask(id, until)
+    if (task) {
+      recordDecision({
+        kind: 'snoozed',
+        title: task.title,
+        source: task.source,
+        detail: until.slice(0, 16).replace('T', ' ')
+      })
+    }
     broadcastTasks()
     trayHandle?.refresh()
     return listActive()
@@ -327,8 +343,19 @@ function registerIpc() {
   })
 
   ipcMain.handle(IPC.DismissSuggestion, (_event, id: string) => {
+    const suggestion = listPendingSuggestions().find((entry) => entry.id === id)
     dismissSuggestion(id)
+    if (suggestion) {
+      recordDecision({ kind: 'dismissed_suggestion', title: suggestion.title, source: 'rule' })
+    }
     return listPendingSuggestions()
+  })
+
+  ipcMain.handle(IPC.GetLearned, () => learnedSuppressions())
+
+  ipcMain.handle(IPC.ForgetLearned, (_event, title: string) => {
+    forgetSubject(title)
+    return learnedSuppressions()
   })
 
   ipcMain.handle(IPC.GetRules, () => listRules())

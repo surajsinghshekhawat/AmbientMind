@@ -192,6 +192,13 @@ export function wakeSnoozed(now = Date.now()): number {
     .run(new Date(now).toISOString()).changes
 }
 
+export function getTask(id: string): Task | null {
+  const row = handle()
+    .prepare<[string], TaskRow>(`SELECT * FROM tasks WHERE id = ?`)
+    .get(id)
+  return row ? toTask(row) : null
+}
+
 export function deleteTask(id: string): void {
   handle().prepare(`DELETE FROM tasks WHERE id = ?`).run(id)
 }

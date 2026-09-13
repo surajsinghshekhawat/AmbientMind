@@ -102,6 +102,13 @@ const api = {
     remove: (id: string): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.DeleteRule, id)
   },
 
+  learned: {
+    list: (): Promise<{ title: string; deletes: number }[]> =>
+      ipcRenderer.invoke(IPC.GetLearned),
+    forget: (title: string): Promise<{ title: string; deletes: number }[]> =>
+      ipcRenderer.invoke(IPC.ForgetLearned, title)
+  },
+
   getHealth: (): Promise<HealthReport> => ipcRenderer.invoke(IPC.GetHealth),
   getSyncSummary: (): Promise<SyncSummary> => ipcRenderer.invoke(IPC.GetSyncSummary),
 

@@ -51,20 +51,30 @@ export function App() {
   const [sync, setSync] = useState<SyncSummary | null>(null)
   const [rules, setRules] = useState<RecurrenceRule[]>([])
   const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
+  const [learned, setLearned] = useState<{ title: string; deletes: number }[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const [nextConfig, nextAccount, nextRag, nextHealth, nextSync, nextRules, nextSuggestions] =
-      await Promise.all([
-        window.ambient.getConfig(),
-        window.ambient.accounts.status(),
-        window.ambient.getRagCount(),
-        window.ambient.getHealth(),
-        window.ambient.getSyncSummary(),
-        window.ambient.rules.list(),
-        window.ambient.rules.suggestions()
-      ])
+    const [
+      nextConfig,
+      nextAccount,
+      nextRag,
+      nextHealth,
+      nextSync,
+      nextRules,
+      nextSuggestions,
+      nextLearned
+    ] = await Promise.all([
+      window.ambient.getConfig(),
+      window.ambient.accounts.status(),
+      window.ambient.getRagCount(),
+      window.ambient.getHealth(),
+      window.ambient.getSyncSummary(),
+      window.ambient.rules.list(),
+      window.ambient.rules.suggestions(),
+      window.ambient.learned.list()
+    ])
     setConfig(nextConfig)
     setAccount(nextAccount)
     setRagCount(nextRag)
@@ -72,6 +82,7 @@ export function App() {
     setSync(nextSync)
     setRules(nextRules)
     setSuggestions(nextSuggestions)
+    setLearned(nextLearned)
   }, [])
 
   useEffect(() => {
@@ -108,6 +119,10 @@ export function App() {
     } finally {
       setBusy(null)
     }
+  }
+
+  const forgetLearned = async (title: string) => {
+    setLearned(await window.ambient.learned.forget(title))
   }
 
   const exportCorpus = async () => {
@@ -413,6 +428,36 @@ export function App() {
           </button>
         </div>
       </section>
+
+      {learned.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+            What it has learned
+          </h2>
+          <p className="text-[12px] leading-relaxed text-white/45">
+            You deleted these repeatedly without ever completing them, so new ones are kept off
+            the list. Undo any of them if that is wrong.
+          </p>
+          {learned.map((entry) => (
+            <div
+              key={entry.title}
+              className="flex items-center justify-between gap-3 rounded border border-white/10 px-3 py-2"
+            >
+              <span className="truncate text-sm text-white/80">{entry.title}</span>
+              <span className="shrink-0 text-[12px] text-white/40">
+                deleted {entry.deletes}×
+              </span>
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={() => void forgetLearned(entry.title)}
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
