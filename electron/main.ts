@@ -77,6 +77,7 @@ import { loadConfig, saveConfig } from './services/config'
 import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
 import type { ChatTurn, Config, SyncSummary } from '@shared/types'
+import { powerMonitor } from 'electron'
 import { showChatWindow } from './chat'
 import { runChat } from './services/chat'
 import { describeRule, parseRecurrence, type NewRecurrenceRule } from '@shared/recurrence'
@@ -615,6 +616,18 @@ if (process.argv.includes('--export-corpus')) {
       // Hourly is plenty: a habit that took three weeks to form will keep.
       refreshSuggestions()
     }, ARCHIVE_SWEEP_MS)
+
+    // Closing the lid at night and opening it in the morning is the normal
+    // case, not an edge case. Timers do not run while the machine is asleep,
+    // so on resume the list is showing yesterday: snoozes that should have
+    // returned are still hidden, and mail from overnight has not been read.
+    powerMonitor.on('resume', () => {
+      console.log('[power] resumed; catching up')
+      if (wakeSnoozed() > 0) trayHandle?.refresh()
+      applyRules()
+      broadcastTasks()
+      void triggerSync()
+    })
   })
 
   // Tray-resident app: closing a window must not terminate the process.

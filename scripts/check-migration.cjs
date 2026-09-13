@@ -64,6 +64,24 @@ app.whenReady().then(() => {
       VALUES ('r1', 'tuition', '[2,4,6]', '17:00', 'medium', 0, 1, datetime('now'), 'explicit')`).run()
     console.log('RULES_TABLE_OK', db.prepare('SELECT COUNT(*) AS n FROM recurrence_rules').get().n)
 
+    // Migration 007: previously-failed mail must come back up for retry
+    // rather than staying permanently retired.
+    db.prepare(
+      `INSERT INTO processed_messages (source, source_id, outcome, tasks_found, processed_at, attempts)
+       VALUES ('gmail', 'probe-failed', 'failed', 0, datetime('now'), 1)`
+    ).run()
+    const retryable = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM processed_messages
+         WHERE outcome = 'failed' AND attempts < 3`
+      )
+      .get().n
+    console.log('RETRYABLE_FAILURES', retryable)
+    console.log(
+      'SEEDED_OLD_FAILURES',
+      db.prepare(`SELECT COUNT(*) AS n FROM processed_messages WHERE outcome = 'failed'`).get().n
+    )
+
     db.close()
     rmSync(copy, { force: true })
     rmSync(`${copy}-wal`, { force: true })

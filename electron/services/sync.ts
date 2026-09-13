@@ -3,7 +3,13 @@ import { rejectDuplicates } from './dedup'
 import { fetchUpcoming } from './integrations/gcalendar'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
 import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
-import { embed, extractTasks, isAvailable, type ExtractedTask } from './ollama'
+import {
+  embed,
+  extractTasks,
+  isAvailable,
+  OllamaUnavailableError,
+  type ExtractedTask
+} from './ollama'
 import {
   addTasksIgnoringDuplicates,
   forgetRecentGmail,
@@ -11,6 +17,7 @@ import {
   getTaskStore,
   isProcessed,
   listActive,
+  markFailed,
   markProcessed,
   setSyncState,
   type NewTask
@@ -69,8 +76,10 @@ async function syncGmail(
     try {
       fetched = await fetchMessage(id)
     } catch (err) {
-      markProcessed('gmail', id, 'failed')
-      report.errors.push(`gmail ${id}: ${(err as Error).message}`)
+      const { willRetry } = markFailed('gmail', id)
+      report.errors.push(
+        `gmail ${id}: ${(err as Error).message}${willRetry ? '' : ' (giving up on this message)'}`
+      )
       continue
     }
 
@@ -116,8 +125,17 @@ async function syncGmail(
         })
       }
     } catch (err) {
-      markProcessed('gmail', id, 'failed')
-      report.errors.push(`extract ${id}: ${(err as Error).message}`)
+      // Ollama going away mid-pass says nothing about this message or the ones
+      // behind it. Charging every remaining mail an attempt would spend the
+      // whole retry budget on a single restart, so the pass stops instead.
+      if (err instanceof OllamaUnavailableError) {
+        report.errors.push('Ollama stopped responding; the rest of this pass was left for later')
+        break
+      }
+      const { willRetry } = markFailed('gmail', id)
+      report.errors.push(
+        `extract ${id}: ${(err as Error).message}${willRetry ? '' : ' (giving up on this message)'}`
+      )
     }
   }
 

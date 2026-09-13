@@ -5,13 +5,14 @@ import sync from '../../db/migrations/003_sync.sql?raw'
 import snooze from '../../db/migrations/004_snooze.sql?raw'
 import rules from '../../db/migrations/005_rules.sql?raw'
 import suggestions from '../../db/migrations/006_suggestions.sql?raw'
+import retry from '../../db/migrations/007_retry.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
  * Imported as raw strings so the SQL is bundled into the build rather than
  * being read from a path that does not exist inside the packaged asar.
  */
-const MIGRATIONS: string[] = [init, rag, sync, snooze, rules, suggestions]
+const MIGRATIONS: string[] = [init, rag, sync, snooze, rules, suggestions, retry]
 
 export function migrate(db: Database.Database) {
   const current = db.pragma('user_version', { simple: true }) as number

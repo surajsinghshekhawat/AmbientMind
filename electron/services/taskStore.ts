@@ -198,12 +198,26 @@ export function deleteTask(id: string): void {
 
 export type ProcessOutcome = 'extracted' | 'skipped' | 'failed'
 
+/**
+ * How many times a message may fail before it is left alone. Three covers a
+ * restart or a flaky connection without re-reading a genuinely unparseable
+ * message on every pass forever.
+ */
+export const MAX_ATTEMPTS = 3
+
 export function isProcessed(source: TaskSource, sourceId: string): boolean {
-  return (
-    handle()
-      .prepare(`SELECT 1 FROM processed_messages WHERE source = ? AND source_id = ?`)
-      .get(source, sourceId) !== undefined
-  )
+  const row = handle()
+    .prepare<[string, string], { outcome: string; attempts: number }>(
+      `SELECT outcome, attempts FROM processed_messages WHERE source = ? AND source_id = ?`
+    )
+    .get(source, sourceId)
+
+  if (!row) return false
+  // A failure is not a verdict. Anything that threw is worth another look,
+  // because the usual causes — no network, an expired token, Ollama
+  // restarting — say nothing about the message itself.
+  if (row.outcome === 'failed') return row.attempts >= MAX_ATTEMPTS
+  return true
 }
 
 export function markProcessed(
@@ -219,9 +233,32 @@ export function markProcessed(
        ON CONFLICT (source, source_id) DO UPDATE SET
          outcome = excluded.outcome,
          tasks_found = excluded.tasks_found,
-         processed_at = excluded.processed_at`
+         processed_at = excluded.processed_at,
+         -- Reaching a verdict clears the failure history behind it.
+         attempts = 0`
     )
     .run(source, sourceId, outcome, tasksFound, new Date().toISOString())
+}
+
+/**
+ * Records a failed attempt and reports whether the message will be retried.
+ * Separate from `markProcessed` because a failure has to accumulate rather
+ * than overwrite.
+ */
+export function markFailed(source: TaskSource, sourceId: string): { willRetry: boolean } {
+  const row = handle()
+    .prepare<[string, string, string], { attempts: number }>(
+      `INSERT INTO processed_messages (source, source_id, outcome, tasks_found, processed_at, attempts)
+       VALUES (?, ?, 'failed', 0, ?, 1)
+       ON CONFLICT (source, source_id) DO UPDATE SET
+         outcome = 'failed',
+         processed_at = excluded.processed_at,
+         attempts = processed_messages.attempts + 1
+       RETURNING attempts`
+    )
+    .get(source, sourceId, new Date().toISOString())
+
+  return { willRetry: (row?.attempts ?? MAX_ATTEMPTS) < MAX_ATTEMPTS }
 }
 
 /** Manual Sync now must re-read recent mail; otherwise a 0-task extraction is sticky forever. */
