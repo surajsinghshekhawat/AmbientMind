@@ -38,6 +38,7 @@ function sanitize(raw: Partial<Config>): Config {
     ollamaModel: (raw.ollamaModel ?? DEFAULT_CONFIG.ollamaModel).trim() || DEFAULT_CONFIG.ollamaModel,
     embeddingModel:
       (raw.embeddingModel ?? DEFAULT_CONFIG.embeddingModel).trim() || DEFAULT_CONFIG.embeddingModel,
+    launchAtLogin: raw.launchAtLogin ?? DEFAULT_CONFIG.launchAtLogin,
     whisperModel:
       (raw.whisperModel ?? DEFAULT_CONFIG.whisperModel).trim() || DEFAULT_CONFIG.whisperModel,
     displayName: (raw.displayName ?? '').trim().slice(0, 80),

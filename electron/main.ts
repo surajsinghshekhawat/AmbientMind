@@ -105,10 +105,26 @@ function syncOptions(config: Config = loadConfig(), extra: { force?: boolean } =
   }
 }
 
+/**
+ * Only meaningful once packaged. In development the executable is Electron
+ * itself, so registering would add a startup entry that launches a bare
+ * Electron rather than this app.
+ */
+function applyLoginItem(config: Config) {
+  if (!app.isPackaged) return
+  app.setLoginItemSettings({
+    openAtLogin: config.launchAtLogin,
+    // The overlay collapses to the orb and the tray carries the rest, so
+    // there is nothing worth showing on a cold boot.
+    args: ['--hidden']
+  })
+}
+
 function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
   getOverlayWindow()?.webContents.send(IPC.ConfigChanged, config)
   setSpeechModel(config.whisperModel)
+  applyLoginItem(config)
   if (
     !previous ||
     previous.syncIntervalMinutes !== config.syncIntervalMinutes ||
@@ -559,6 +575,7 @@ if (process.argv.includes('--export-corpus')) {
     registerIpc()
 
     const config = loadConfig()
+    applyLoginItem(config)
     createOverlayWindow(config)
     createQuickAddWindow()
     trayHandle = createTray({

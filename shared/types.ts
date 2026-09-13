@@ -50,6 +50,8 @@ export interface Config {
   embeddingModel: string
   /** Transformers.js model id for speech-to-text. */
   whisperModel: string
+  /** Start with Windows. An assistant you have to remember to launch is one you stop using. */
+  launchAtLogin: boolean
   /** What the prompts should call the user. Empty falls back to the OS account. */
   displayName: string
   /**
@@ -122,6 +124,7 @@ export const DEFAULT_CONFIG: Config = {
   ollamaModel: 'qwen2.5:3b',
   embeddingModel: 'nomic-embed-text',
   whisperModel: 'Xenova/whisper-base.en',
+  launchAtLogin: true,
   displayName: '',
   aboutMe: ''
 }

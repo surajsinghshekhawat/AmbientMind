@@ -62,7 +62,9 @@ export function openTaskStore(filename?: string) {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   // Must precede migrate(): migration 002 creates a vec0 virtual table.
-  db.loadExtension(sqliteVec.getLoadablePath())
+  // In a packaged build the extension resolves to a path inside app.asar,
+  // which dlopen cannot read; electron-builder unpacks it next door.
+  db.loadExtension(sqliteVec.getLoadablePath().replace('app.asar', 'app.asar.unpacked'))
   migrate(db)
   return db
 }

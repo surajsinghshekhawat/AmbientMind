@@ -348,6 +348,15 @@ export function App() {
             className={inputClass}
           />
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={config.launchAtLogin}
+            onChange={(e) => void patch({ launchAtLogin: e.target.checked })}
+          />
+          Start AmbientMind when I sign in to Windows
+        </label>
+
         <label className="flex flex-col gap-1 text-sm">
           Voice model
           <select

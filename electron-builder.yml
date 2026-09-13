@@ -1,0 +1,46 @@
+appId: com.ambientmind.app
+productName: AmbientMind
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+
+# Everything here is either a native .node binary or a file something tries to
+# dlopen / spawn at runtime. dlopen cannot read out of an asar archive, so
+# these have to sit on the real filesystem beside it.
+#
+#   better-sqlite3   native binding
+#   sqlite-vec       loadable SQLite extension (see taskStore.ts)
+#   onnxruntime-node native backend behind @xenova/transformers (Whisper)
+#   tesseract.js     spawns a worker script and loads a wasm core
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+  - '**/node_modules/sqlite-vec*/**'
+  - '**/node_modules/onnxruntime-node/**'
+  - '**/node_modules/tesseract.js/**'
+  - '**/node_modules/tesseract.js-core/**'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+
+nsis:
+  # Per-user install: no UAC prompt, and the app only ever writes to the
+  # profile it runs as.
+  perMachine: false
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AmbientMind
+  # The overlay, tray icon and global shortcuts all leak if the process is
+  # replaced underneath them.
+  deleteAppDataOnUninstall: false
