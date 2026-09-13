@@ -410,8 +410,17 @@ IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
   - Gmail's fetch is capped at 50 messages per call, so the 30-day window came
     back truncated. A larger sample needs pagination.
 - Precision/recall figures elsewhere in this document are still Enron's.
-- **No installer.** Run via `npm start` / `electron .` from this repo. The app
-  icon exists (`build/icon.png`) but `electron-builder` is not configured.
+- ~~No installer.~~ **Done.** `npm run dist` produces a per-user NSIS installer
+  in `release/`, and the app starts with Windows unless the Settings toggle is
+  cleared. Unsigned, so SmartScreen warns on first run.
+  - The one packaging subtlety worth remembering: `dlopen` cannot read out of
+    an asar archive, so `better-sqlite3`, `sqlite-vec`, `onnxruntime-node` and
+    `tesseract.js` are listed under `asarUnpack`, and `sqlite-vec`'s
+    `getLoadablePath()` is rewritten to the unpacked copy at runtime. Anything
+    native added later needs the same treatment.
+  - `sharp` arrives transitively via `@xenova/transformers` and gets rebuilt
+    during packaging. If the app is running it holds `libgobject-2.0-0.dll`
+    open and the rebuild fails with `EPERM`; close it before `npm run dist`.
 - No mobile client.
 - No Outlook/Teams (Graph / admin consent).
 - No OS notification ingestion.
