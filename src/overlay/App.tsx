@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Task } from '@shared/types'
+import type { OverlayCorner, Task } from '@shared/types'
 import { DEFAULT_CONFIG } from '@shared/types'
 import { Orb } from './Orb'
 import { TaskList } from './TaskList'
@@ -9,70 +9,123 @@ const CLOCK_TICK_MS = 30_000
 
 export function App() {
   const [tasks, setTasks] = useState<Task[]>([])
-  // Urgency is derived from wall-clock time, so the tree needs a periodic nudge
-  // to re-colour and re-sort without any data actually changing.
+  const [maxVisible, setMaxVisible] = useState(DEFAULT_CONFIG.maxTasksVisible)
+  const [corner, setCorner] = useState<OverlayCorner>(DEFAULT_CONFIG.overlayCorner)
   const [now, setNow] = useState(() => Date.now())
-  // Collapsed by default: ambient presence first, detail on demand.
   const [expanded, setExpanded] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null)
+  const [connecting, setConnecting] = useState(false)
 
   useMouseCapture()
 
   useEffect(() => {
-    void window.ambient.getTasks().then(setTasks)
-    return window.ambient.onTasksChanged((next) => {
-      setTasks((prev) => {
-        const prevPending = prev.filter((task) => task.status === 'pending').length
-        const nextPending = next.filter((task) => task.status === 'pending').length
-        // Opening QuickAdd collapses attention onto typing; expand so the new
-        // row is actually visible instead of only bumping the orb count.
-        if (nextPending > prevPending) {
-          setExpanded(true)
-          window.ambient.setOverlayExpanded(true)
-        }
-        return next
-      })
+    void window.ambient.getConfig().then((config) => {
+      setMaxVisible(config.maxTasksVisible)
+      setCorner(config.overlayCorner)
+    })
+    return window.ambient.onConfigChanged((config) => {
+      setMaxVisible(config.maxTasksVisible)
+      setCorner(config.overlayCorner)
     })
   }, [])
 
+  useEffect(() => {
+    void window.ambient.getTasks().then(setTasks)
+    return window.ambient.onTasksChanged(setTasks)
+  }, [])
+
   useEffect(() => window.ambient.onSyncStatus((s) => setSyncing(s.state === 'running')), [])
+
+  useEffect(() => {
+    void window.ambient.accounts.status().then((s) => setGoogleConnected(s.google))
+  }, [])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
     return () => clearInterval(id)
   }, [])
 
-  const toggle = useCallback((next: boolean) => {
-    setExpanded(next)
-    window.ambient.setOverlayExpanded(next)
+  useEffect(() => window.ambient.onOverlayExpanded(setExpanded), [])
+
+  const setOpen = useCallback((next: boolean) => {
+    void window.ambient.setOverlayExpanded(next)
   }, [])
 
   const onComplete = useCallback((id: string) => {
     void window.ambient.completeTask(id).then(setTasks)
   }, [])
 
+  const connectGoogle = useCallback(async () => {
+    setConnecting(true)
+    try {
+      await window.ambient.accounts.connect()
+      const status = await window.ambient.accounts.status()
+      setGoogleConnected(status.google)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setConnecting(false)
+    }
+  }, [])
+
+  const orbAtBottom = corner.startsWith('bottom')
+  const orbAtRight = corner.endsWith('right')
+
+  const orb = (
+    <Orb
+      tasks={tasks}
+      now={now}
+      expanded={expanded}
+      onToggle={() => setOpen(!expanded)}
+    />
+  )
+
   if (!expanded) {
-    return <Orb tasks={tasks} now={now} onExpand={() => toggle(true)} />
+    return <div className="flex h-full w-full items-center justify-center">{orb}</div>
   }
 
   return (
-    <div className="flex h-full flex-col gap-2 p-1">
-      <button
-        {...{ [INTERACTIVE_ATTR]: '' }}
-        type="button"
-        onClick={() => toggle(false)}
-        className="flex items-center gap-2 px-3 py-1 text-left text-[10px] font-medium tracking-[0.18em] text-white/35 uppercase transition-colors hover:text-white/70"
+    <div className={`flex h-full flex-col ${orbAtBottom ? 'flex-col-reverse' : ''}`}>
+      <div
+        className={`flex shrink-0 p-2 ${orbAtRight ? 'justify-end' : 'justify-start'}`}
       >
-        AmbientMind
-        {syncing && <span className="text-urgency-approaching normal-case">· syncing</span>}
-        <span className="ml-auto text-[13px] tracking-normal normal-case">×</span>
-      </button>
-      <TaskList
-        tasks={tasks}
-        now={now}
-        maxVisible={DEFAULT_CONFIG.maxTasksVisible}
-        onComplete={onComplete}
-      />
+        {orb}
+      </div>
+      <div
+        {...{ [INTERACTIVE_ATTR]: '' }}
+        className="flex min-h-0 flex-1 flex-col gap-2 px-1 pb-2"
+      >
+        <div className="flex items-center gap-2 px-3">
+          <header className="min-w-0 flex-1 text-[10px] font-medium tracking-[0.18em] text-white/35 uppercase">
+            AmbientMind
+            {syncing && (
+              <span className="ml-2 font-normal tracking-normal text-urgency-approaching normal-case">
+                · syncing
+              </span>
+            )}
+          </header>
+          <button
+            type="button"
+            onClick={() => window.ambient.openSettings()}
+            title="Settings"
+            className="rounded px-1.5 text-[11px] text-white/35 hover:text-white/70"
+          >
+            ⚙
+          </button>
+        </div>
+        {googleConnected === false && (
+          <button
+            type="button"
+            onClick={() => void connectGoogle()}
+            disabled={connecting}
+            className="mx-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-left text-[12px] text-white/80 hover:bg-white/15 disabled:opacity-50"
+          >
+            {connecting ? 'Opening Google sign-in…' : 'Connect Google to fill this list from mail'}
+          </button>
+        )}
+        <TaskList tasks={tasks} now={now} maxVisible={maxVisible} onComplete={onComplete} />
+      </div>
     </div>
   )
 }

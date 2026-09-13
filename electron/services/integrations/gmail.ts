@@ -112,9 +112,9 @@ async function json<T>(url: string): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function listRecentMessageIds(query = 'newer_than:2d -in:chats -category:promotions'): Promise<
-  { id: string; threadId: string }[]
-> {
+export async function listRecentMessageIds(
+  query = 'newer_than:2d -in:chats'
+): Promise<{ id: string; threadId: string }[]> {
   const url = `${API}/messages?maxResults=50&q=${encodeURIComponent(query)}`
   const data = await json<{ messages?: { id: string; threadId: string }[] }>(url)
   return data.messages ?? []

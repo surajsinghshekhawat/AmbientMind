@@ -3,16 +3,19 @@ import { rejectDuplicates } from './dedup'
 import { fetchUpcoming } from './integrations/gcalendar'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
 import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
-import { extractTasks, isAvailable } from './ollama'
+import { embed, extractTasks, isAvailable, type ExtractedTask } from './ollama'
 import {
   addTasksIgnoringDuplicates,
+  forgetRecentGmail,
   getSyncState,
+  getTaskStore,
   isProcessed,
   listActive,
   markProcessed,
   setSyncState,
   type NewTask
 } from './taskStore'
+import { exampleCount, nearestExamples, renderFewShot, storeExample } from './vectorStore'
 
 export interface SyncReport {
   ranAt: string
@@ -26,7 +29,11 @@ export interface SyncReport {
 
 export interface SyncOptions {
   model?: string
-  /** Ceiling on model calls per pass, so one busy morning cannot peg the GPU. */
+  embeddingModel?: string
+  userName?: string
+  userEmail?: string
+  /** Re-read recent mail instead of skipping IDs already seen. Used by Sync now. */
+  force?: boolean
   maxExtractionsPerRun?: number
   onProgress?: (message: string) => void
 }
@@ -45,8 +52,8 @@ async function syncGmail(
   existing: Task[],
   options: Required<Pick<SyncOptions, 'model' | 'maxExtractionsPerRun'>> & SyncOptions
 ): Promise<NewTask[]> {
-  const userEmail = connectedGoogleAccount() ?? 'me'
-  const userName = userEmail.split('@')[0] ?? 'the user'
+  const userEmail = options.userEmail ?? connectedGoogleAccount() ?? 'me'
+  const userName = options.userName ?? userEmail.split('@')[0] ?? 'the user'
   const candidates: NewTask[] = []
   let budget = options.maxExtractionsPerRun
 
@@ -68,6 +75,7 @@ async function syncGmail(
 
     const reason = shouldSkip(fetched.message, fetched.payload)
     if (reason) {
+      console.log(`[sync] skip "${fetched.message.subject}": ${reason}`)
       markProcessed('gmail', id, 'skipped')
       report.skipped++
       continue
@@ -77,13 +85,19 @@ async function syncGmail(
     budget--
 
     try {
+      const fewShotExamples = await retrieveFewShot(fetched.message, options.embeddingModel)
       const extracted = await extractTasks(fetched.message, {
         model: options.model,
         userName,
-        userEmail
+        userEmail,
+        ...(fewShotExamples ? { fewShotExamples } : {})
       })
+      console.log(
+        `[sync] extract "${fetched.message.subject}" as ${userName}: ${extracted.length} task(s)`
+      )
       report.extracted += extracted.length
       markProcessed('gmail', id, 'extracted', extracted.length)
+      void rememberExtraction(fetched.message, extracted, options.embeddingModel)
 
       for (const task of extracted) {
         candidates.push({
@@ -107,6 +121,43 @@ async function syncGmail(
 
   void existing
   return candidates
+}
+
+function embeddingText(message: { subject: string; sender: string; body: string }) {
+  return `Subject: ${message.subject}\nFrom: ${message.sender}\n\n${message.body}`
+}
+
+/**
+ * Neighbours from this user's own extraction history. Empty store or a down
+ * embed model both fall back to zero-shot — RAG must never block a sync.
+ */
+async function retrieveFewShot(
+  message: { subject: string; sender: string; body: string },
+  embedModel?: string
+): Promise<string> {
+  try {
+    const db = getTaskStore()
+    const available = exampleCount(db)
+    if (available === 0) return ''
+    const vector = await embed(embeddingText(message), embedModel)
+    return renderFewShot(nearestExamples(db, vector, Math.min(5, available)))
+  } catch (err) {
+    console.warn('[rag] retrieve failed:', (err as Error).message)
+    return ''
+  }
+}
+
+async function rememberExtraction(
+  message: { subject: string; sender: string; body: string },
+  tasks: ExtractedTask[],
+  embedModel?: string
+) {
+  try {
+    const vector = await embed(embeddingText(message), embedModel)
+    storeExample(getTaskStore(), embeddingText(message), tasks, vector, 'observed')
+  } catch (err) {
+    console.warn('[rag] store failed:', (err as Error).message)
+  }
 }
 
 async function syncCalendar(report: SyncReport): Promise<NewTask[]> {
@@ -150,6 +201,12 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
 
   running = true
   try {
+    if (options.force) {
+      const forgotten = forgetRecentGmail(48)
+      setSyncState('gcalendar', null)
+      console.log(`[sync] force: reopened ${forgotten} gmail ids, calendar full resync`)
+    }
+
     const resolved = {
       model: options.model ?? 'qwen2.5:3b',
       maxExtractionsPerRun: options.maxExtractionsPerRun ?? DEFAULT_MAX_EXTRACTIONS,

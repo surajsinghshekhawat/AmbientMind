@@ -3,20 +3,12 @@ import { urgencyOf } from '@shared/urgency'
 import { INTERACTIVE_ATTR } from './useMouseCapture'
 
 const RING: Record<Urgency, string> = {
-  neutral: 'border-white/30',
-  approaching: 'border-urgency-approaching',
-  urgent: 'border-urgency-urgent',
-  overdue: 'border-urgency-overdue animate-overdue-pulse'
+  neutral: '#d0d4dc',
+  approaching: '#f5c26b',
+  urgent: '#ff8a65',
+  overdue: '#ff5c5c'
 }
 
-const GLOW: Record<Urgency, string> = {
-  neutral: 'shadow-black/40',
-  approaching: 'shadow-urgency-approaching/40',
-  urgent: 'shadow-urgency-urgent/50',
-  overdue: 'shadow-urgency-overdue/60'
-}
-
-/** The orb inherits the colour of whichever task is most pressing. */
 function peakUrgency(tasks: Task[], now: number): Urgency {
   const order: Urgency[] = ['neutral', 'approaching', 'urgent', 'overdue']
   return tasks.reduce<Urgency>((peak, task) => {
@@ -28,31 +20,36 @@ function peakUrgency(tasks: Task[], now: number): Urgency {
 interface Props {
   tasks: Task[]
   now: number
-  onExpand: () => void
+  expanded: boolean
+  onToggle: () => void
 }
 
-export function Orb({ tasks, now, onExpand }: Props) {
+/** Fills the collapsed window. No outer shadow — that painted a square halo. */
+export function Orb({ tasks, now, expanded, onToggle }: Props) {
   const pending = tasks.filter((task) => task.status === 'pending')
   const urgency = peakUrgency(pending, now)
+  const ring = RING[urgency]
 
   return (
-    <div className="flex h-full w-full items-center justify-center">
-      <button
-        {...{ [INTERACTIVE_ATTR]: '' }}
-        type="button"
-        onClick={onExpand}
-        aria-label={`AmbientMind: ${pending.length} pending task${pending.length === 1 ? '' : 's'}`}
-        title={`${pending.length} pending`}
-        className={`flex h-14 w-14 items-center justify-center rounded-full border-2 bg-black/55 shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-black/75 ${RING[urgency]} ${GLOW[urgency]}`}
-      >
-        {pending.length > 0 ? (
-          <span className="text-[17px] font-medium text-white/95 tabular-nums">
-            {pending.length}
-          </span>
-        ) : (
-          <span className="text-[15px] text-white/50">✓</span>
-        )}
-      </button>
-    </div>
+    <button
+      {...{ [INTERACTIVE_ATTR]: '' }}
+      type="button"
+      onClick={onToggle}
+      aria-label={expanded ? 'Minimize AmbientMind' : `Show ${pending.length} tasks`}
+      title={expanded ? 'Minimize' : 'Show tasks'}
+      className={`block h-[70px] w-[70px] shrink-0 cursor-pointer rounded-full border-0 p-0 ${
+        urgency === 'overdue' ? 'animate-overdue-pulse' : ''
+      }`}
+      style={{
+        background: `radial-gradient(circle at 32% 28%, #4a4a52 0%, #1c1c20 48%, #0c0c0e 100%) padding-box, ${ring} border-box`,
+        border: `3px solid ${ring}`,
+        boxShadow: 'none',
+        color: '#f4f4f5'
+      }}
+    >
+      <span className="flex h-full w-full items-center justify-center text-[22px] font-semibold tabular-nums leading-none">
+        {pending.length}
+      </span>
+    </button>
   )
 }

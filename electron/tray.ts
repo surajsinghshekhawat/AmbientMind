@@ -1,5 +1,5 @@
 import { app, dialog, Menu, Tray, nativeImage } from 'electron'
-import { getOverlayWindow } from './overlay'
+import { getOverlayWindow, setOverlayExpanded } from './overlay'
 import {
   connectGoogle,
   connectedGoogleAccount,
@@ -32,6 +32,7 @@ function placeholderIcon() {
 
 export interface TrayActions {
   onSyncNow: () => Promise<unknown>
+  onOpenSettings: () => void
 }
 
 export function createTray(actions: TrayActions) {
@@ -50,6 +51,20 @@ export function createTray(actions: TrayActions) {
           click: () => {
             if (!overlay) return
             overlay.isVisible() ? overlay.hide() : overlay.showInactive()
+            rebuild()
+          }
+        },
+        {
+          label: 'Expand overlay',
+          click: () => {
+            setOverlayExpanded(true)
+            rebuild()
+          }
+        },
+        {
+          label: 'Minimize to corner',
+          click: () => {
+            setOverlayExpanded(false)
             rebuild()
           }
         },
@@ -87,6 +102,8 @@ export function createTray(actions: TrayActions) {
           enabled: connected,
           click: () => void actions.onSyncNow()
         },
+        { type: 'separator' },
+        { label: 'Settings…', click: () => actions.onOpenSettings() },
         { type: 'separator' },
         {
           label: 'Start at login',

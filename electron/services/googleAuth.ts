@@ -41,6 +41,10 @@ export class GoogleAuthError extends Error {}
  * and Google treats it as an identifier, which is why PKCE carries the actual
  * security. Read from env first so development never needs a file on disk.
  */
+export function credentialsFilePath() {
+  return join(app.getPath('userData'), 'google-credentials.json')
+}
+
 export function loadCredentials(): GoogleCredentials | null {
   const fromEnv = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
   if (fromEnv) {
@@ -50,10 +54,7 @@ export function loadCredentials(): GoogleCredentials | null {
     }
   }
 
-  for (const path of [
-    join(app.getPath('userData'), 'google-credentials.json'),
-    join(app.getAppPath(), 'google-credentials.json')
-  ]) {
+  for (const path of [credentialsFilePath(), join(app.getAppPath(), 'google-credentials.json')]) {
     try {
       const raw = JSON.parse(readFileSync(path, 'utf8')) as {
         installed?: { client_id: string; client_secret: string }
@@ -83,6 +84,10 @@ function pkcePair() {
 /**
  * Google rejects embedded webviews, so consent has to happen in the system
  * browser and come back over a loopback listener on an ephemeral port.
+ *
+ * Chrome (and Edge) also hit `/favicon.ico` on that port. That request has no
+ * `state` or `code`, and an earlier version treated it as a CSRF failure and
+ * closed the server — the real callback then got ERR_CONNECTION_REFUSED.
  */
 function awaitAuthorizationCode(expectedState: string): {
   port: Promise<number>
@@ -92,6 +97,7 @@ function awaitAuthorizationCode(expectedState: string): {
   let resolvePort!: (port: number) => void
   let resolveCode!: (code: string) => void
   let rejectCode!: (err: Error) => void
+  let settled = false
 
   const port = new Promise<number>((resolve) => (resolvePort = resolve))
   const code = new Promise<string>((resolve, reject) => {
@@ -99,8 +105,19 @@ function awaitAuthorizationCode(expectedState: string): {
     rejectCode = reject
   })
 
+  const finish = (ok: string | null, err?: Error) => {
+    if (settled) return
+    settled = true
+    if (err) rejectCode(err)
+    else resolveCode(ok!)
+    // Delay close so the browser can fetch favicon / retry without racing us.
+    setTimeout(() => server.close(), 1500)
+  }
+
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    console.log('[oauth]', req.method, url.pathname, [...url.searchParams.keys()].join(','))
+
     const respond = (message: string) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(
@@ -109,29 +126,36 @@ function awaitAuthorizationCode(expectedState: string): {
       )
     }
 
+    // Ignore noise: favicon, DevTools, speculative GETs with no OAuth params.
     const error = url.searchParams.get('error')
     const received = url.searchParams.get('code')
+    if (!error && !received) {
+      res.writeHead(204)
+      res.end()
+      return
+    }
 
     if (error) {
       respond('Authorisation was declined. You can close this tab.')
-      rejectCode(new GoogleAuthError(`Google returned: ${error}`))
-    } else if (url.searchParams.get('state') !== expectedState) {
-      respond('Authorisation failed a security check. You can close this tab.')
-      rejectCode(new GoogleAuthError('OAuth state mismatch'))
-    } else if (received) {
-      respond('AmbientMind is connected. You can close this tab.')
-      resolveCode(received)
-    } else {
-      respond('Waiting for authorisation…')
+      finish(null, new GoogleAuthError(`Google returned: ${error}`))
       return
     }
-    setImmediate(() => server.close())
+
+    if (url.searchParams.get('state') !== expectedState) {
+      respond('Authorisation failed a security check. You can close this tab.')
+      finish(null, new GoogleAuthError('OAuth state mismatch'))
+      return
+    }
+
+    respond('AmbientMind is connected. You can close this tab.')
+    finish(received)
   })
 
+  server.on('error', (err) => finish(null, err))
   server.listen(0, '127.0.0.1', () => resolvePort((server.address() as AddressInfo).port))
   const timer = setTimeout(
-    () => rejectCode(new GoogleAuthError('Timed out waiting for Google authorisation')),
-    5 * 60_000
+    () => finish(null, new GoogleAuthError('Timed out waiting for Google authorisation')),
+    10 * 60_000
   )
   void code.finally(() => clearTimeout(timer)).catch(() => {})
 
@@ -167,54 +191,64 @@ async function exchange(body: Record<string, string>): Promise<StoredTokens> {
   }
 }
 
+let connectInFlight: Promise<{ email?: string }> | null = null
+
 export async function connectGoogle(): Promise<{ email?: string }> {
-  const credentials = loadCredentials()
-  if (!credentials) {
-    throw new GoogleAuthError(
-      'No Google OAuth client found. See docs/google-setup.md to create one.'
-    )
-  }
+  if (connectInFlight) return connectInFlight
 
-  const state = randomBytes(16).toString('hex')
-  const { verifier, challenge } = pkcePair()
-  const listener = awaitAuthorizationCode(state)
-  const port = await listener.port
-  const redirectUri = `http://127.0.0.1:${port}`
+  connectInFlight = (async () => {
+    const credentials = loadCredentials()
+    if (!credentials) {
+      throw new GoogleAuthError(
+        'No Google OAuth client found. See docs/google-setup.md to create one.'
+      )
+    }
 
-  const url = new URL(AUTH_ENDPOINT)
-  url.search = new URLSearchParams({
-    client_id: credentials.clientId,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: GOOGLE_SCOPES.join(' '),
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-    state,
-    // Required to receive a refresh token at all, and to receive one again if
-    // the user has already granted consent previously.
-    access_type: 'offline',
-    prompt: 'consent'
-  }).toString()
+    const state = randomBytes(16).toString('hex')
+    const { verifier, challenge } = pkcePair()
+    const listener = awaitAuthorizationCode(state)
+    const port = await listener.port
+    const redirectUri = `http://127.0.0.1:${port}`
 
-  await shell.openExternal(url.toString())
-
-  try {
-    const code = await listener.code
-    const tokens = await exchange({
+    const url = new URL(AUTH_ENDPOINT)
+    url.search = new URLSearchParams({
       client_id: credentials.clientId,
-      client_secret: credentials.clientSecret,
-      code,
-      code_verifier: verifier,
-      grant_type: 'authorization_code',
-      redirect_uri: redirectUri
-    })
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: GOOGLE_SCOPES.join(' '),
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      state,
+      // Required to receive a refresh token at all, and to receive one again if
+      // the user has already granted consent previously.
+      access_type: 'offline',
+      prompt: 'consent'
+    }).toString()
 
-    const email = await fetchEmailAddress(tokens.accessToken)
-    setJson(TOKEN_KEY, { ...tokens, ...(email ? { email } : {}) })
-    return email ? { email } : {}
-  } finally {
-    listener.close()
-  }
+    await shell.openExternal(url.toString())
+
+    try {
+      const code = await listener.code
+      const tokens = await exchange({
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        code,
+        code_verifier: verifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri
+      })
+
+      const email = await fetchEmailAddress(tokens.accessToken)
+      setJson(TOKEN_KEY, { ...tokens, ...(email ? { email } : {}) })
+      return email ? { email } : {}
+    } finally {
+      listener.close()
+    }
+  })().finally(() => {
+    connectInFlight = null
+  })
+
+  return connectInFlight
 }
 
 async function fetchEmailAddress(accessToken: string): Promise<string | undefined> {

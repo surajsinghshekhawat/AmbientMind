@@ -1,16 +1,34 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { Task } from '@shared/types'
+import type { Config, Task } from '@shared/types'
 
 const api = {
   setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
-  setOverlayExpanded: (expanded: boolean) =>
-    ipcRenderer.send(IPC.SetOverlayExpanded, expanded),
+  setOverlayExpanded: (expanded: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC.SetOverlayExpanded, expanded),
+  onOverlayExpanded: (handler: (expanded: boolean) => void): (() => void) => {
+    const listener = (_event: unknown, expanded: boolean) => handler(expanded)
+    ipcRenderer.on(IPC.OverlayExpandedChanged, listener)
+    return () => {
+      ipcRenderer.off(IPC.OverlayExpandedChanged, listener)
+    }
+  },
 
   getTasks: (): Promise<Task[]> => ipcRenderer.invoke(IPC.GetTasks),
   addTask: (title: string): Promise<Task[]> => ipcRenderer.invoke(IPC.AddTask, title),
   completeTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.CompleteTask, id),
   deleteTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.DeleteTask, id),
+
+  getConfig: (): Promise<Config> => ipcRenderer.invoke(IPC.GetConfig),
+  setConfig: (patch: Partial<Config>): Promise<Config> =>
+    ipcRenderer.invoke(IPC.SetConfig, patch),
+  onConfigChanged: (handler: (config: Config) => void): (() => void) => {
+    const listener = (_event: unknown, config: Config) => handler(config)
+    ipcRenderer.on(IPC.ConfigChanged, listener)
+    return () => {
+      ipcRenderer.off(IPC.ConfigChanged, listener)
+    }
+  },
 
   onTasksChanged: (handler: (tasks: Task[]) => void): (() => void) => {
     const listener = (_event: unknown, tasks: Task[]) => handler(tasks)
@@ -27,6 +45,26 @@ const api = {
       ipcRenderer.off(IPC.SyncStatus, listener)
     }
   },
+
+  accounts: {
+    status: (): Promise<{
+      google: boolean
+      googleEmail: string | null
+      credentialsConfigured: boolean
+    }> => ipcRenderer.invoke(IPC.GetAccountStatus),
+    connect: () => ipcRenderer.invoke(IPC.ConnectGoogle),
+    disconnect: () => ipcRenderer.invoke(IPC.DisconnectGoogle)
+  },
+
+  syncNow: (): Promise<{
+    scanned: number
+    added: number
+    errors: string[]
+  }> => ipcRenderer.invoke(IPC.RunSyncNow),
+
+  openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
+  getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),
+  openSettings: () => ipcRenderer.send(IPC.OpenSettings),
 
   quickAdd: {
     submit: (title: string) => ipcRenderer.send(IPC.QuickAddSubmit, title),

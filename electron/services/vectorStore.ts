@@ -58,6 +58,10 @@ export function setFeedback(db: Database.Database, exampleId: number, feedback: 
   )
 }
 
+export function exampleCount(db: Database.Database): number {
+  return (db.prepare('SELECT COUNT(*) AS n FROM examples').get() as { n: number }).n
+}
+
 export function nearestExamples(
   db: Database.Database,
   embedding: number[],

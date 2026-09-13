@@ -23,7 +23,6 @@ function visibleTasks(tasks: Task[], now: number, maxVisible: number): Task[] {
   const head = ranked.slice(0, maxVisible)
   if (!newest || head.some((task) => task.id === newest.id)) return head
 
-  // Swap the least urgent visible slot for the freshly created task.
   return [...head.slice(0, maxVisible - 1), newest]
 }
 

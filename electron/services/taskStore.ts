@@ -70,6 +70,10 @@ function handle(): Database.Database {
   return db
 }
 
+export function getTaskStore(): Database.Database {
+  return handle()
+}
+
 export function closeTaskStore() {
   db?.close()
   db = null
@@ -197,6 +201,14 @@ export function markProcessed(
          processed_at = excluded.processed_at`
     )
     .run(source, sourceId, outcome, tasksFound, new Date().toISOString())
+}
+
+/** Manual Sync now must re-read recent mail; otherwise a 0-task extraction is sticky forever. */
+export function forgetRecentGmail(hours = 48): number {
+  const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString()
+  return handle()
+    .prepare(`DELETE FROM processed_messages WHERE source = 'gmail' AND processed_at >= ?`)
+    .run(cutoff).changes
 }
 
 export function getSyncState(source: string): { cursor: string | null; lastRun: string | null } {

@@ -19,12 +19,25 @@ export class PcmRecorder {
   private chunks: Float32Array[] = []
   private _state: RecorderState = 'idle'
 
+  private onSilence: (() => void) | null = null
+  private heardSpeech = false
+  private lastLoudAt = 0
+  private silenceMs = 3000
+  private maxMs = 25_000
+  private startedAt = 0
+
   get state() {
     return this._state
   }
 
-  async start(): Promise<void> {
+  async start(options?: { onSilence?: () => void; silenceMs?: number }): Promise<void> {
     if (this._state !== 'idle') return
+
+    this.onSilence = options?.onSilence ?? null
+    this.silenceMs = options?.silenceMs ?? 3000
+    this.heardSpeech = false
+    this.lastLoudAt = 0
+    this.startedAt = Date.now()
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -44,6 +57,28 @@ export class PcmRecorder {
     this.processor.onaudioprocess = (event) => {
       const input = event.inputBuffer.getChannelData(0)
       this.chunks.push(new Float32Array(input))
+
+      let sum = 0
+      for (let i = 0; i < input.length; i += 8) sum += input[i]! * input[i]!
+      const rms = Math.sqrt(sum / (input.length / 8))
+      const now = Date.now()
+
+      // Ignore the first 400ms: opening the mic often spikes as "speech".
+      if (now - this.startedAt < 400) return
+
+      if (rms > 0.018) {
+        this.heardSpeech = true
+        this.lastLoudAt = now
+      }
+
+      const silentLongEnough =
+        this.heardSpeech && this.lastLoudAt > 0 && now - this.lastLoudAt >= this.silenceMs
+      const tooLong = now - this.startedAt >= this.maxMs
+      if ((silentLongEnough || tooLong) && this.onSilence) {
+        const done = this.onSilence
+        this.onSilence = null
+        done()
+      }
     }
 
     this.source.connect(this.processor)
@@ -90,6 +125,8 @@ export class PcmRecorder {
     this.stream = null
     this.context = null
     this.chunks = []
+    this.onSilence = null
+    this.heardSpeech = false
   }
 }
 

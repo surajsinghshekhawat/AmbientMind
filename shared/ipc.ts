@@ -11,6 +11,13 @@ export const IPC = {
 
   /** Renderer -> main, resizes the window between orb and panel. */
   SetOverlayExpanded: 'overlay:set-expanded',
+  /** Main -> renderer, after the overlay is collapsed or expanded. */
+  OverlayExpandedChanged: 'overlay:expanded-changed',
+
+  GetConfig: 'config:get',
+  SetConfig: 'config:set',
+  /** Main -> renderer, after a settings change. */
+  ConfigChanged: 'config:changed',
 
   ConnectGoogle: 'accounts:connect-google',
   DisconnectGoogle: 'accounts:disconnect-google',
@@ -18,6 +25,10 @@ export const IPC = {
   RunSyncNow: 'sync:run-now',
   /** Main -> renderer, so the overlay can show a quiet sync indicator. */
   SyncStatus: 'sync:status',
+
+  OpenUserData: 'settings:open-user-data',
+  GetRagCount: 'settings:rag-count',
+  OpenSettings: 'settings:open',
 
   QuickAddSubmit: 'quickadd:submit',
   QuickAddCancel: 'quickadd:cancel',
@@ -32,3 +43,4 @@ export const IPC = {
 export const QUICK_ADD_SHORTCUT = 'CommandOrControl+Shift+A'
 /** Reads the current screen and turns it into a task. */
 export const CAPTURE_SCREEN_SHORTCUT = 'CommandOrControl+Shift+S'
+export const SETTINGS_SHORTCUT = 'CommandOrControl+Shift+,'

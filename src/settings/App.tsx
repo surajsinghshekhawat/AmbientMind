@@ -1,0 +1,249 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { Config, OverlayCorner } from '@shared/types'
+import { CAPTURE_SCREEN_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
+
+const CORNERS: { id: OverlayCorner; label: string }[] = [
+  { id: 'top-right', label: 'Top right' },
+  { id: 'top-left', label: 'Top left' },
+  { id: 'bottom-right', label: 'Bottom right' },
+  { id: 'bottom-left', label: 'Bottom left' }
+]
+
+const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
+
+interface AccountStatus {
+  google: boolean
+  googleEmail: string | null
+  credentialsConfigured: boolean
+}
+
+function shortcutLabel(accelerator: string) {
+  return accelerator.replace('CommandOrControl', 'Ctrl').replace('Shift', 'Shift')
+}
+
+export function App() {
+  const [config, setConfig] = useState<Config | null>(null)
+  const [account, setAccount] = useState<AccountStatus | null>(null)
+  const [ragCount, setRagCount] = useState(0)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    const [nextConfig, nextAccount, nextRag] = await Promise.all([
+      window.ambient.getConfig(),
+      window.ambient.accounts.status(),
+      window.ambient.getRagCount()
+    ])
+    setConfig(nextConfig)
+    setAccount(nextAccount)
+    setRagCount(nextRag)
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+    return window.ambient.onConfigChanged((next) => setConfig(next))
+  }, [refresh])
+
+  const patch = async (partial: Partial<Config>) => {
+    const next = await window.ambient.setConfig(partial)
+    setConfig(next)
+  }
+
+  const connect = async () => {
+    setBusy('Connecting Google…')
+    setNotice(null)
+    try {
+      await window.ambient.accounts.connect()
+      await refresh()
+      setNotice('Google connected. First sync may take a minute.')
+    } catch (err) {
+      setNotice((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const disconnect = async () => {
+    setBusy('Disconnecting…')
+    try {
+      await window.ambient.accounts.disconnect()
+      await refresh()
+    } catch (err) {
+      setNotice((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const syncNow = async () => {
+    setBusy('Syncing…')
+    setNotice(null)
+    try {
+      const report = await window.ambient.syncNow()
+      const errors = report.errors?.length ? ` (${report.errors[0]})` : ''
+      setNotice(`Scanned ${report.scanned}, added ${report.added}${errors}`)
+      await refresh()
+    } catch (err) {
+      setNotice((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (!config || !account) {
+    return <p className="p-6 text-sm text-white/50">Loading…</p>
+  }
+
+  return (
+    <div className="flex min-h-full flex-col gap-6 bg-[#141414] p-6 text-white">
+      <header>
+        <h1 className="text-lg font-medium">Settings</h1>
+        <p className="mt-1 text-xs text-white/45">Changes apply immediately. Nothing is uploaded.</p>
+      </header>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          Google
+        </h2>
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <p className="text-sm">
+            {account.google
+              ? `Connected as ${account.googleEmail ?? 'your account'}`
+              : 'Not connected'}
+          </p>
+          {!account.credentialsConfigured && (
+            <p className="mt-2 text-xs leading-relaxed text-white/50">
+              Drop a Desktop OAuth client JSON into the app data folder as{' '}
+              <code className="text-white/70">google-credentials.json</code>, then connect. See
+              docs/google-setup.md.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {account.google ? (
+              <>
+                <button type="button" className={btnClass} onClick={() => void syncNow()} disabled={!!busy}>
+                  Sync now
+                </button>
+                <button type="button" className={btnGhost} onClick={() => void disconnect()} disabled={!!busy}>
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className={btnClass}
+                onClick={() => void connect()}
+                disabled={!!busy || !account.credentialsConfigured}
+              >
+                Connect Google
+              </button>
+            )}
+            <button type="button" className={btnGhost} onClick={() => void window.ambient.openUserData()}>
+              Open app data folder
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          Overlay
+        </h2>
+        <label className="flex flex-col gap-1 text-sm">
+          Corner
+          <select
+            value={config.overlayCorner}
+            onChange={(e) => void patch({ overlayCorner: e.target.value as OverlayCorner })}
+            className={selectClass}
+          >
+            {CORNERS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-[12px] text-white/40">
+          The overlay sits in that corner as a count badge. Click it to expand the
+          list; use − to minimize it again.
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          Tasks shown
+          <input
+            type="number"
+            min={3}
+            max={20}
+            value={config.maxTasksVisible}
+            onChange={(e) => void patch({ maxTasksVisible: Number(e.target.value) })}
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Sync every
+          <select
+            value={config.syncIntervalMinutes}
+            onChange={(e) =>
+              void patch({
+                syncIntervalMinutes: Number(e.target.value) as Config['syncIntervalMinutes']
+              })
+            }
+            className={selectClass}
+          >
+            {INTERVALS.map((n) => (
+              <option key={n} value={n}>
+                {n} minutes
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          Model
+        </h2>
+        <label className="flex flex-col gap-1 text-sm">
+          Ollama model
+          <input
+            value={config.ollamaModel}
+            onChange={(e) => void patch({ ollamaModel: e.target.value })}
+            className={inputClass}
+          />
+        </label>
+        <p className="text-xs text-white/40">
+          RAG examples stored: {ragCount}. Similar past mail is shown to the model on the next
+          sync.
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          Shortcuts
+        </h2>
+        <p className="text-sm text-white/70">
+          <kbd className={kbdClass}>{shortcutLabel(QUICK_ADD_SHORTCUT)}</kbd> Quick add / voice
+        </p>
+        <p className="text-sm text-white/70">
+          <kbd className={kbdClass}>{shortcutLabel(CAPTURE_SCREEN_SHORTCUT)}</kbd> Capture screen
+          as a task
+        </p>
+        <p className="text-sm text-white/70">
+          <kbd className={kbdClass}>Ctrl+Shift+,</kbd> Open settings
+        </p>
+      </section>
+
+      {(busy || notice) && (
+        <p className="text-xs text-urgency-approaching">{busy ?? notice}</p>
+      )}
+    </div>
+  )
+}
+
+const btnClass =
+  'rounded-lg bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 disabled:opacity-40'
+const btnGhost =
+  'rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10 disabled:opacity-40'
+const inputClass =
+  'rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white focus:outline-none'
+const selectClass = inputClass
+const kbdClass = 'rounded border border-white/20 px-1.5 py-0.5 text-[11px] text-white/80'

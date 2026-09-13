@@ -10,7 +10,9 @@ const SCREEN_INTENT = [
   /\b(what('s| is)|whats)\b.{0,20}\bon\b.{0,10}\b(my |the )?screen\b.{0,30}\b(task|todo|list)?\b/i,
   /\b(screen|this|that)\b.{0,20}\b(as |to )?(a )?(task|todo)\b/i,
   /\bcapture\b.{0,20}\b(the |my )?screen\b/i,
-  /\badd\b.{0,20}\bthis\b.{0,20}\b(to )?(my )?(tasks?|todos?|list)\b/i
+  /\badd\b.{0,20}\bthis\b.{0,20}\b(to )?(my )?(tasks?|todos?|list)\b/i,
+  /\b(see|look at|read|check)\b.{0,30}\b(my |the )?screen\b/i,
+  /\b(my |the )?screen\b.{0,40}\b(task|deadline|tomorrow|remind)\b/i
 ]
 
 export function isScreenCaptureIntent(text: string): boolean {

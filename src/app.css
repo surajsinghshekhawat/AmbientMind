@@ -12,7 +12,6 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  /* The window is transparent; anything opaque here would show as a rectangle. */
   background: transparent;
   overflow: hidden;
   user-select: none;
@@ -20,10 +19,15 @@ body,
   font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
 }
 
-/* Restores normal text behaviour inside the quick-add field, which the
-   overlay-wide selection lock would otherwise suppress. */
+html.overlay-window,
+html.overlay-window body,
+html.overlay-window #root {
+  background: transparent !important;
+}
+
 input,
-textarea {
+textarea,
+select {
   user-select: text;
   cursor: text;
 }
@@ -46,4 +50,13 @@ textarea {
   .animate-overdue-pulse {
     animation: none;
   }
+}
+
+html.settings-window,
+html.settings-window body,
+html.settings-window #root {
+  background: #141414;
+  overflow: auto;
+  user-select: text;
+  cursor: auto;
 }

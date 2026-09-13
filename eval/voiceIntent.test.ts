@@ -16,7 +16,9 @@ test('recognises shorter screen-capture phrasings', () => {
     'capture the screen',
     'make a task from my screen',
     'add this to my tasks',
-    'file this as a task'
+    'file this as a task',
+    'see my screen',
+    'see my screen, add this task and deadline is tomorrow'
   ]) {
     assert.equal(isScreenCaptureIntent(phrase), true, phrase)
   }

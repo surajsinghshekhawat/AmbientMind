@@ -54,10 +54,10 @@ For development you can instead set `GOOGLE_CLIENT_ID` and
 
 ## 5. Connect
 
-Tray icon → **Connect Google account…**. Your browser opens, you grant access,
-and the tab tells you when it is done. Tokens are encrypted with the OS keystore
-(DPAPI on Windows, Keychain on macOS) and written to `secrets.json` in the same
-app data folder.
+Tray icon → **Settings…** → **Connect Google**, or tray → **Connect Google account…**.
+Your browser opens, you grant access, and the tab tells you when it is done.
+Tokens are encrypted with the OS keystore (DPAPI on Windows, Keychain on macOS)
+and written to `secrets.json` in the same app data folder.
 
 ## What AmbientMind reads
 

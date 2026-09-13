@@ -34,7 +34,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           overlay: resolve(__dirname, 'src/overlay/index.html'),
-          quickadd: resolve(__dirname, 'src/quickadd/index.html')
+          quickadd: resolve(__dirname, 'src/quickadd/index.html'),
+          settings: resolve(__dirname, 'src/settings/index.html')
         }
       }
     }
