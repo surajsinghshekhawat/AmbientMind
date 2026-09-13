@@ -33,6 +33,9 @@ export const IPC = {
   AcceptSuggestion: 'rules:suggestion-accept',
   DismissSuggestion: 'rules:suggestion-dismiss',
 
+  ChatSend: 'chat:send',
+  OpenChat: 'chat:open',
+
   GetRules: 'rules:get',
   AddRule: 'rules:add',
   UpdateRule: 'rules:update',
@@ -61,3 +64,5 @@ export const QUICK_ADD_SHORTCUT = 'CommandOrControl+Shift+A'
 /** Reads the current screen and turns it into a task. */
 export const CAPTURE_SCREEN_SHORTCUT = 'CommandOrControl+Shift+S'
 export const SETTINGS_SHORTCUT = 'CommandOrControl+Shift+,'
+/** Opens the chat panel, which can both answer about and change the list. */
+export const CHAT_SHORTCUT = 'CommandOrControl+Shift+C'

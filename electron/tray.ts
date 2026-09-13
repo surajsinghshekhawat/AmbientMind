@@ -1,5 +1,6 @@
 import { app, dialog, Menu, Tray, nativeImage } from 'electron'
 import { TRAY_ICON_16, TRAY_ICON_32 } from './assets/trayIcon'
+import { showChatWindow } from './chat'
 import { getOverlayWindow, setOverlayExpanded } from './overlay'
 import { listActive } from './services/taskStore'
 import {
@@ -106,6 +107,7 @@ export function createTray(actions: TrayActions) {
           click: () => void actions.onSyncNow()
         },
         { type: 'separator' },
+        { label: 'Ask about my tasks…', click: () => showChatWindow() },
         { label: 'Settings…', click: () => actions.onOpenSettings() },
         { type: 'separator' },
         {

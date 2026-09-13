@@ -86,6 +86,18 @@ export interface RecurrenceSuggestion {
   createdAt: string
 }
 
+export interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatReply {
+  reply: string
+  /** Changes actually made, in plain words, so the UI can show its work. */
+  actions: string[]
+  changed: boolean
+}
+
 export interface SyncSummary {
   lastRun: string | null
   lastError: string | null

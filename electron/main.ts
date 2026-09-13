@@ -1,6 +1,12 @@
 import { userInfo } from 'node:os'
 import { app, globalShortcut, ipcMain, Notification, session, shell } from 'electron'
-import { CAPTURE_SCREEN_SHORTCUT, IPC, QUICK_ADD_SHORTCUT, SETTINGS_SHORTCUT } from '@shared/ipc'
+import {
+  CAPTURE_SCREEN_SHORTCUT,
+  CHAT_SHORTCUT,
+  IPC,
+  QUICK_ADD_SHORTCUT,
+  SETTINGS_SHORTCUT
+} from '@shared/ipc'
 
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
@@ -64,7 +70,9 @@ import { disposeSpeech, transcribePcm, warmSpeechModel } from './services/speech
 import { loadConfig, saveConfig } from './services/config'
 import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
-import type { Config, SyncSummary } from '@shared/types'
+import type { ChatTurn, Config, SyncSummary } from '@shared/types'
+import { showChatWindow } from './chat'
+import { runChat } from './services/chat'
 import { describeRule, parseRecurrence, type NewRecurrenceRule } from '@shared/recurrence'
 import { seedIfEmpty } from './seedTasks'
 
@@ -333,6 +341,24 @@ function registerIpc() {
   ipcMain.handle(IPC.GetRagCount, () => exampleCount(getTaskStore()))
 
   ipcMain.on(IPC.OpenSettings, () => showSettingsWindow())
+
+  ipcMain.on(IPC.OpenChat, () => showChatWindow())
+
+  ipcMain.handle(IPC.ChatSend, async (_event, message: string, history: ChatTurn[]) => {
+    const config = loadConfig()
+    const reply = await runChat(message, history ?? [], {
+      model: config.ollamaModel,
+      userName: currentUserName(),
+      ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
+      rules: listRules()
+    })
+    if (reply.changed) {
+      applyRules()
+      broadcastTasks()
+      trayHandle?.refresh()
+    }
+    return reply
+  })
 }
 
 /**
@@ -488,7 +514,8 @@ if (!app.requestSingleInstanceLock()) {
         console.log('[shortcut] screen capture')
         void captureScreenAsTask()
       }),
-      settings: registerShortcut(SETTINGS_SHORTCUT, () => showSettingsWindow())
+      settings: registerShortcut(SETTINGS_SHORTCUT, () => showSettingsWindow()),
+      chat: registerShortcut(CHAT_SHORTCUT, () => showChatWindow())
     }
     console.log('[shortcuts]', JSON.stringify(registered))
     startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)

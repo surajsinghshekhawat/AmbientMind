@@ -151,6 +151,14 @@ export function App() {
           </header>
           <button
             type="button"
+            onClick={() => window.ambient.openChat()}
+            title="Ask about your tasks"
+            className="rounded px-1.5 text-[11px] text-white/35 hover:text-white/70"
+          >
+            ✳
+          </button>
+          <button
+            type="button"
             onClick={() => window.ambient.openSettings()}
             title="Settings"
             className="rounded px-1.5 text-[11px] text-white/35 hover:text-white/70"

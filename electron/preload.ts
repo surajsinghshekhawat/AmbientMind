@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  ChatReply,
+  ChatTurn,
   Config,
   HealthReport,
   RecurrenceSuggestion,
@@ -75,6 +77,10 @@ const api = {
     added: number
     errors: string[]
   }> => ipcRenderer.invoke(IPC.RunSyncNow),
+
+  openChat: () => ipcRenderer.send(IPC.OpenChat),
+  chat: (message: string, history: ChatTurn[]): Promise<ChatReply> =>
+    ipcRenderer.invoke(IPC.ChatSend, message, history),
 
   rules: {
     list: (): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.GetRules),

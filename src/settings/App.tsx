@@ -8,7 +8,7 @@ import {
   type SyncSummary
 } from '@shared/types'
 import type { RecurrenceRule } from '@shared/recurrence'
-import { CAPTURE_SCREEN_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
+import { CAPTURE_SCREEN_SHORTCUT, CHAT_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
 import { Recurring } from './Recurring'
 
 const CORNERS: { id: OverlayCorner; label: string }[] = [
@@ -348,6 +348,9 @@ export function App() {
         <p className="text-sm text-white/70">
           <kbd className={kbdClass}>{shortcutLabel(CAPTURE_SCREEN_SHORTCUT)}</kbd> Capture screen
           as a task
+        </p>
+        <p className="text-sm text-white/70">
+          <kbd className={kbdClass}>{shortcutLabel(CHAT_SHORTCUT)}</kbd> Ask about your tasks
         </p>
         <p className="text-sm text-white/70">
           <kbd className={kbdClass}>Ctrl+Shift+,</kbd> Open settings
