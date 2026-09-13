@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { OverlayCorner, Task } from '@shared/types'
+import type { HealthReport, OverlayCorner, Task } from '@shared/types'
 import { DEFAULT_CONFIG } from '@shared/types'
+import { HealthBanner } from './HealthBanner'
 import { Orb } from './Orb'
 import { TaskList } from './TaskList'
 import { INTERACTIVE_ATTR, useMouseCapture } from './useMouseCapture'
 
 const CLOCK_TICK_MS = 30_000
+/** Ollama gets started after the app often enough to be worth re-checking. */
+const HEALTH_POLL_MS = 60_000
 
 export function App() {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -14,7 +17,7 @@ export function App() {
   const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null)
+  const [health, setHealth] = useState<HealthReport | null>(null)
   const [connecting, setConnecting] = useState(false)
 
   useMouseCapture()
@@ -37,9 +40,15 @@ export function App() {
 
   useEffect(() => window.ambient.onSyncStatus((s) => setSyncing(s.state === 'running')), [])
 
-  useEffect(() => {
-    void window.ambient.accounts.status().then((s) => setGoogleConnected(s.google))
+  const refreshHealth = useCallback(() => {
+    void window.ambient.getHealth().then(setHealth)
   }, [])
+
+  useEffect(() => {
+    refreshHealth()
+    const id = setInterval(refreshHealth, HEALTH_POLL_MS)
+    return () => clearInterval(id)
+  }, [refreshHealth])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
@@ -56,18 +65,29 @@ export function App() {
     void window.ambient.completeTask(id).then(setTasks)
   }, [])
 
+  const onEdit = useCallback((id: string, title: string) => {
+    void window.ambient.updateTask(id, { title }).then(setTasks)
+  }, [])
+
+  const onSnooze = useCallback((id: string, until: string) => {
+    void window.ambient.snoozeTask(id, until).then(setTasks)
+  }, [])
+
+  const onDelete = useCallback((id: string) => {
+    void window.ambient.deleteTask(id).then(setTasks)
+  }, [])
+
   const connectGoogle = useCallback(async () => {
     setConnecting(true)
     try {
       await window.ambient.accounts.connect()
-      const status = await window.ambient.accounts.status()
-      setGoogleConnected(status.google)
+      refreshHealth()
     } catch (err) {
       console.error(err)
     } finally {
       setConnecting(false)
     }
-  }, [])
+  }, [refreshHealth])
 
   const orbAtBottom = corner.startsWith('bottom')
   const orbAtRight = corner.endsWith('right')
@@ -114,17 +134,23 @@ export function App() {
             ⚙
           </button>
         </div>
-        {googleConnected === false && (
-          <button
-            type="button"
-            onClick={() => void connectGoogle()}
-            disabled={connecting}
-            className="mx-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-left text-[12px] text-white/80 hover:bg-white/15 disabled:opacity-50"
-          >
-            {connecting ? 'Opening Google sign-in…' : 'Connect Google to fill this list from mail'}
-          </button>
+        {health && !health.ok && (
+          <HealthBanner
+            health={health}
+            connecting={connecting}
+            onConnectGoogle={() => void connectGoogle()}
+            onRecheck={refreshHealth}
+          />
         )}
-        <TaskList tasks={tasks} now={now} maxVisible={maxVisible} onComplete={onComplete} />
+        <TaskList
+          tasks={tasks}
+          now={now}
+          maxVisible={maxVisible}
+          onComplete={onComplete}
+          onEdit={onEdit}
+          onSnooze={onSnooze}
+          onDelete={onDelete}
+        />
       </div>
     </div>
   )

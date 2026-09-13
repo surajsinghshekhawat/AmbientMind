@@ -27,10 +27,15 @@ import {
   deleteTask,
   getTaskStore,
   listActive,
+  listSyncStates,
   openTaskStore,
   setStatus,
-  updateTask
+  snoozeTask,
+  updateTask,
+  wakeSnoozed,
+  type TaskPatch
 } from './services/taskStore'
+import { checkHealth } from './services/health'
 import { enrichTask } from './services/ollama'
 import {
   connectGoogle,
@@ -45,12 +50,15 @@ import { disposeSpeech, transcribePcm, warmSpeechModel } from './services/speech
 import { loadConfig, saveConfig } from './services/config'
 import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
-import type { Config } from '@shared/types'
+import type { Config, SyncSummary } from '@shared/types'
 import { seedIfEmpty } from './seedTasks'
 
 const ARCHIVE_SWEEP_MS = 15 * 60_000
+const SNOOZE_SWEEP_MS = 30_000
 
 let trayHandle: { refresh: () => void } | null = null
+/** In-memory: the DB keeps last_run/last_error, this keeps the counts. */
+let lastReport: SyncSummary['lastReport'] = null
 
 function broadcastTasks() {
   getOverlayWindow()?.webContents.send(IPC.TasksChanged, listActive())
@@ -76,8 +84,21 @@ function applyLiveConfig(config: Config, previous?: Config) {
     previous.ollamaModel !== config.ollamaModel ||
     previous.embeddingModel !== config.embeddingModel
   ) {
-    startScheduler(config.syncIntervalMinutes, syncOptions(config))
+    startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)
   }
+}
+
+/** A background pass still has to reach the overlay and the status surfaces. */
+function onScheduledSync(report: SyncReport) {
+  lastReport = {
+    ranAt: report.ranAt,
+    scanned: report.scanned,
+    added: report.added,
+    errors: report.errors
+  }
+  if (report.added > 0) broadcastTasks()
+  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle', report })
+  trayHandle?.refresh()
 }
 
 function registerIpc() {
@@ -103,12 +124,27 @@ function registerIpc() {
   ipcMain.handle(IPC.CompleteTask, (_event, id: string) => {
     setStatus(id, 'done')
     broadcastTasks()
+    trayHandle?.refresh()
     return listActive()
   })
 
   ipcMain.handle(IPC.DeleteTask, (_event, id: string) => {
     deleteTask(id)
     broadcastTasks()
+    trayHandle?.refresh()
+    return listActive()
+  })
+
+  ipcMain.handle(IPC.UpdateTask, (_event, id: string, patch: TaskPatch) => {
+    updateTask(id, patch)
+    broadcastTasks()
+    return listActive()
+  })
+
+  ipcMain.handle(IPC.SnoozeTask, (_event, id: string, until: string) => {
+    snoozeTask(id, until)
+    broadcastTasks()
+    trayHandle?.refresh()
     return listActive()
   })
 
@@ -186,6 +222,28 @@ function registerIpc() {
     return next
   })
 
+  ipcMain.handle(IPC.GetHealth, () => {
+    const config = loadConfig()
+    return checkHealth({
+      ollamaModel: config.ollamaModel,
+      embeddingModel: config.embeddingModel
+    })
+  })
+
+  ipcMain.handle(IPC.GetSyncSummary, (): SyncSummary => {
+    const states = listSyncStates()
+    const lastRun = states
+      .map((s) => s.lastRun)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null
+    return {
+      lastRun,
+      lastError: states.find((s) => s.lastError)?.lastError ?? null,
+      lastReport
+    }
+  })
+
   ipcMain.handle(IPC.OpenUserData, () => shell.openPath(app.getPath('userData')))
 
   ipcMain.handle(IPC.GetRagCount, () => exampleCount(getTaskStore()))
@@ -258,6 +316,12 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
 async function triggerSync(force = true): Promise<SyncReport> {
   getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'running' })
   const report = await runSync(syncOptions(loadConfig(), { force }))
+  lastReport = {
+    ranAt: report.ranAt,
+    scanned: report.scanned,
+    added: report.added,
+    errors: report.errors
+  }
   broadcastTasks()
   getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle', report })
   trayHandle?.refresh()
@@ -314,6 +378,8 @@ if (!app.requestSingleInstanceLock()) {
     openTaskStore()
     if (!app.isPackaged) seedIfEmpty()
     archiveStaleCompleted()
+    // The app may have been shut for longer than a snooze.
+    wakeSnoozed()
     registerIpc()
 
     const config = loadConfig()
@@ -333,10 +399,19 @@ if (!app.requestSingleInstanceLock()) {
       settings: registerShortcut(SETTINGS_SHORTCUT, () => showSettingsWindow())
     }
     console.log('[shortcuts]', JSON.stringify(registered))
-    startScheduler(config.syncIntervalMinutes, syncOptions(config))
+    startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)
 
     // First mic use would otherwise stall on a ~75MB model download/load.
     void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
+
+    // Snoozed tasks are checked far more often than completed ones are swept:
+    // a task that reappears 15 minutes late has missed the point of snoozing.
+    setInterval(() => {
+      if (wakeSnoozed() > 0) {
+        broadcastTasks()
+        trayHandle?.refresh()
+      }
+    }, SNOOZE_SWEEP_MS)
 
     setInterval(() => {
       if (archiveStaleCompleted() > 0) broadcastTasks()

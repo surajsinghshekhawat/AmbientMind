@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { Config, Task } from '@shared/types'
+import type { Config, HealthReport, SyncSummary, Task } from '@shared/types'
 
 const api = {
   setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
@@ -18,6 +18,13 @@ const api = {
   addTask: (title: string): Promise<Task[]> => ipcRenderer.invoke(IPC.AddTask, title),
   completeTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.CompleteTask, id),
   deleteTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.DeleteTask, id),
+  updateTask: (
+    id: string,
+    patch: { title?: string; deadline?: string | null; priority?: Task['priority'] }
+  ): Promise<Task[]> => ipcRenderer.invoke(IPC.UpdateTask, id, patch),
+  /** `until` is ISO-8601; the task returns to pending on its own. */
+  snoozeTask: (id: string, until: string): Promise<Task[]> =>
+    ipcRenderer.invoke(IPC.SnoozeTask, id, until),
 
   getConfig: (): Promise<Config> => ipcRenderer.invoke(IPC.GetConfig),
   setConfig: (patch: Partial<Config>): Promise<Config> =>
@@ -61,6 +68,9 @@ const api = {
     added: number
     errors: string[]
   }> => ipcRenderer.invoke(IPC.RunSyncNow),
+
+  getHealth: (): Promise<HealthReport> => ipcRenderer.invoke(IPC.GetHealth),
+  getSyncSummary: (): Promise<SyncSummary> => ipcRenderer.invoke(IPC.GetSyncSummary),
 
   openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
   getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),

@@ -1,5 +1,7 @@
 import { app, dialog, Menu, Tray, nativeImage } from 'electron'
+import { TRAY_ICON_16, TRAY_ICON_32 } from './assets/trayIcon'
 import { getOverlayWindow, setOverlayExpanded } from './overlay'
+import { listActive } from './services/taskStore'
 import {
   connectGoogle,
   connectedGoogleAccount,
@@ -11,23 +13,19 @@ import {
 let tray: Tray | null = null
 
 /**
- * Drawn in code rather than shipped as a file so Phase 1 has no asset pipeline.
- * A real icon replaces this in Phase 8.
+ * Anti-aliased PNGs from scripts/make-icons.cjs, embedded as base64 so the
+ * icon resolves the same way from source, from out/ and from inside an asar.
+ * The 32px representation is what a 150%-scaled display actually draws.
  */
-function placeholderIcon() {
-  const size = 16
-  const buffer = Buffer.alloc(size * size * 4)
-  for (let i = 0; i < size * size; i++) {
-    const x = i % size
-    const y = Math.floor(i / size)
-    const d = Math.hypot(x - 7.5, y - 7.5)
-    const alpha = d < 6.5 && d > 3.5 ? 255 : 0
-    buffer[i * 4 + 0] = 255
-    buffer[i * 4 + 1] = 255
-    buffer[i * 4 + 2] = 255
-    buffer[i * 4 + 3] = alpha
-  }
-  return nativeImage.createFromBuffer(buffer, { width: size, height: size })
+function trayIcon() {
+  const image = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_16}`)
+  image.addRepresentation({
+    scaleFactor: 2,
+    dataURL: `data:image/png;base64,${TRAY_ICON_32}`
+  })
+  // White glyph on transparency: let Windows/macOS tint it for the current theme.
+  image.setTemplateImage(true)
+  return image
 }
 
 export interface TrayActions {
@@ -36,13 +34,18 @@ export interface TrayActions {
 }
 
 export function createTray(actions: TrayActions) {
-  tray = new Tray(placeholderIcon())
+  tray = new Tray(trayIcon())
   tray.setToolTip('AmbientMind')
+  // Left-click is the obvious gesture for "show me the list".
+  tray.on('click', () => setOverlayExpanded(true))
 
   const rebuild = () => {
     const overlay = getOverlayWindow()
     const connected = isGoogleConnected()
     const email = connectedGoogleAccount()
+
+    const pending = listActive().filter((task) => task.status === 'pending').length
+    tray?.setToolTip(`AmbientMind — ${pending} pending`)
 
     tray?.setContextMenu(
       Menu.buildFromTemplate([

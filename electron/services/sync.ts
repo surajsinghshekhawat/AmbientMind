@@ -232,10 +232,21 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
 
 let timer: NodeJS.Timeout | null = null
 
-export function startScheduler(intervalMinutes: number, options: SyncOptions = {}) {
+/**
+ * `onReport` matters: without it a background pass writes tasks to the database
+ * that the overlay never hears about, so new mail only appeared after the next
+ * manual action.
+ */
+export function startScheduler(
+  intervalMinutes: number,
+  options: SyncOptions = {},
+  onReport?: (report: SyncReport) => void
+) {
   stopScheduler()
   const run = () => {
-    void runSync(options).catch(() => undefined)
+    void runSync(options)
+      .then((report) => onReport?.(report))
+      .catch(() => undefined)
   }
   // Delayed rather than immediate: login is the worst possible moment to load a
   // 2GB model, since the user is still waiting for the desktop to settle.

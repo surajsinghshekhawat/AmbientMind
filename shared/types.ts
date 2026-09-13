@@ -22,6 +22,8 @@ export interface Task {
   status: TaskStatus
   createdAt: string
   completedAt: string | null
+  /** Set only while status is 'snoozed'; the sweep restores it to pending. */
+  snoozedUntil: string | null
 }
 
 export type Urgency = 'neutral' | 'approaching' | 'urgent' | 'overdue'
@@ -38,6 +40,33 @@ export interface Config {
   maxTasksVisible: number
   ollamaModel: string
   embeddingModel: string
+}
+
+export interface ModelHealth {
+  name: string
+  role: 'extraction' | 'embedding'
+  present: boolean
+}
+
+/** First-run diagnosis: why the list is empty, in the user's words. */
+export interface HealthReport {
+  checkedAt: string
+  ollama: { running: boolean; url: string }
+  models: ModelHealth[]
+  google: { connected: boolean; credentialsConfigured: boolean }
+  problems: string[]
+  ok: boolean
+}
+
+export interface SyncSummary {
+  lastRun: string | null
+  lastError: string | null
+  lastReport: {
+    ranAt: string
+    scanned: number
+    added: number
+    errors: string[]
+  } | null
 }
 
 export const DEFAULT_CONFIG: Config = {

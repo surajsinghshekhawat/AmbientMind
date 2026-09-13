@@ -22,6 +22,7 @@ interface TaskRow {
   status: Task['status']
   created_at: string
   completed_at: string | null
+  snoozed_until: string | null
 }
 
 export interface NewTask {
@@ -48,7 +49,8 @@ function toTask(row: TaskRow): Task {
     confidence: row.confidence,
     status: row.status,
     createdAt: row.created_at,
-    completedAt: row.completed_at
+    completedAt: row.completed_at,
+    snoozedUntil: row.snoozed_until
   }
 }
 
@@ -102,13 +104,14 @@ export function addTask(input: NewTask): Task {
     confidence: input.confidence ?? 1,
     status: 'pending',
     created_at: new Date().toISOString(),
-    completed_at: null
+    completed_at: null,
+    snoozed_until: null
   }
 
   handle()
     .prepare(
-      `INSERT INTO tasks (id, title, deadline, priority, source, source_id, people, raw_context, confidence, status, created_at, completed_at)
-       VALUES (@id, @title, @deadline, @priority, @source, @source_id, @people, @raw_context, @confidence, @status, @created_at, @completed_at)`
+      `INSERT INTO tasks (id, title, deadline, priority, source, source_id, people, raw_context, confidence, status, created_at, completed_at, snoozed_until)
+       VALUES (@id, @title, @deadline, @priority, @source, @source_id, @people, @raw_context, @confidence, @status, @created_at, @completed_at, @snoozed_until)`
     )
     .run(row)
 
@@ -167,8 +170,24 @@ export function updateTask(id: string, patch: TaskPatch): void {
 
 export function setStatus(id: string, status: Task['status']): void {
   handle()
-    .prepare(`UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?`)
+    .prepare(`UPDATE tasks SET status = ?, completed_at = ?, snoozed_until = NULL WHERE id = ?`)
     .run(status, status === 'done' ? new Date().toISOString() : null, id)
+}
+
+/** Hides the task until `until`; wakeSnoozed() brings it back as pending. */
+export function snoozeTask(id: string, until: string): void {
+  handle()
+    .prepare(`UPDATE tasks SET status = 'snoozed', snoozed_until = ? WHERE id = ?`)
+    .run(until, id)
+}
+
+export function wakeSnoozed(now = Date.now()): number {
+  return handle()
+    .prepare(
+      `UPDATE tasks SET status = 'pending', snoozed_until = NULL
+       WHERE status = 'snoozed' AND snoozed_until IS NOT NULL AND snoozed_until <= ?`
+    )
+    .run(new Date(now).toISOString()).changes
 }
 
 export function deleteTask(id: string): void {
@@ -218,6 +237,19 @@ export function getSyncState(source: string): { cursor: string | null; lastRun: 
     )
     .get(source)
   return { cursor: row?.cursor ?? null, lastRun: row?.last_run ?? null }
+}
+
+export function listSyncStates(): {
+  source: string
+  lastRun: string | null
+  lastError: string | null
+}[] {
+  return handle()
+    .prepare<[], { source: string; last_run: string | null; last_error: string | null }>(
+      `SELECT source, last_run, last_error FROM sync_state`
+    )
+    .all()
+    .map((row) => ({ source: row.source, lastRun: row.last_run, lastError: row.last_error }))
 }
 
 export function setSyncState(source: string, cursor: string | null, error?: string | null): void {

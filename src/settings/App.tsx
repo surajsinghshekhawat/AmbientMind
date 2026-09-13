@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Config, OverlayCorner } from '@shared/types'
+import type { Config, HealthReport, OverlayCorner, SyncSummary } from '@shared/types'
 import { CAPTURE_SCREEN_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
 
 const CORNERS: { id: OverlayCorner; label: string }[] = [
@@ -21,22 +21,40 @@ function shortcutLabel(accelerator: string) {
   return accelerator.replace('CommandOrControl', 'Ctrl').replace('Shift', 'Shift')
 }
 
+function relativeTime(iso: string | null): string {
+  if (!iso) return 'never'
+  const ms = Date.now() - Date.parse(iso)
+  if (!Number.isFinite(ms)) return 'never'
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
 export function App() {
   const [config, setConfig] = useState<Config | null>(null)
   const [account, setAccount] = useState<AccountStatus | null>(null)
   const [ragCount, setRagCount] = useState(0)
+  const [health, setHealth] = useState<HealthReport | null>(null)
+  const [sync, setSync] = useState<SyncSummary | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const [nextConfig, nextAccount, nextRag] = await Promise.all([
+    const [nextConfig, nextAccount, nextRag, nextHealth, nextSync] = await Promise.all([
       window.ambient.getConfig(),
       window.ambient.accounts.status(),
-      window.ambient.getRagCount()
+      window.ambient.getRagCount(),
+      window.ambient.getHealth(),
+      window.ambient.getSyncSummary()
     ])
     setConfig(nextConfig)
     setAccount(nextAccount)
     setRagCount(nextRag)
+    setHealth(nextHealth)
+    setSync(nextSync)
   }, [])
 
   useEffect(() => {
@@ -100,6 +118,56 @@ export function App() {
         <h1 className="text-lg font-medium">Settings</h1>
         <p className="mt-1 text-xs text-white/45">Changes apply immediately. Nothing is uploaded.</p>
       </header>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          Status
+        </h2>
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm">
+              {health?.ok ? 'Everything needed is available.' : 'Something needs attention.'}
+            </p>
+            <button type="button" className={btnGhost} onClick={() => void refresh()}>
+              Re-check
+            </button>
+          </div>
+
+          <ul className="mt-3 flex flex-col gap-1.5 text-[12px]">
+            <li className={health?.ollama.running ? okClass : badClass}>
+              Ollama {health?.ollama.running ? 'running' : 'not reachable'}{' '}
+              <span className="text-white/35">{health?.ollama.url}</span>
+            </li>
+            {health?.models.map((model) => (
+              <li key={model.name} className={model.present ? okClass : badClass}>
+                {model.role === 'extraction' ? 'Extraction model' : 'Embedding model'}{' '}
+                <span className="text-white/70">{model.name}</span>{' '}
+                {model.present ? 'pulled' : 'missing'}
+              </li>
+            ))}
+          </ul>
+
+          {health && health.problems.length > 0 && (
+            <div className="mt-3 flex flex-col gap-1 border-t border-white/10 pt-3">
+              {health.problems.map((problem) => (
+                <p key={problem} className="text-[12px] leading-relaxed text-urgency-approaching">
+                  {problem}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <p className="mt-3 border-t border-white/10 pt-3 text-[12px] text-white/50">
+            Last sync {relativeTime(sync?.lastRun ?? null)}
+            {sync?.lastReport
+              ? ` · scanned ${sync.lastReport.scanned}, added ${sync.lastReport.added}`
+              : ''}
+          </p>
+          {sync?.lastError && (
+            <p className="mt-1 text-[12px] text-urgency-overdue">{sync.lastError}</p>
+          )}
+        </div>
+      </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
@@ -247,3 +315,6 @@ const inputClass =
   'rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white focus:outline-none'
 const selectClass = inputClass
 const kbdClass = 'rounded border border-white/20 px-1.5 py-0.5 text-[11px] text-white/80'
+const okClass = 'text-white/60 before:mr-2 before:text-urgency-neutral before:content-["✓"]'
+const badClass =
+  'text-white/85 before:mr-2 before:text-urgency-overdue before:content-["✕"]'

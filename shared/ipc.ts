@@ -6,6 +6,8 @@ export const IPC = {
   AddTask: 'tasks:add',
   CompleteTask: 'tasks:complete',
   DeleteTask: 'tasks:delete',
+  UpdateTask: 'tasks:update',
+  SnoozeTask: 'tasks:snooze',
   /** Main -> renderer, pushed whenever the task store changes. */
   TasksChanged: 'tasks:changed',
 
@@ -25,6 +27,11 @@ export const IPC = {
   RunSyncNow: 'sync:run-now',
   /** Main -> renderer, so the overlay can show a quiet sync indicator. */
   SyncStatus: 'sync:status',
+
+  /** Is Ollama up, are the models pulled, is Google connected. */
+  GetHealth: 'health:get',
+  /** Last sync outcome, so the UI is not the only place it ever appeared. */
+  GetSyncSummary: 'sync:summary',
 
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',
