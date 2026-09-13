@@ -50,12 +50,21 @@ export interface Capture {
 }
 
 /**
- * Captures the full primary display at native resolution. Downscaled
+ * Captures the display the cursor is on, at native resolution. Downscaled
  * thumbnails are the default and are unreadable to OCR, so the size is pinned
  * to the display's actual pixel dimensions.
+ *
+ * The cursor rather than the primary display: on a two-monitor desk the thing
+ * worth capturing is the one being worked on, and capturing the wrong screen
+ * fails silently — you get a task about whatever was idle on monitor one.
+ *
+ * Capturing only the foreground *window* would be better still, but Electron
+ * cannot identify it: `desktopCapturer` window sources arrive in no documented
+ * order, and guessing wrong is worse than capturing too much, since the prompt
+ * is already written to ignore chrome and find the substance.
  */
 export async function captureScreen(): Promise<Capture> {
-  const display = screen.getPrimaryDisplay()
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const { width, height } = display.size
   const scale = display.scaleFactor || 1
 
@@ -64,7 +73,9 @@ export async function captureScreen(): Promise<Capture> {
     thumbnailSize: { width: Math.round(width * scale), height: Math.round(height * scale) }
   })
 
-  const source = sources[0]
+  // display_id is a string on every platform; Display#id is a number.
+  const source =
+    sources.find((candidate) => candidate.display_id === String(display.id)) ?? sources[0]
   if (!source || source.thumbnail.isEmpty()) {
     throw new Error('Unable to capture the screen')
   }

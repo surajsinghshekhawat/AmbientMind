@@ -48,6 +48,8 @@ export interface Config {
   maxTasksVisible: number
   ollamaModel: string
   embeddingModel: string
+  /** Transformers.js model id for speech-to-text. */
+  whisperModel: string
   /** What the prompts should call the user. Empty falls back to the OS account. */
   displayName: string
   /**
@@ -119,9 +121,20 @@ export const DEFAULT_CONFIG: Config = {
   maxTasksVisible: 7,
   ollamaModel: 'qwen2.5:3b',
   embeddingModel: 'nomic-embed-text',
+  whisperModel: 'Xenova/whisper-base.en',
   displayName: '',
   aboutMe: ''
 }
 
 /** Long enough for real context, short enough not to crowd out the message. */
 export const ABOUT_ME_MAX_CHARS = 1200
+
+/**
+ * All CPU-bound, so this trades latency against accuracy — not VRAM against
+ * the 3B model. Tiny is visibly weak on accented English.
+ */
+export const WHISPER_MODELS: { id: string; label: string }[] = [
+  { id: 'Xenova/whisper-tiny.en', label: 'Tiny — fastest, least accurate (~75 MB)' },
+  { id: 'Xenova/whisper-base.en', label: 'Base — recommended (~145 MB)' },
+  { id: 'Xenova/whisper-small.en', label: 'Small — most accurate, slowest (~480 MB)' }
+]

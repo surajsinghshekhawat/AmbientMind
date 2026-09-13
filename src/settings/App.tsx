@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   ABOUT_ME_MAX_CHARS,
+  WHISPER_MODELS,
   type Config,
   type HealthReport,
   type OverlayCorner,
@@ -347,6 +348,25 @@ export function App() {
             className={inputClass}
           />
         </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Voice model
+          <select
+            value={config.whisperModel}
+            onChange={(e) => void patch({ whisperModel: e.target.value })}
+            className={selectClass}
+          >
+            {WHISPER_MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-[12px] text-white/40">
+          Runs on the CPU, so a bigger model costs seconds, not VRAM. Changing it downloads the
+          new one once, in the background.
+        </p>
+
         <p className="text-xs text-white/40">
           RAG examples stored: {ragCount}. Similar past mail is shown to the model on the next
           sync.

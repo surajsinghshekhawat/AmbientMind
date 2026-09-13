@@ -44,6 +44,34 @@ test('12-hour and 24-hour times both resolve', () => {
   assert.equal(parseRecurrence('x every monday at 17:45')?.time, '17:45')
 })
 
+test('named times stand in for a clock time', () => {
+  const morning = parseRecurrence('take medicine every morning')
+  assert.ok(morning)
+  assert.equal(morning.time, '09:00')
+  assert.deepEqual(morning.weekdays, [0, 1, 2, 3, 4, 5, 6])
+  assert.equal(morning.title.toLowerCase(), 'take medicine')
+
+  assert.equal(parseRecurrence('call home every evening')?.time, '19:00')
+  assert.equal(parseRecurrence('journal every night')?.time, '21:00')
+})
+
+test('a named day is not overridden by a named time', () => {
+  // "every Tuesday evening" is one weekday, not all seven.
+  const parsed = parseRecurrence('tuition every tuesday evening')
+  assert.ok(parsed)
+  assert.deepEqual(parsed.weekdays, [2])
+  assert.equal(parsed.time, '19:00')
+  assert.equal(parsed.title.toLowerCase(), 'tuition')
+})
+
+test('a stated clock time beats the named one', () => {
+  const parsed = parseRecurrence('tuition tue, thu evening at 5pm')
+  assert.ok(parsed)
+  assert.equal(parsed.time, '17:00')
+  assert.deepEqual(parsed.weekdays, [2, 4])
+  assert.equal(parsed.title.toLowerCase(), 'tuition')
+})
+
 test('text with no time is not a recurrence', () => {
   assert.equal(parseRecurrence('tuition every tuesday and thursday'), null)
   assert.equal(parseRecurrence('buy milk'), null)

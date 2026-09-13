@@ -127,6 +127,24 @@ const FILLER = [
   'i have'
 ]
 
+/**
+ * Same mapping the quick-add enrichment prompt uses, so "every evening" means
+ * the same hour whether the model or this parser handled it.
+ */
+const NAMED_TIMES: { pattern: string; time: string; implies?: number[] }[] = [
+  { pattern: 'midnight', time: '00:00' },
+  { pattern: 'noon', time: '12:00' },
+  // "every morning" is itself the recurrence: it needs no weekday list.
+  { pattern: 'mornings', time: '09:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'morning', time: '09:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'afternoons', time: '14:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'afternoon', time: '14:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'evenings', time: '19:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'evening', time: '19:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'nights', time: '21:00', implies: [0, 1, 2, 3, 4, 5, 6] },
+  { pattern: 'night', time: '21:00', implies: [0, 1, 2, 3, 4, 5, 6] }
+]
+
 function parseTime(text: string): { time: string; matched: string } | null {
   const twelve = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/)
   if (twelve) {
@@ -165,7 +183,10 @@ export function parseRecurrence(input: string): ParsedRecurrence | null {
   const text = input.toLowerCase().trim()
   if (!text) return null
 
-  const parsedTime = parseTime(text)
+  // A stated clock time always wins: "every morning at 6" means 06:00.
+  const named = NAMED_TIMES.find(({ pattern }) => new RegExp(`\\b${pattern}\\b`).test(text))
+  const parsedTime =
+    parseTime(text) ?? (named ? { time: named.time, matched: named.pattern } : null)
   if (!parsedTime) return null
 
   const consumed: string[] = [parsedTime.matched]
@@ -202,8 +223,20 @@ export function parseRecurrence(input: string): ParsedRecurrence | null {
     }
   }
 
+  // "every evening" carries the schedule as well as the hour — but only when no
+  // weekday was named, so "every Tuesday evening" stays a single Tuesday.
+  if (days.size === 0 && named?.implies) {
+    for (const day of named.implies) days.add(day)
+    explicitMarker = true
+    consumed.push(named.pattern)
+  }
+
   if (days.size === 0) return null
   if (!explicitMarker && days.size < 2) return null
+
+  // "tuition Tuesday evening at 5pm" took its time from "5pm", but "evening"
+  // is still schedule wording and does not belong in the title.
+  if (named) consumed.push(named.pattern)
 
   let title = input.trim()
   for (const token of [...consumed, 'every', 'each', 'weekly', 'at', 'on', 'and', 'in the']) {

@@ -95,6 +95,47 @@ test('titles are matched after normalisation', () => {
   assert.equal(detectRecurrences(mixed, { now: NOW }).length, 1)
 })
 
+test('near-identical titles are one habit, not two halves', () => {
+  // Exact matching split these and neither half reached the threshold.
+  const mixed = [
+    ...weekly('Tuition class', 1),
+    ...weekly('Tuition', 1).map((t) => ({
+      ...t,
+      at: new Date(new Date(t.at).getTime() - 7 * 86_400_000).toISOString()
+    })),
+    ...weekly('Tuition class', 1).map((t) => ({
+      ...t,
+      at: new Date(new Date(t.at).getTime() - 14 * 86_400_000).toISOString()
+    }))
+  ]
+  const found = detectRecurrences(mixed, { now: NOW })
+  assert.equal(found.length, 1)
+  assert.equal(found[0]?.occurrences, 3)
+})
+
+test('genuinely different titles stay apart', () => {
+  const both = [...weekly('Tuition', 3), ...weekly('Dentist appointment', 3)]
+  const found = detectRecurrences(both, { now: NOW })
+  assert.equal(found.length, 2)
+})
+
+test('clustering does not depend on the order rows arrive in', () => {
+  const rows = [
+    ...weekly('Tuition class', 1),
+    ...weekly('Tuition', 1).map((t) => ({
+      ...t,
+      at: new Date(new Date(t.at).getTime() - 7 * 86_400_000).toISOString()
+    })),
+    ...weekly('Tuition class', 1).map((t) => ({
+      ...t,
+      at: new Date(new Date(t.at).getTime() - 14 * 86_400_000).toISOString()
+    }))
+  ]
+  const forward = detectRecurrences(rows, { now: NOW })[0]?.signature
+  const backward = detectRecurrences([...rows].reverse(), { now: NOW })[0]?.signature
+  assert.equal(forward, backward)
+})
+
 test('signature is stable so a dismissal can stick', () => {
   const a = detectRecurrences(weekly('Tuition', 3), { now: NOW })[0]?.signature
   const b = detectRecurrences(weekly('Tuition', 4), { now: NOW })[0]?.signature

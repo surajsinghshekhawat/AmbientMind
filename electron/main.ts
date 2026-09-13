@@ -67,7 +67,12 @@ import {
 } from './services/googleAuth'
 import { runSync, startScheduler, stopScheduler, type SyncReport } from './services/sync'
 import { disposeScreenContext, screenToTask } from './services/screenContext'
-import { disposeSpeech, transcribePcm, warmSpeechModel } from './services/speech'
+import {
+  disposeSpeech,
+  setSpeechModel,
+  transcribePcm,
+  warmSpeechModel
+} from './services/speech'
 import { loadConfig, saveConfig } from './services/config'
 import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
@@ -103,6 +108,7 @@ function syncOptions(config: Config = loadConfig(), extra: { force?: boolean } =
 function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
   getOverlayWindow()?.webContents.send(IPC.ConfigChanged, config)
+  setSpeechModel(config.whisperModel)
   if (
     !previous ||
     previous.syncIntervalMinutes !== config.syncIntervalMinutes ||
@@ -572,7 +578,8 @@ if (process.argv.includes('--export-corpus')) {
     console.log('[shortcuts]', JSON.stringify(registered))
     startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)
 
-    // First mic use would otherwise stall on a ~75MB model download/load.
+    // First mic use would otherwise stall on a model download/load.
+    setSpeechModel(config.whisperModel)
     void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
 
     // Snoozed tasks are checked far more often than completed ones are swept:
