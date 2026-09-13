@@ -24,6 +24,36 @@ interface RuleRow {
   enabled: number
   created_at: string
   source: RecurrenceRule['source']
+  /** Event mirroring this rule on the app's calendar; null until pushed. */
+  gcal_event_id?: string | null
+}
+
+/**
+ * The calendar link is storage detail, not part of the rule as the rest of the
+ * app understands it, so it is read and written on its own rather than being
+ * threaded through `RecurrenceRule`.
+ */
+export function getRuleEventId(id: string): string | null {
+  return (
+    getTaskStore()
+      .prepare<[string], { gcal_event_id: string | null }>(
+        `SELECT gcal_event_id FROM recurrence_rules WHERE id = ?`
+      )
+      .get(id)?.gcal_event_id ?? null
+  )
+}
+
+export function setRuleEventId(id: string, eventId: string | null): void {
+  getTaskStore()
+    .prepare(`UPDATE recurrence_rules SET gcal_event_id = ? WHERE id = ?`)
+    .run(eventId, id)
+}
+
+export function getRule(id: string): RecurrenceRule | null {
+  const row = getTaskStore()
+    .prepare<[string], RuleRow>(`SELECT * FROM recurrence_rules WHERE id = ?`)
+    .get(id)
+  return row ? toRule(row) : null
 }
 
 function toRule(row: RuleRow): RecurrenceRule {
@@ -106,7 +136,9 @@ export function updateRule(id: string, patch: RulePatch): void {
     .run(...params)
 }
 
-export function deleteRule(id: string): void {
+/** Returns the calendar event that was mirroring the rule, so it can be removed. */
+export function deleteRule(id: string): { eventId: string | null } {
+  const eventId = getRuleEventId(id)
   getTaskStore().transaction(() => {
     getTaskStore().prepare(`DELETE FROM recurrence_rules WHERE id = ?`).run(id)
     // Occurrences already completed are history and stay; anything still
@@ -117,6 +149,7 @@ export function deleteRule(id: string): void {
       )
       .run(`${id}:%`)
   })()
+  return { eventId }
 }
 
 /** Pending occurrences of a rule that no longer match it, e.g. after a retime. */

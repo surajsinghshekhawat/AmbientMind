@@ -351,6 +351,20 @@ export function App() {
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
+            checked={config.calendarWriteBack}
+            onChange={(e) => void patch({ calendarWriteBack: e.target.checked })}
+          />
+          Put recurring rules on my Google Calendar
+        </label>
+        <p className="text-[12px] text-white/40">
+          Writes to a separate calendar called “AmbientMind” that this app creates — never your
+          own. Hide or delete it any time. If you connected Google before this existed, you will
+          be asked to reconnect once.
+        </p>
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
             checked={config.launchAtLogin}
             onChange={(e) => void patch({ launchAtLogin: e.target.checked })}
           />

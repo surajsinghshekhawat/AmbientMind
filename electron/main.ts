@@ -78,6 +78,11 @@ import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
 import type { ChatTurn, Config, SyncSummary } from '@shared/types'
 import { powerMonitor } from 'electron'
+import {
+  removeRuleFromCalendar,
+  syncAllRulesToCalendar,
+  syncRuleToCalendar
+} from './services/calendarSync'
 import { showChatWindow } from './chat'
 import { runChat } from './services/chat'
 import { describeRule, parseRecurrence, type NewRecurrenceRule } from '@shared/recurrence'
@@ -126,6 +131,14 @@ function applyLiveConfig(config: Config, previous?: Config) {
   getOverlayWindow()?.webContents.send(IPC.ConfigChanged, config)
   setSpeechModel(config.whisperModel)
   applyLoginItem(config)
+
+  // Switching write-back on has to backfill: rules made before today are
+  // exactly the ones the user wants on their phone.
+  if (config.calendarWriteBack && previous && !previous.calendarWriteBack) {
+    void syncAllRulesToCalendar().then((result) => {
+      console.log(`[calendar] backfilled ${result.pushed} rule(s)`, result.errors)
+    })
+  }
   if (
     !previous ||
     previous.syncIntervalMinutes !== config.syncIntervalMinutes ||
@@ -304,8 +317,9 @@ function registerIpc() {
   ipcMain.handle(IPC.GetSuggestions, () => listPendingSuggestions())
 
   ipcMain.handle(IPC.AcceptSuggestion, (_event, id: string) => {
-    acceptSuggestion(id)
+    const rule = acceptSuggestion(id)
     applyRules()
+    if (rule) void syncRuleToCalendar(rule.id)
     return {
       suggestions: listPendingSuggestions(),
       rules: listRules()
@@ -322,17 +336,22 @@ function registerIpc() {
   ipcMain.handle(IPC.AddRule, (_event, input: NewRecurrenceRule) => {
     const rule = addRule(input)
     applyRules()
+    // Not awaited: the calendar is a mirror, and a slow or unreachable Google
+    // must never delay the rule appearing in the app.
+    void syncRuleToCalendar(rule.id)
     return { rule, rules: listRules() }
   })
 
   ipcMain.handle(IPC.UpdateRule, (_event, id: string, patch: RulePatch) => {
     updateRule(id, patch)
     applyRules()
+    void syncRuleToCalendar(id)
     return listRules()
   })
 
   ipcMain.handle(IPC.DeleteRule, (_event, id: string) => {
-    deleteRule(id)
+    const { eventId } = deleteRule(id)
+    void removeRuleFromCalendar(eventId)
     broadcastTasks()
     trayHandle?.refresh()
     return listRules()
@@ -342,7 +361,8 @@ function registerIpc() {
     const config = loadConfig()
     return checkHealth({
       ollamaModel: config.ollamaModel,
-      embeddingModel: config.embeddingModel
+      embeddingModel: config.embeddingModel,
+      calendarWriteBack: config.calendarWriteBack
     })
   })
 

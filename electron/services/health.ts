@@ -1,6 +1,6 @@
 import type { HealthReport, ModelHealth } from '@shared/types'
 import { OLLAMA_URL, listModels } from './ollama'
-import { isGoogleConnected, loadCredentials } from './googleAuth'
+import { hasCalendarWriteScope, isGoogleConnected, loadCredentials } from './googleAuth'
 
 /**
  * Ollama reports tags as `name:tag`, and an untagged pull lands as `:latest`.
@@ -18,6 +18,8 @@ function hasModel(installed: string[], wanted: string): boolean {
 export interface HealthInput {
   ollamaModel: string
   embeddingModel: string
+  /** Checked only when the user has asked for calendar write-back. */
+  calendarWriteBack?: boolean
 }
 
 /**
@@ -62,6 +64,13 @@ export async function checkHealth(config: HealthInput): Promise<HealthReport> {
     problems.push('No Google OAuth client. See docs/google-setup.md.')
   } else if (!googleConnected) {
     problems.push('Google is not connected, so mail and calendar cannot fill the list.')
+  } else if (config.calendarWriteBack && !hasCalendarWriteScope()) {
+    // Write-back shipped after the first release, so an older grant simply
+    // does not carry the permission. Silence here would look like the feature
+    // was broken rather than un-granted.
+    problems.push(
+      'Reconnect Google to finish enabling calendar write-back — your existing sign-in predates it.'
+    )
   }
 
   return {

@@ -39,6 +39,7 @@ function sanitize(raw: Partial<Config>): Config {
     embeddingModel:
       (raw.embeddingModel ?? DEFAULT_CONFIG.embeddingModel).trim() || DEFAULT_CONFIG.embeddingModel,
     launchAtLogin: raw.launchAtLogin ?? DEFAULT_CONFIG.launchAtLogin,
+    calendarWriteBack: raw.calendarWriteBack ?? DEFAULT_CONFIG.calendarWriteBack,
     whisperModel:
       (raw.whisperModel ?? DEFAULT_CONFIG.whisperModel).trim() || DEFAULT_CONFIG.whisperModel,
     displayName: (raw.displayName ?? '').trim().slice(0, 80),

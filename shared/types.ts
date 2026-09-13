@@ -52,6 +52,8 @@ export interface Config {
   whisperModel: string
   /** Start with Windows. An assistant you have to remember to launch is one you stop using. */
   launchAtLogin: boolean
+  /** Mirror recurring rules onto a Google Calendar this app creates. Opt-in: it writes to your account. */
+  calendarWriteBack: boolean
   /** What the prompts should call the user. Empty falls back to the OS account. */
   displayName: string
   /**
@@ -125,6 +127,7 @@ export const DEFAULT_CONFIG: Config = {
   embeddingModel: 'nomic-embed-text',
   whisperModel: 'Xenova/whisper-base.en',
   launchAtLogin: true,
+  calendarWriteBack: false,
   displayName: '',
   aboutMe: ''
 }

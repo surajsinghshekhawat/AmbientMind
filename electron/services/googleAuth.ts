@@ -14,12 +14,28 @@ const TOKEN_KEY = 'google.tokens'
 /** Refresh slightly early so a long sync cannot start on an expiring token. */
 const EXPIRY_SKEW_MS = 60_000
 
-export const GOOGLE_SCOPES = [
+export const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created'
+
+const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/calendar.readonly',
+  // Grants access *only* to calendars this app creates, not the user's own.
+  // The broader calendar scope would let a bug damage a real calendar; this
+  // one makes that impossible rather than merely unlikely.
+  CALENDAR_WRITE_SCOPE,
   'openid',
   'email'
 ]
+
+/**
+ * Write-back was added after the first release, so tokens issued before it
+ * lack the scope. Google does not upgrade a grant silently — the user has to
+ * reconnect — so this has to be detectable rather than assumed.
+ */
+export function hasCalendarWriteScope(): boolean {
+  const scope = getJson<StoredTokens>(TOKEN_KEY)?.scope ?? ''
+  return scope.split(' ').includes(CALENDAR_WRITE_SCOPE)
+}
 
 interface StoredTokens {
   accessToken: string
