@@ -42,6 +42,7 @@ import {
   type TaskPatch
 } from './services/taskStore'
 import { checkHealth } from './services/health'
+import { exportCorpus } from './services/corpusExport'
 import {
   addRule,
   deleteRule,
@@ -334,6 +335,15 @@ function registerIpc() {
       lastError: states.find((s) => s.lastError)?.lastError ?? null,
       lastReport
     }
+  })
+
+  ipcMain.handle(IPC.ExportCorpus, async () => {
+    const config = loadConfig()
+    return exportCorpus({
+      model: config.ollamaModel,
+      userName: currentUserName(),
+      ...(config.aboutMe ? { aboutMe: config.aboutMe } : {})
+    })
   })
 
   ipcMain.handle(IPC.OpenUserData, () => shell.openPath(app.getPath('userData')))

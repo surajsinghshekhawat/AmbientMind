@@ -46,6 +46,9 @@ export const IPC = {
   /** Last sync outcome, so the UI is not the only place it ever appeared. */
   GetSyncSummary: 'sync:summary',
 
+  /** Writes recent mail to JSONL, pre-labelled, for accuracy measurement. */
+  ExportCorpus: 'eval:export-corpus',
+
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',
   OpenSettings: 'settings:open',

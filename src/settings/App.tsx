@@ -109,6 +109,21 @@ export function App() {
     }
   }
 
+  const exportCorpus = async () => {
+    setBusy('Reading your mail… this takes a few minutes.')
+    setNotice(null)
+    try {
+      const result = await window.ambient.exportCorpus()
+      setNotice(
+        `Wrote ${result.messages} messages (${result.prefilledTasks} draft tasks) to ${result.path}`
+      )
+    } catch (err) {
+      setNotice((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const syncNow = async () => {
     setBusy('Syncing…')
     setNotice(null)
@@ -336,6 +351,24 @@ export function App() {
           RAG examples stored: {ragCount}. Similar past mail is shown to the model on the next
           sync.
         </p>
+
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <p className="text-sm">Measure accuracy on your own mail</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+            Writes your recent mail to a JSONL file, pre-filled with what the model extracts
+            today. Correct it, then run{' '}
+            <code className="text-white/70">npm run eval -- --corpus &lt;file&gt;</code>. This can
+            take a few minutes and never leaves the machine.
+          </p>
+          <button
+            type="button"
+            className={`${btnGhost} mt-3`}
+            disabled={!!busy || !account.google}
+            onClick={() => void exportCorpus()}
+          >
+            Export mail for labelling
+          </button>
+        </div>
       </section>
 
       <section className="flex flex-col gap-2">

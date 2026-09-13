@@ -105,6 +105,13 @@ const api = {
   getHealth: (): Promise<HealthReport> => ipcRenderer.invoke(IPC.GetHealth),
   getSyncSummary: (): Promise<SyncSummary> => ipcRenderer.invoke(IPC.GetSyncSummary),
 
+  exportCorpus: (): Promise<{
+    path: string
+    messages: number
+    prefilledTasks: number
+    skipped: number
+  }> => ipcRenderer.invoke(IPC.ExportCorpus),
+
   openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
   getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),
   openSettings: () => ipcRenderer.send(IPC.OpenSettings),

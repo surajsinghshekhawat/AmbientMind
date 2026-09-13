@@ -98,7 +98,8 @@ All under `%APPDATA%\ambientmind\` (not the generic Electron folder):
 | File | Contents |
 | --- | --- |
 | `ambientmind.db` | Tasks, RAG examples + vectors, processed message ids, sync cursors. WAL mode. |
-| `config.json` | Overlay corner, max visible, sync interval, model ids. |
+| `config.json` | Overlay corner, max visible, sync interval, model ids, display name, about-me profile. |
+| `corpus-*.jsonl` | Optional export of your own mail for accuracy measurement (§4.10). |
 | `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (DPAPI). |
 | `google-credentials.json` | Desktop OAuth client JSON from Google Cloud Console. |
 | `whisper/` | Cached ONNX + tokenizer for whisper-tiny.en. |
@@ -110,16 +111,27 @@ bundled as raw strings so they exist inside a packaged asar:
 1. `001_init.sql` — `tasks`
 2. `002_rag.sql` — `examples`, `example_vectors` (sqlite-vec `vec0`, 768-d)
 3. `003_sync.sql` — `processed_messages`, `sync_state`
+4. `004_snooze.sql` — `tasks.snoozed_until`
+5. `005_rules.sql` — `recurrence_rules`, and a **rebuild of `tasks`** so
+   `source` admits `'rule'`. SQLite cannot alter a CHECK constraint, so the
+   table is copied, dropped and renamed inside one transaction.
+   `npm run check:migration` rehearses this against a copy of the live database
+   and reports whether the row count survived.
+6. `006_suggestions.sql` — `recurrence_suggestions` (pending/accepted/dismissed)
 
 ### 3.3 Task model
 
 A task is the only object the overlay understands.
 
 - **title, deadline** (ISO-8601 or null), **priority** (low/medium/high/urgent)
-- **source** (`gmail` | `gcalendar` | `manual` | `voice` | reserved outlook/teams)
+- **source** (`gmail` | `gcalendar` | `manual` | `voice` | `rule` | reserved
+  outlook/teams)
 - **sourceId** — unique per source; partial unique index prevents the same
-  Gmail message from inserting the same title twice
+  Gmail message from inserting the same title twice, and makes materialising a
+  recurrence rule (`ruleId:YYYY-MM-DD`) idempotent
 - **people, rawContext, confidence, status** (pending/done/archived/snoozed)
+- **snoozedUntil** — set only while snoozed; a 30-second sweep, plus a check at
+  launch, returns the task to pending
 
 Urgency on screen is **derived**, not stored: overdue / inside 24h / inside 72h /
 none, then sort by imminent, then deadline, then priority
@@ -306,24 +318,61 @@ can delay the silence stop. No “hey AmbientMind” while the overlay sits idle
 changes restart the scheduler; corner does not). Google connect from settings
 or overlay.
 
-**Still thin.** No edit/snooze/delete in the overlay. No first-run Ollama
-doctor. Placeholder tray icon.
+Settings now also holds the about-me profile (§4.10), recurring rules, the
+health panel and the corpus export.
+
+### 4.10 Trust, recurrence, profile and chat
+
+Four things were added together because they answer the same complaint: the
+app did things you could neither see nor steer.
+
+**Health.** An empty list had several very different causes — Ollama down, a
+model never pulled, Google not connected, or genuinely nothing to do. The
+overlay now names the one that applies. Alternative considered: a first-run
+wizard. Rejected because the failure is not limited to first run; Ollama gets
+stopped on an 8 GB machine all the time, so the check re-runs on a timer.
+
+**Recurrence.** Parsed in code, not by the model. A one-off task extracted
+wrongly is a nuisance; a recurrence extracted wrongly repeats until you find
+it. Regexes are also faster and identical run to run. The cost is coverage:
+phrasings outside the grammar fall through to a normal task, which is the safe
+direction to fail.
+
+**Suggestions.** Detection is a threshold, not a learner — with a handful of
+rows, predictability beats sophistication, and every suggestion is a question.
+Dismissals persist, because an assistant that asks the same question weekly is
+worse than one that never asks.
+
+**Chat.** One grammar-constrained action per turn instead of Ollama's
+tool-calling API; see §7 Phase C2 for why, and for the 6/10 → 10/10 measurement
+that shaped the prompt. Worth noting the shape of the original failure: the
+model produced a *correct English answer* attached to the *wrong action*. Only
+checking the reply would have missed it.
+
+**Corpus export.** Settings can dump your recent mail to JSONL pre-filled with
+the model's current extractions, so labelling is correcting a draft. Messages
+the cheap pre-filter rejects are left out: scoring them would measure the
+filter, not the extractor.
 
 ---
 
 ## 5. Repository map
 
 ```
-electron/          main, overlay, tray, quickAdd, settings, preload
-electron/services  taskStore, sync, ollama, googleAuth, gmail, gcalendar,
-                   vectorStore, speech, screenContext, config, secrets, dedup
-src/overlay        always-on list
+electron/          main, overlay, tray, quickAdd, settings, chat, preload
+electron/services  taskStore, ruleStore, suggestionStore, sync, ollama, chat,
+                   health, googleAuth, gmail, gcalendar, vectorStore, speech,
+                   screenContext, corpusExport, config, secrets, dedup
+src/overlay        orb + list, health banner, suggestion card
 src/quickadd       voice + type palette
-src/settings       preferences
-shared/            types, IPC names, urgency, similarity, deadline, voiceIntent
-prompts/           extraction, enrichment, screen-task (TS modules)
-db/migrations      SQL
-eval/              harness, seed corpus, unit tests, result JSON
+src/settings       preferences, status, recurring rules, about-me
+src/chat           ask-about-your-tasks panel
+shared/            types, IPC names, urgency, similarity, deadline,
+                   voiceIntent, recurrence, recurrenceDetect, snooze, clash
+prompts/           extraction, enrichment, screen-task, chat (TS modules)
+db/migrations      SQL (006 migrations; 005 rebuilds tasks)
+eval/              harness, seed corpus, unit tests, chat action eval
+scripts/           icon generation, migration rehearsal, smoke tests
 docs/              this file + google / voice / screen how-tos
 ```
 
@@ -339,17 +388,20 @@ IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
 - Overlay is on top of apps, not in the wallpaper layer.
 - 3B ceiling on nuance and dates.
 - RAG starts empty; no user feedback loop on examples.
-- Eval corpus too small to trust deadline metrics.
-- No installer; run via `npm start` / `electron .` from this repo.
-- No recurring rules (tuition every Tue/Thu 17:00).
-- No chat / “about me” profile.
+- **Accuracy numbers still come from Enron mail, not yours.** Settings can now
+  export your own mail pre-labelled (§4.10), but nobody has labelled it yet, so
+  every precision/recall figure in this document is about someone else's inbox.
+- **No installer.** Run via `npm start` / `electron .` from this repo. The app
+  icon exists (`build/icon.png`) but `electron-builder` is not configured.
 - No mobile client.
 - No Outlook/Teams (Graph / admin consent).
 - No OS notification ingestion.
+- No calendar write-back, so recurring rules are invisible on the phone.
+- Recurrence detection groups by exact normalised title. "Tuition" and "tuition
+  class" are counted as different habits.
+- The chat panel keeps no memory between windows: closing it forgets the
+  conversation, and it has no record of past decisions (C4).
 - Native modules and a space in the old folder path were operational hazards.
-- Uncommitted work may still sit in the working tree (settings, RAG-in-sync,
-  OAuth favicon fix, hover details, silence-stop voice). Commit before
-  depending on it.
 
 ---
 
@@ -358,37 +410,59 @@ IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
 Constraints for every phase: this PC, local 3B, Google already connected,
 privacy story stays “LLM never leaves localhost.”
 
-### Phase A — Make today’s app trustworthy
+### Phase A — Make today’s app trustworthy — **done except the installer**
 
 **Definition.** You can install it, connect Google, and believe the list.
 
-- **A1.** `electron-builder` Windows installer. First-run: is Ollama up? Is
-  `qwen2.5:3b` pulled? Show that, don’t show a blank overlay.
-- **A2.** Real tray icon.
-- **A3.** Sync status always visible (counts + errors). Already partly a toast.
-- **A4.** Overlay: edit title, snooze, delete (complete exists).
-- **A5.** Scroll all pending tasks (max-visible cap still hides work).
-- **A6.** Commit the working tree so this week’s work is not only on disk.
-- **A7.** Label ~50 real messages (or Enron slice) and re-run eval. Stop
-  tuning on 14 synthetic rows.
-
-**Blocks:** anything you would show another person.
+- **A1. Done (health check).** `electron/services/health.ts` reports whether
+  Ollama answers and whether the configured extraction and embedding models are
+  pulled, matching Ollama's implicit `:latest`. The overlay shows the actual
+  reason the list is empty instead of a blank panel; Settings lists every check.
+  **The installer half is still open** — see §7 Phase F.
+- **A2. Done.** `scripts/make-icons.cjs` renders the mark to anti-aliased PNGs
+  with no image dependency and emits base64, so the tray icon loads identically
+  from source, from `out/`, and inside an asar. Tooltip carries the pending
+  count; left-click expands the overlay.
+- **A3. Done.** `GetSyncSummary` surfaces last run, counts and errors, so the
+  result outlives the toast. Fixed a real bug on the way: scheduled syncs were
+  writing tasks the overlay was never told about.
+- **A4. Done.** Edit inline, snooze (1h / 3h / this evening / tomorrow 9am /
+  next week), delete. Migration 004 adds `tasks.snoozed_until`, because status
+  alone could hide a task with nothing to bring it back.
+- **A5. Done.** "+N more · show all" opens the full scrollable list.
+- **A6. Done.** Working tree committed.
+- **A7. Tooling done, labelling outstanding.** Settings → Model → *Export mail
+  for labelling* writes your recent mail to JSONL pre-filled with what the
+  model extracts today, so labelling is correcting a draft rather than
+  authoring one. **You still have to correct it** and run
+  `npm run eval -- --corpus <file>`. Until then the metrics are Enron's.
 
 ### Phase B — Recurring life
 
 **Definition.** Repeating commitments are **rules**, not daily voice nags.
 
-- **B1. Explicit recurrences.** “Remind me for tuition Tue, Thu, Sat at 5pm.”
-  Table: title, weekdays, local time, timezone, enabled. Materialize the next
-  occurrence as a normal task (`sourceId = ruleId + date`). Completing rolls
-  forward.
-- **B2. Optional Calendar write-back.** Repeating Google event so the phone
-  Calendar app shows it without a custom mobile app.
-- **B3. Inferred recurrences.** After 2–3 weeks of the same title + hour +
-  weekday cluster, **ask** “Make this weekly?” Never auto-insert. Yes → B1
-  rule. No → mute that cluster.
-- **B4. Feedback weights.** Accept/reject/never counts. This is “learning on
-  the go.” It is **not** neural RL (not enough data, wrong tool on 8 GB).
+- **B1. Done.** Migration 005 adds `recurrence_rules` and rebuilds `tasks` so
+  `source` admits `'rule'` (SQLite cannot alter a CHECK constraint;
+  `npm run check:migration` rehearses the rebuild against a copy of the live
+  database first). `shared/recurrence.ts` parses "remind me for tuition Tue,
+  Thu, Sat at 5pm" **deterministically** — a regex, not the model, because a
+  wrong recurrence repeats forever and a 3B model is neither faster nor more
+  predictable here. A single weekday is only treated as recurring when the text
+  says so ("every", "daily", "weekdays"); "meeting Tuesday at 5pm" is one
+  meeting. Occurrences are materialised two weeks out, keyed `rule:date` so
+  re-running is idempotent, and pending occurrences that no longer match a rule
+  are dropped on edit, pause or delete.
+- **B2. Still open.** Optional Calendar write-back, so a repeating Google event
+  shows on the phone without a custom mobile app. This is the cheapest route to
+  Phase E.
+- **B3. Done.** `shared/recurrenceDetect.ts` requires the same normalised title
+  on the same weekday across **three distinct weeks**, with the time of day
+  varying by at most 90 minutes. Three hits in one busy week is not a routine;
+  the same weekday at 9am, 2pm and 8pm is a coincidence. Migration 006 persists
+  each suggestion with a status, because "not weekly" has to stick — re-asking
+  hourly is worse than never asking. Nothing is ever created without a yes.
+- **B4. Still open.** Accept/reject/never counts as weights. Deliberately not
+  neural RL: not enough data, wrong tool on 8 GB.
 
 **Acceptance.** Tuition appears for the next month without a daily reminder.
 A false “weekly dentist” cannot appear without confirmation.
@@ -398,16 +472,33 @@ A false “weekly dentist” cannot appear without confirmation.
 **Definition.** A **written** model of you, plus a chat that may only use
 tools over your store.
 
-- **C1. About-me note.** Hours, “college until 4,” “tuition is non-negotiable.”
-  Embedded and injected into prompts (same lesson as user identity).
-- **C2. Chat panel.** Shortcut. Tools: list/complete/add tasks, read rules,
-  read about-me. “Summarise today,” “what’s overdue,” “tuition vs assignment
-  at 5pm.”
-- **C3. Clash helper.** Deterministic order first (overdue > today > rule-
-  backed > no deadline). LLM explains in one sentence. Optional nudge from
-  what you actually complete.
-- **C4. Memory of decisions.** sqlite-vec snippets (“skipped gym when it
-  clashed with tuition”), not a fine-tune.
+- **C1. Done.** Two settings: what your mail calls you (an explicit display
+  name now beats the OS-account guess) and free text about your life. The
+  profile goes into the **system** prompt beside the identity, never into the
+  message block — extra context there was measured to crowd out the body and
+  cost recall. It is labelled as background that must not become a task, and
+  `eval/aboutMe.test.ts` pins the empty case to *zero* added prompt text.
+- **C2. Done.** Ctrl+Shift+C, the tray, or the overlay header. It reads the
+  real store and can complete, snooze, delete, add, or create a rule.
+  Ollama's tool-calling API was rejected for a 3B model: free-form tool
+  arguments are exactly where small models emit nearly-right JSON, and a
+  malformed call that silently does nothing is worse than no assistant.
+  Instead one action per turn from a fixed enum under a flat grammar.
+  `eval/chatActions.ts` runs it against the real model — the first version
+  scored 6/10 because questions like "what's most urgent?" came back as
+  `add_task` with a correct reply attached, which would have quietly created
+  junk. Worked examples in the prompt took it to 10/10. Rails that do not
+  depend on the model: at most four actions per message, loose task names
+  resolved against real rows by similarity and refused below a threshold, and
+  snoozes without a future time rejected.
+- **C3. Done.** `shared/clash.ts` names the collision and says which to do
+  first, entirely in code — advice that changes wording or flips its verdict
+  between identical runs is not advice. The ladder: a clearly earlier deadline
+  wins; inside 15 minutes priority decides; on a genuine tie a standing
+  commitment beats an ad-hoc task because other people are arranged around it;
+  otherwise whatever was committed to first. Tests pin order-independence.
+- **C4. Still open.** sqlite-vec snippets remembering decisions ("skipped gym
+  when it clashed with tuition"), not a fine-tune.
 
 **Acceptance.** “What should I do Thursday 5pm?” answers tuition if a rule
 exists. Chat cannot invent a job you never had.
@@ -452,18 +543,26 @@ hour”; test start-at-login after reboot.
 ## 8. Suggested build order
 
 ```
-A (trust + installer + commits)
-  → B1 explicit recurrences
-  → B3 suggest-after-repeats
-  → C1 about-me + C2 chat
-  → C3 clash helper
-  → E0 pick sync
+A  trust            done, except the installer
+B1 recurrences      done
+B3 suggest-repeats  done
+C1 about-me         done
+C2 chat             done
+C3 clash helper     done
+  → A7 label your own mail, then re-run eval   ← next, and it gates everything
+  → installer (electron-builder)
+  → B2 calendar write-back
+  → E0 pick a sync mechanism
   → E1 mobile read-only
+  → B4 feedback weights / C4 decision memory
   → D5 Outlook only if still needed
   → D3 notifications almost certainly never
 ```
 
-Do not start mobile or a “reinforcement learning brain” in parallel with A.
+A7 comes first now because every accuracy claim here is still measured on
+someone else's inbox, and B2 is the cheapest path into Phase E.
+
+Do not start mobile or a “reinforcement learning brain” before A7.
 
 ---
 
@@ -492,6 +591,7 @@ Google: `docs/google-setup.md`, then Settings → Connect / Sync now.
 | --- | --- |
 | `Ctrl+Shift+A` | QuickAdd; mic starts; 3 s silence submits |
 | `Ctrl+Shift+S` | Capture screen as a task |
+| `Ctrl+Shift+C` | Ask about your tasks (chat) |
 | `Ctrl+Shift+,` | Settings |
 
 ---
