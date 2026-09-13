@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { Config, HealthReport, SyncSummary, Task } from '@shared/types'
+import type { NewRecurrenceRule, RecurrenceRule } from '@shared/recurrence'
 
 const api = {
   setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
@@ -68,6 +69,19 @@ const api = {
     added: number
     errors: string[]
   }> => ipcRenderer.invoke(IPC.RunSyncNow),
+
+  rules: {
+    list: (): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.GetRules),
+    add: (
+      rule: NewRecurrenceRule
+    ): Promise<{ rule: RecurrenceRule; rules: RecurrenceRule[] }> =>
+      ipcRenderer.invoke(IPC.AddRule, rule),
+    update: (
+      id: string,
+      patch: Partial<Pick<RecurrenceRule, 'title' | 'weekdays' | 'time' | 'priority' | 'enabled'>>
+    ): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.UpdateRule, id, patch),
+    remove: (id: string): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.DeleteRule, id)
+  },
 
   getHealth: (): Promise<HealthReport> => ipcRenderer.invoke(IPC.GetHealth),
   getSyncSummary: (): Promise<SyncSummary> => ipcRenderer.invoke(IPC.GetSyncSummary),

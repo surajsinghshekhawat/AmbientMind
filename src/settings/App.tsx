@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Config, HealthReport, OverlayCorner, SyncSummary } from '@shared/types'
+import type { RecurrenceRule } from '@shared/recurrence'
 import { CAPTURE_SCREEN_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
+import { Recurring } from './Recurring'
 
 const CORNERS: { id: OverlayCorner; label: string }[] = [
   { id: 'top-right', label: 'Top right' },
@@ -39,22 +41,25 @@ export function App() {
   const [ragCount, setRagCount] = useState(0)
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [sync, setSync] = useState<SyncSummary | null>(null)
+  const [rules, setRules] = useState<RecurrenceRule[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const [nextConfig, nextAccount, nextRag, nextHealth, nextSync] = await Promise.all([
+    const [nextConfig, nextAccount, nextRag, nextHealth, nextSync, nextRules] = await Promise.all([
       window.ambient.getConfig(),
       window.ambient.accounts.status(),
       window.ambient.getRagCount(),
       window.ambient.getHealth(),
-      window.ambient.getSyncSummary()
+      window.ambient.getSyncSummary(),
+      window.ambient.rules.list()
     ])
     setConfig(nextConfig)
     setAccount(nextAccount)
     setRagCount(nextRag)
     setHealth(nextHealth)
     setSync(nextSync)
+    setRules(nextRules)
   }, [])
 
   useEffect(() => {
@@ -265,6 +270,8 @@ export function App() {
           </select>
         </label>
       </section>
+
+      <Recurring rules={rules} onChange={setRules} />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">

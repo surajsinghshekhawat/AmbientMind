@@ -1,6 +1,14 @@
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
-export type TaskSource = 'gmail' | 'gcalendar' | 'outlook' | 'teams' | 'voice' | 'manual'
+export type TaskSource =
+  | 'gmail'
+  | 'gcalendar'
+  | 'outlook'
+  | 'teams'
+  | 'voice'
+  | 'manual'
+  /** Materialised from a recurrence rule rather than observed anywhere. */
+  | 'rule'
 
 export type TaskStatus = 'pending' | 'done' | 'archived' | 'snoozed'
 

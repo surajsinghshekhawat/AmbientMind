@@ -24,7 +24,8 @@ const SOURCE_LABEL: Record<TaskSource, string> = {
   outlook: 'Outlook',
   teams: 'Teams',
   voice: 'Voice',
-  manual: 'Manual'
+  manual: 'Manual',
+  rule: 'Recurring'
 }
 
 interface Props {

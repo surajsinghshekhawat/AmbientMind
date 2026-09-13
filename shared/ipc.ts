@@ -28,6 +28,11 @@ export const IPC = {
   /** Main -> renderer, so the overlay can show a quiet sync indicator. */
   SyncStatus: 'sync:status',
 
+  GetRules: 'rules:get',
+  AddRule: 'rules:add',
+  UpdateRule: 'rules:update',
+  DeleteRule: 'rules:delete',
+
   /** Is Ollama up, are the models pulled, is Google connected. */
   GetHealth: 'health:get',
   /** Last sync outcome, so the UI is not the only place it ever appeared. */

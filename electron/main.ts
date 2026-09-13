@@ -36,6 +36,14 @@ import {
   type TaskPatch
 } from './services/taskStore'
 import { checkHealth } from './services/health'
+import {
+  addRule,
+  deleteRule,
+  listRules,
+  materialiseRules,
+  updateRule,
+  type RulePatch
+} from './services/ruleStore'
 import { enrichTask } from './services/ollama'
 import {
   connectGoogle,
@@ -51,6 +59,7 @@ import { loadConfig, saveConfig } from './services/config'
 import { exampleCount } from './services/vectorStore'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
 import type { Config, SyncSummary } from '@shared/types'
+import { describeRule, parseRecurrence, type NewRecurrenceRule } from '@shared/recurrence'
 import { seedIfEmpty } from './seedTasks'
 
 const ARCHIVE_SWEEP_MS = 15 * 60_000
@@ -86,6 +95,16 @@ function applyLiveConfig(config: Config, previous?: Config) {
   ) {
     startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)
   }
+}
+
+/** Rules only become visible once their next occurrences exist as tasks. */
+function applyRules() {
+  const { created, removed } = materialiseRules()
+  if (created > 0 || removed > 0) {
+    broadcastTasks()
+    trayHandle?.refresh()
+  }
+  return { created, removed }
 }
 
 /** A background pass still has to reach the overlay and the status surfaces. */
@@ -161,6 +180,27 @@ function registerIpc() {
       return
     }
 
+    // "tuition Tue, Thu, Sat at 5pm" is a standing commitment, not one task.
+    // Parsed in code rather than by the model: a wrong recurrence repeats.
+    const recurrence = parseRecurrence(trimmed)
+    if (recurrence) {
+      const rule = addRule({
+        title: recurrence.title,
+        weekdays: recurrence.weekdays,
+        time: recurrence.time,
+        priority: 'medium',
+        leadMinutes: 0,
+        enabled: true,
+        source: 'explicit'
+      })
+      const { created } = applyRules()
+      new Notification({
+        title: `Recurring: ${rule.title}`,
+        body: `${describeRule(rule)} · ${created} upcoming added`
+      }).show()
+      return
+    }
+
     // Insert immediately so the overlay never waits on the model, then upgrade
     // the row in place once enrichment resolves. Quick-add has to feel instant.
     const task = addTask({ title: trimmed, source: 'manual' })
@@ -220,6 +260,27 @@ function registerIpc() {
     const next = saveConfig(patch)
     applyLiveConfig(next, previous)
     return next
+  })
+
+  ipcMain.handle(IPC.GetRules, () => listRules())
+
+  ipcMain.handle(IPC.AddRule, (_event, input: NewRecurrenceRule) => {
+    const rule = addRule(input)
+    applyRules()
+    return { rule, rules: listRules() }
+  })
+
+  ipcMain.handle(IPC.UpdateRule, (_event, id: string, patch: RulePatch) => {
+    updateRule(id, patch)
+    applyRules()
+    return listRules()
+  })
+
+  ipcMain.handle(IPC.DeleteRule, (_event, id: string) => {
+    deleteRule(id)
+    broadcastTasks()
+    trayHandle?.refresh()
+    return listRules()
   })
 
   ipcMain.handle(IPC.GetHealth, () => {
@@ -380,6 +441,7 @@ if (!app.requestSingleInstanceLock()) {
     archiveStaleCompleted()
     // The app may have been shut for longer than a snooze.
     wakeSnoozed()
+    materialiseRules()
     registerIpc()
 
     const config = loadConfig()
@@ -411,6 +473,8 @@ if (!app.requestSingleInstanceLock()) {
         broadcastTasks()
         trayHandle?.refresh()
       }
+      // Keeps the rolling horizon topped up as days pass.
+      applyRules()
     }, SNOOZE_SWEEP_MS)
 
     setInterval(() => {
