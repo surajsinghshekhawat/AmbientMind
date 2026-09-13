@@ -483,7 +483,49 @@ function registerShortcut(accelerator: string, fn: () => void) {
   }
 }
 
-if (!app.requestSingleInstanceLock()) {
+/**
+ * Headless corpus export: `electron . --export-corpus`.
+ *
+ * Deliberately outside the single-instance lock and before any window or store
+ * is created. Labelling is a repeatable chore, and the Gmail path touches no
+ * database, so this can run while the app itself stays up.
+ */
+if (process.argv.includes('--export-corpus')) {
+  void app.whenReady().then(async () => {
+    try {
+      const config = loadConfig()
+      if (!isGoogleConnected()) {
+        console.error('Google is not connected. Connect it in Settings first.')
+        return app.exit(1)
+      }
+
+      const numeric = (flag: string) => {
+        const arg = process.argv.find((value) => value.startsWith(`--${flag}=`))
+        return arg ? Number(arg.split('=')[1]) : undefined
+      }
+      const limit = numeric('limit')
+      const days = numeric('days')
+
+      const result = await exportCorpus({
+        model: config.ollamaModel,
+        userName: currentUserName(),
+        ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
+        ...(limit ? { limit } : {}),
+        ...(days ? { days } : {}),
+        onProgress: (done, total) => console.log(`[corpus] ${done}/${total}`)
+      })
+      console.log(
+        `[corpus] wrote ${result.messages} messages, ${result.prefilledTasks} draft tasks, ${result.skipped} pre-filtered`
+      )
+      console.log(`[corpus] ${result.path}`)
+      console.log(`[corpus] filtered-out mail, for auditing: ${result.filteredPath}`)
+      app.exit(0)
+    } catch (err) {
+      console.error('[corpus] failed:', (err as Error).message)
+      app.exit(1)
+    }
+  })
+} else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   // The overlay is the whole UI, so there is no dock presence to keep alive.

@@ -20,11 +20,15 @@ export interface CorpusExportOptions {
   userName?: string
   aboutMe?: string
   limit?: number
+  /** How far back to read. Sync uses 2 days; a corpus needs a real sample. */
+  days?: number
   onProgress?: (done: number, total: number) => void
 }
 
 export interface CorpusExportResult {
   path: string
+  /** Messages the pre-filter rejected, written out separately for auditing. */
+  filteredPath: string
   messages: number
   prefilledTasks: number
   skipped: number
@@ -37,8 +41,9 @@ export async function exportCorpus(
   const userName = options.userName ?? userEmail.split('@')[0] ?? 'the user'
   const limit = options.limit ?? 40
 
-  const ids = await listRecentMessageIds()
+  const ids = await listRecentMessageIds(`newer_than:${options.days ?? 30}d -in:chats`)
   const lines: string[] = []
+  const filtered: string[] = []
   let prefilledTasks = 0
   let skipped = 0
 
@@ -52,10 +57,24 @@ export async function exportCorpus(
       continue
     }
 
-    // Pre-filtered mail is excluded on purpose: the filter runs before the
-    // model, so scoring it would measure the filter, not the extractor.
-    if (shouldSkip(fetched.message, fetched.payload)) {
+    // Pre-filtered mail is kept out of the scored corpus — the filter runs
+    // before the model, so scoring it would measure the filter, not the
+    // extractor. It is still written to a separate file, because a filter
+    // quietly eating real mail is invisible otherwise, and that is a worse
+    // failure than a missed extraction.
+    const skipReason = shouldSkip(fetched.message, fetched.payload)
+    if (skipReason) {
       skipped++
+      filtered.push(
+        JSON.stringify({
+          id,
+          sender: fetched.message.sender,
+          sentAt: fetched.message.sentAt,
+          subject: fetched.message.subject,
+          skipReason,
+          bodyPreview: fetched.message.body.slice(0, 400)
+        })
+      )
       continue
     }
 
@@ -85,8 +104,11 @@ export async function exportCorpus(
     )
   }
 
-  const path = join(app.getPath('userData'), `corpus-${Date.now()}.jsonl`)
+  const stamp = Date.now()
+  const path = join(app.getPath('userData'), `corpus-${stamp}.jsonl`)
+  const filteredPath = join(app.getPath('userData'), `corpus-${stamp}-filtered.jsonl`)
   writeFileSync(path, `${lines.join('\n')}\n`, 'utf8')
+  writeFileSync(filteredPath, `${filtered.join('\n')}\n`, 'utf8')
 
-  return { path, messages: lines.length, prefilledTasks, skipped }
+  return { path, filteredPath, messages: lines.length, prefilledTasks, skipped }
 }
