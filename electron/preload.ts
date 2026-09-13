@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { Config, HealthReport, SyncSummary, Task } from '@shared/types'
+import type {
+  Config,
+  HealthReport,
+  RecurrenceSuggestion,
+  SyncSummary,
+  Task
+} from '@shared/types'
 import type { NewRecurrenceRule, RecurrenceRule } from '@shared/recurrence'
 
 const api = {
@@ -72,6 +78,13 @@ const api = {
 
   rules: {
     list: (): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.GetRules),
+    suggestions: (): Promise<RecurrenceSuggestion[]> => ipcRenderer.invoke(IPC.GetSuggestions),
+    acceptSuggestion: (
+      id: string
+    ): Promise<{ suggestions: RecurrenceSuggestion[]; rules: RecurrenceRule[] }> =>
+      ipcRenderer.invoke(IPC.AcceptSuggestion, id),
+    dismissSuggestion: (id: string): Promise<RecurrenceSuggestion[]> =>
+      ipcRenderer.invoke(IPC.DismissSuggestion, id),
     add: (
       rule: NewRecurrenceRule
     ): Promise<{ rule: RecurrenceRule; rules: RecurrenceRule[] }> =>

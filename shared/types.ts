@@ -66,6 +66,18 @@ export interface HealthReport {
   ok: boolean
 }
 
+/** A pattern the app noticed. Never acted on without an explicit yes. */
+export interface RecurrenceSuggestion {
+  id: string
+  signature: string
+  title: string
+  weekdays: number[]
+  time: string
+  occurrences: number
+  status: 'pending' | 'accepted' | 'dismissed'
+  createdAt: string
+}
+
 export interface SyncSummary {
   lastRun: string | null
   lastError: string | null

@@ -44,6 +44,12 @@ import {
   updateRule,
   type RulePatch
 } from './services/ruleStore'
+import {
+  acceptSuggestion,
+  dismissSuggestion,
+  listPendingSuggestions,
+  refreshSuggestions
+} from './services/suggestionStore'
 import { enrichTask } from './services/ollama'
 import {
   connectGoogle,
@@ -262,6 +268,22 @@ function registerIpc() {
     return next
   })
 
+  ipcMain.handle(IPC.GetSuggestions, () => listPendingSuggestions())
+
+  ipcMain.handle(IPC.AcceptSuggestion, (_event, id: string) => {
+    acceptSuggestion(id)
+    applyRules()
+    return {
+      suggestions: listPendingSuggestions(),
+      rules: listRules()
+    }
+  })
+
+  ipcMain.handle(IPC.DismissSuggestion, (_event, id: string) => {
+    dismissSuggestion(id)
+    return listPendingSuggestions()
+  })
+
   ipcMain.handle(IPC.GetRules, () => listRules())
 
   ipcMain.handle(IPC.AddRule, (_event, input: NewRecurrenceRule) => {
@@ -442,6 +464,7 @@ if (!app.requestSingleInstanceLock()) {
     // The app may have been shut for longer than a snooze.
     wakeSnoozed()
     materialiseRules()
+    refreshSuggestions()
     registerIpc()
 
     const config = loadConfig()
@@ -479,6 +502,8 @@ if (!app.requestSingleInstanceLock()) {
 
     setInterval(() => {
       if (archiveStaleCompleted() > 0) broadcastTasks()
+      // Hourly is plenty: a habit that took three weeks to form will keep.
+      refreshSuggestions()
     }, ARCHIVE_SWEEP_MS)
   })
 

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Config, HealthReport, OverlayCorner, SyncSummary } from '@shared/types'
+import type {
+  Config,
+  HealthReport,
+  OverlayCorner,
+  RecurrenceSuggestion,
+  SyncSummary
+} from '@shared/types'
 import type { RecurrenceRule } from '@shared/recurrence'
 import { CAPTURE_SCREEN_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
 import { Recurring } from './Recurring'
@@ -42,24 +48,28 @@ export function App() {
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [sync, setSync] = useState<SyncSummary | null>(null)
   const [rules, setRules] = useState<RecurrenceRule[]>([])
+  const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const [nextConfig, nextAccount, nextRag, nextHealth, nextSync, nextRules] = await Promise.all([
-      window.ambient.getConfig(),
-      window.ambient.accounts.status(),
-      window.ambient.getRagCount(),
-      window.ambient.getHealth(),
-      window.ambient.getSyncSummary(),
-      window.ambient.rules.list()
-    ])
+    const [nextConfig, nextAccount, nextRag, nextHealth, nextSync, nextRules, nextSuggestions] =
+      await Promise.all([
+        window.ambient.getConfig(),
+        window.ambient.accounts.status(),
+        window.ambient.getRagCount(),
+        window.ambient.getHealth(),
+        window.ambient.getSyncSummary(),
+        window.ambient.rules.list(),
+        window.ambient.rules.suggestions()
+      ])
     setConfig(nextConfig)
     setAccount(nextAccount)
     setRagCount(nextRag)
     setHealth(nextHealth)
     setSync(nextSync)
     setRules(nextRules)
+    setSuggestions(nextSuggestions)
   }, [])
 
   useEffect(() => {
@@ -271,7 +281,12 @@ export function App() {
         </label>
       </section>
 
-      <Recurring rules={rules} onChange={setRules} />
+      <Recurring
+        rules={rules}
+        suggestions={suggestions}
+        onChange={setRules}
+        onSuggestionsChange={setSuggestions}
+      />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">

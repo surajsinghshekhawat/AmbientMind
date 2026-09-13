@@ -28,6 +28,11 @@ export const IPC = {
   /** Main -> renderer, so the overlay can show a quiet sync indicator. */
   SyncStatus: 'sync:status',
 
+  /** Patterns the app noticed; shown for confirmation, never auto-applied. */
+  GetSuggestions: 'rules:suggestions',
+  AcceptSuggestion: 'rules:suggestion-accept',
+  DismissSuggestion: 'rules:suggestion-dismiss',
+
   GetRules: 'rules:get',
   AddRule: 'rules:add',
   UpdateRule: 'rules:update',

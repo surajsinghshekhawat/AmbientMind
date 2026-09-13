@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { HealthReport, OverlayCorner, Task } from '@shared/types'
+import type { HealthReport, OverlayCorner, RecurrenceSuggestion, Task } from '@shared/types'
 import { DEFAULT_CONFIG } from '@shared/types'
 import { HealthBanner } from './HealthBanner'
 import { Orb } from './Orb'
+import { SuggestionCard } from './SuggestionCard'
 import { TaskList } from './TaskList'
 import { INTERACTIVE_ATTR, useMouseCapture } from './useMouseCapture'
 
@@ -18,6 +19,7 @@ export function App() {
   const [expanded, setExpanded] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [health, setHealth] = useState<HealthReport | null>(null)
+  const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
   const [connecting, setConnecting] = useState(false)
 
   useMouseCapture()
@@ -75,6 +77,24 @@ export function App() {
 
   const onDelete = useCallback((id: string) => {
     void window.ambient.deleteTask(id).then(setTasks)
+  }, [])
+
+  // Only asked about while the list is open; a suggestion is not urgent enough
+  // to interrupt anything.
+  useEffect(() => {
+    if (!expanded) return
+    void window.ambient.rules.suggestions().then(setSuggestions)
+  }, [expanded])
+
+  const acceptSuggestion = useCallback((id: string) => {
+    void window.ambient.rules.acceptSuggestion(id).then((result) => {
+      setSuggestions(result.suggestions)
+      void window.ambient.getTasks().then(setTasks)
+    })
+  }, [])
+
+  const dismissSuggestion = useCallback((id: string) => {
+    void window.ambient.rules.dismissSuggestion(id).then(setSuggestions)
   }, [])
 
   const connectGoogle = useCallback(async () => {
@@ -140,6 +160,13 @@ export function App() {
             connecting={connecting}
             onConnectGoogle={() => void connectGoogle()}
             onRecheck={refreshHealth}
+          />
+        )}
+        {suggestions[0] && (
+          <SuggestionCard
+            suggestion={suggestions[0]}
+            onAccept={acceptSuggestion}
+            onDismiss={dismissSuggestion}
           />
         )}
         <TaskList

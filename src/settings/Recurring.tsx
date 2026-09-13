@@ -5,15 +5,18 @@ import {
   weekdayLabel,
   type RecurrenceRule
 } from '@shared/recurrence'
+import type { RecurrenceSuggestion } from '@shared/types'
 
 interface Props {
   rules: RecurrenceRule[]
+  suggestions: RecurrenceSuggestion[]
   onChange: (rules: RecurrenceRule[]) => void
+  onSuggestionsChange: (suggestions: RecurrenceSuggestion[]) => void
 }
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6]
 
-export function Recurring({ rules, onChange }: Props) {
+export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }: Props) {
   const [phrase, setPhrase] = useState('')
   const [title, setTitle] = useState('')
   const [weekdays, setWeekdays] = useState<number[]>([])
@@ -63,6 +66,40 @@ export function Recurring({ rules, onChange }: Props) {
       <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
         Recurring
       </h2>
+
+      {suggestions.map((suggestion) => (
+        <div
+          key={suggestion.id}
+          className="flex items-center gap-3 rounded-xl border border-urgency-approaching/35 bg-white/5 px-3 py-2.5"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-sm">{suggestion.title}</p>
+            <p className="text-[12px] text-white/45">
+              Seen {suggestion.occurrences} times · {describeRule(suggestion)}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={async () => {
+              const result = await window.ambient.rules.acceptSuggestion(suggestion.id)
+              onSuggestionsChange(result.suggestions)
+              onChange(result.rules)
+            }}
+          >
+            Make recurring
+          </button>
+          <button
+            type="button"
+            className={btnGhost}
+            onClick={async () =>
+              onSuggestionsChange(await window.ambient.rules.dismissSuggestion(suggestion.id))
+            }
+          >
+            Not weekly
+          </button>
+        </div>
+      ))}
 
       {rules.length > 0 && (
         <ul className="flex flex-col gap-2">
