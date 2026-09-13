@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { findClashes } from '@shared/clash'
 import type { HealthReport, OverlayCorner, RecurrenceSuggestion, Task } from '@shared/types'
 import { DEFAULT_CONFIG } from '@shared/types'
 import { HealthBanner } from './HealthBanner'
@@ -20,6 +21,9 @@ export function App() {
   const [syncing, setSyncing] = useState(false)
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
+  // Recomputed from the same tasks the list renders, so the advice can never
+  // disagree with what is on screen.
+  const clash = useMemo(() => findClashes(tasks, { now })[0] ?? null, [tasks, now])
   const [connecting, setConnecting] = useState(false)
 
   useMouseCapture()
@@ -161,6 +165,11 @@ export function App() {
             onConnectGoogle={() => void connectGoogle()}
             onRecheck={refreshHealth}
           />
+        )}
+        {clash && (
+          <p className="mx-2 rounded-lg border border-urgency-urgent/35 bg-black/50 px-3 py-2 text-[11.5px] leading-relaxed text-white/85">
+            {clash.explanation}
+          </p>
         )}
         {suggestions[0] && (
           <SuggestionCard
