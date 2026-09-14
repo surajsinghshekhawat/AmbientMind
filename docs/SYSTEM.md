@@ -391,7 +391,8 @@ IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
 
 - Overlay is on top of apps, not in the wallpaper layer.
 - 3B ceiling on nuance and dates.
-- RAG starts empty; no user feedback loop on examples.
+- RAG starts empty. There is now a feedback loop on *tasks* (§7 Phase C4), but
+  not on the stored few-shot examples themselves.
 - **Recall on your own mail is unmeasured, because there is nothing to measure
   it on.** The export has now been run against 30 days of real mail: 50
   messages, 37 rejected by the header pre-filter (30 `List-Unsubscribe`, 7 bulk
@@ -421,15 +422,43 @@ IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
   - `sharp` arrives transitively via `@xenova/transformers` and gets rebuilt
     during packaging. If the app is running it holds `libgobject-2.0-0.dll`
     open and the rebuild fails with `EPERM`; close it before `npm run dist`.
-- No mobile client.
+- No mobile client, though recurring rules now reach a phone through Calendar
+  (§7 Phase B2).
 - No Outlook/Teams (Graph / admin consent).
 - No OS notification ingestion.
-- No calendar write-back, so recurring rules are invisible on the phone.
-- Recurrence detection groups by exact normalised title. "Tuition" and "tuition
-  class" are counted as different habits.
-- The chat panel keeps no memory between windows: closing it forgets the
-  conversation, and it has no record of past decisions (C4).
+- ~~Recurrence detection groups by exact normalised title.~~ **Fixed.**
+  Grouping is fuzzy, and a title whose words are contained in another's counts
+  as the same habit.
+- The chat panel still keeps no memory *between windows* — closing it forgets
+  the conversation. It does now see past decisions about whatever was asked
+  (§7 Phase C4); what is missing is the transcript, not the history.
+- No auto-update, and the installer is unsigned.
 - Native modules and a space in the old folder path were operational hazards.
+
+### Failure modes that were real, and are now handled
+
+Found by auditing the error paths rather than the happy one. Recorded because
+each was silent, and silence is what made them expensive.
+
+- **A message that threw was never read again.** `isProcessed()` could not
+  distinguish "handled" from "failed", so any transient cause — no network, an
+  expired token, Ollama restarting — retired that mail permanently, with no
+  error the user would ever see. Migration 007 counts attempts: three tries,
+  then the message is left alone so a genuinely unparseable one stops costing a
+  model call. Rehearsing the migration against a copy of the live database
+  found two messages already lost this way.
+- **Ollama dying mid-pass burned the whole retry budget.** Every remaining
+  message was marked failed. That case now stops the pass, since the model
+  going away says nothing about the mail behind it.
+- **Sleeping through the night left the list showing yesterday.** Timers do not
+  run while the machine is suspended, so snoozed tasks stayed hidden past their
+  time and overnight mail went unread until the next half-hourly tick.
+  `powerMonitor` `resume` now wakes snoozes, tops up rule occurrences and syncs.
+
+Two suspected problems were checked and found already correct, and were left
+alone: Ollama calls carry a bounded timeout, and the overlay already
+repositions on `display-metrics-changed`, `display-added` and
+`display-removed`.
 
 ---
 
@@ -446,7 +475,8 @@ privacy story stays “LLM never leaves localhost.”
   Ollama answers and whether the configured extraction and embedding models are
   pulled, matching Ollama's implicit `:latest`. The overlay shows the actual
   reason the list is empty instead of a blank panel; Settings lists every check.
-  **The installer half is still open** — see §7 Phase F.
+  The installer half is now done too; see §6. When calendar write-back is on,
+  the check also names the reconnect that scope needs.
 - **A2. Done.** `scripts/make-icons.cjs` renders the mark to anti-aliased PNGs
   with no image dependency and emits base64, so the tray icon loads identically
   from source, from `out/`, and inside an asar. Tooltip carries the pending
@@ -480,17 +510,27 @@ privacy story stays “LLM never leaves localhost.”
   meeting. Occurrences are materialised two weeks out, keyed `rule:date` so
   re-running is idempotent, and pending occurrences that no longer match a rule
   are dropped on edit, pause or delete.
-- **B2. Still open.** Optional Calendar write-back, so a repeating Google event
-  shows on the phone without a custom mobile app. This is the cheapest route to
-  Phase E.
+- **B2. Done.** Rules are mirrored onto a Google Calendar the app creates,
+  under the `calendar.app.created` scope, which grants access *only* to
+  calendars the app made. Writing into `primary` with the full calendar scope
+  would have been fewer lines and would have left a bug here able to damage
+  real appointments; a separate calendar can also be hidden in one tap and its
+  entries can never be mistaken for the user's own. Off by default, because
+  silently creating events in someone's account is not a default to be
+  discovered. Times are sent as local wall-clock plus an IANA zone rather than
+  UTC instants, so "tuition at five" survives travel and DST. Pausing a rule
+  deletes its event; an event deleted on the phone is recreated. Migration 008
+  stores the event id. The scope postdates existing sign-ins, so the health
+  check names the required reconnect.
 - **B3. Done.** `shared/recurrenceDetect.ts` requires the same normalised title
   on the same weekday across **three distinct weeks**, with the time of day
   varying by at most 90 minutes. Three hits in one busy week is not a routine;
   the same weekday at 9am, 2pm and 8pm is a coincidence. Migration 006 persists
   each suggestion with a status, because "not weekly" has to stick — re-asking
   hourly is worse than never asking. Nothing is ever created without a yes.
-- **B4. Still open.** Accept/reject/never counts as weights. Deliberately not
-  neural RL: not enough data, wrong tool on 8 GB.
+- **B4. Done, merged with C4.** See §7 Phase C — the same `decisions` table
+  serves both, because separate stores would have meant recording every action
+  twice.
 
 **Acceptance.** Tuition appears for the next month without a daily reminder.
 A false “weekly dentist” cannot appear without confirmation.
@@ -525,8 +565,21 @@ tools over your store.
   wins; inside 15 minutes priority decides; on a genuine tie a standing
   commitment beats an ad-hoc task because other people are arranged around it;
   otherwise whatever was committed to first. Tests pin order-independence.
-- **C4. Still open.** sqlite-vec snippets remembering decisions ("skipped gym
-  when it clashed with tuition"), not a fine-tune.
+- **C4. Done (with B4).** Migration 009 adds `decisions`: every complete,
+  delete, snooze and dismissed suggestion, from the overlay and from chat
+  alike, outliving the task itself. Matching is the same fuzzy-title rule used
+  by recurrence detection, not embeddings — it must work with the embed model
+  down, and it is testable. Two uses. Chat is shown only the decisions matching
+  what was just asked, because a 3B model given the whole log starts treating
+  it as a to-do list, and the prompt states decisions are history rather than
+  instructions so it cannot undo one; `eval/chatActions.ts` still scores 10/10
+  with the digest added. Second, deleting the same thing three times without
+  ever completing it keeps *new* ones off the list. Thresholds are cautious on
+  purpose: three rather than two because people misclick, and a single
+  completion outweighs any number of deletions, because a suppressed task is
+  invisible and the user cannot discover the mistake from the list.
+  Suppression never applies retroactively, and Settings lists everything
+  learned with an undo.
 
 **Acceptance.** “What should I do Thursday 5pm?” answers tuition if a rule
 exists. Chat cannot invent a job you never had.
@@ -549,9 +602,13 @@ exists. Chat cannot invent a job you never had.
 **Definition.** Phone views and light-edits the **same** tasks. Desktop stays
 the LLM engine.
 
-**E0 must be decided first:**
+**E0 is partly answered.** Option 1 now exists: recurring rules reach the phone
+through Calendar (§7 Phase B2), which covers standing commitments without any
+mobile code. What it does *not* cover is one-off tasks, or completing something
+on the phone and having the overlay clear — both need a real bus.
 
-1. **Calendar as the bus** — fastest; phone = Google Calendar.
+1. **Calendar as the bus** — ~~fastest~~ **done for rules.** One-way, rules
+   only.
 2. **Private encrypted relay** — real product, real ops.
 3. **LAN only** — demo; dies off home Wi‑Fi.
 
@@ -572,26 +629,37 @@ hour”; test start-at-login after reboot.
 ## 8. Suggested build order
 
 ```
-A  trust            done, except the installer
+A  trust            done
 B1 recurrences      done
 B3 suggest-repeats  done
 C1 about-me         done
 C2 chat             done
 C3 clash helper     done
-  → A7 label your own mail, then re-run eval   ← next, and it gates everything
-  → installer (electron-builder)
-  → B2 calendar write-back
-  → E0 pick a sync mechanism
+A7 corpus export    done; labelling moot (see §6)
+   installer        done
+B2 calendar write   done
+B4 + C4 decisions   done
+   retry hardening  done
+  → code signing, so SmartScreen stops warning   ← next
+  → auto-update, or a documented update path
+  → Gmail pagination past the 50-message cap
+  → E0 pick a real sync mechanism (Calendar covers rules only)
   → E1 mobile read-only
-  → B4 feedback weights / C4 decision memory
   → D5 Outlook only if still needed
   → D3 notifications almost certainly never
 ```
 
-A7 comes first now because every accuracy claim here is still measured on
-someone else's inbox, and B2 is the cheapest path into Phase E.
+A7 was expected to gate everything, and it did — by answering a different
+question than the one asked. Running the export showed the inbox contains no
+task mail to label, so labelling would have measured nothing (§6). That is why
+effort went to voice, screen, recurrence and trust instead, and why accuracy
+work is no longer at the front of this list.
 
-Do not start mobile or a “reinforcement learning brain” before A7.
+Signing comes next because it is the last thing between "it installs" and "it
+installs without frightening the user".
+
+Do not start mobile or a “reinforcement learning brain” before there is a real
+sync bus.
 
 ---
 

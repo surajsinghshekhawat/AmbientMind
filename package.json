@@ -1,6 +1,6 @@
 {
   "name": "ambientmind",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Ambient desktop overlay that auto-populates your todo list from email, calendar and voice using a local LLM.",
   "main": "./out/main/main.js",
   "private": true,
