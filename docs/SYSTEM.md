@@ -467,7 +467,7 @@ repositions on `display-metrics-changed`, `display-added` and
 Constraints for every phase: this PC, local 3B, Google already connected,
 privacy story stays “LLM never leaves localhost.”
 
-### Phase A — Make today’s app trustworthy — **done except the installer**
+### Phase A — Make today’s app trustworthy — **done**
 
 **Definition.** You can install it, connect Google, and believe the list.
 
