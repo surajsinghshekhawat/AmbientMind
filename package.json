@@ -12,6 +12,7 @@
     "icons": "node scripts/make-icons.cjs",
     "check:migration": "electron ./scripts/check-migration.cjs",
     "corpus:export": "electron . --export-corpus",
+    "sync:now": "electron . --sync-now",
     "dist": "npm run build && electron-builder --win",
     "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
     "smoke:vec": "electron ./scripts/smoke-vec.cjs && electron ./scripts/smoke-vecstore.cjs",

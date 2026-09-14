@@ -268,6 +268,25 @@ export function markFailed(source: TaskSource, sourceId: string): { willRetry: b
   return { willRetry: (row?.attempts ?? MAX_ATTEMPTS) < MAX_ATTEMPTS }
 }
 
+/**
+ * Message ids that failed and still have attempts left.
+ *
+ * Needed because the sync window is only a couple of days wide: a message that
+ * failed during an outage longer than that ages out of the listing and is
+ * never offered again, which would have left the retry budget unusable in
+ * exactly the situation it was built for. These are fetched by id instead.
+ */
+export function listRetryableFailures(source: TaskSource, limit = 25): string[] {
+  return handle()
+    .prepare<[string, number, number], { source_id: string }>(
+      `SELECT source_id FROM processed_messages
+       WHERE source = ? AND outcome = 'failed' AND attempts < ?
+       ORDER BY processed_at DESC LIMIT ?`
+    )
+    .all(source, MAX_ATTEMPTS, limit)
+    .map((row) => row.source_id)
+}
+
 /** Manual Sync now must re-read recent mail; otherwise a 0-task extraction is sticky forever. */
 export function forgetRecentGmail(hours = 48): number {
   const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString()

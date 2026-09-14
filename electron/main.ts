@@ -560,7 +560,23 @@ function registerShortcut(accelerator: string, fn: () => void) {
  * is created. Labelling is a repeatable chore, and the Gmail path touches no
  * database, so this can run while the app itself stays up.
  */
-if (process.argv.includes('--export-corpus')) {
+if (process.argv.includes('--sync-now')) {
+  // Headless sync, for scripting and for checking a change against real mail
+  // without waiting for the scheduler's next tick. Opens the store, so the
+  // app should not be running at the same time.
+  void app.whenReady().then(async () => {
+    try {
+      openTaskStore()
+      const config = loadConfig()
+      const report = await runSync(syncOptions(config, { force: false }))
+      console.log(JSON.stringify(report, null, 2))
+      app.exit(report.errors.length > 0 ? 1 : 0)
+    } catch (err) {
+      console.error('[sync] failed:', (err as Error).message)
+      app.exit(1)
+    }
+  })
+} else if (process.argv.includes('--export-corpus')) {
   void app.whenReady().then(async () => {
     try {
       const config = loadConfig()

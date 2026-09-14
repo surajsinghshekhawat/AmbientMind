@@ -17,6 +17,7 @@ import {
   getTaskStore,
   isProcessed,
   listActive,
+  listRetryableFailures,
   markFailed,
   markProcessed,
   setSyncState,
@@ -68,10 +69,18 @@ async function syncGmail(
   const candidates: NewTask[] = []
   let budget = options.maxExtractionsPerRun
 
-  const ids = await listRecentMessageIds()
+  // Retries first: a message that failed during a long outage has already
+  // fallen out of the recent listing, so waiting for it to reappear there
+  // would mean it never came back at all.
+  const recent = await listRecentMessageIds()
+  const seen = new Set(recent.map((message) => message.id))
+  const ids = [
+    ...listRetryableFailures('gmail').filter((id) => !seen.has(id)),
+    ...recent.map((message) => message.id)
+  ]
   report.scanned += ids.length
 
-  for (const { id } of ids) {
+  for (const id of ids) {
     if (budget <= 0) break
     if (isProcessed('gmail', id)) continue
 
