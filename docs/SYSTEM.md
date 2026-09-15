@@ -22,9 +22,11 @@ Version 0.2.0. Last updated: 16 September 2026.
 9. [Failure modes that were real](#9-failure-modes-that-were-real)
 10. [Known limitations](#10-known-limitations)
 11. [What is planned](#11-what-is-planned)
-12. [Building, running, packaging](#12-building-running-packaging)
-13. [Repository map](#13-repository-map)
-14. [Explicitly out of scope](#14-explicitly-out-of-scope)
+12. [Fine-tuning: the case for, against, and the recipe](#12-fine-tuning-the-case-for-the-case-against-and-the-recipe)
+13. [Building, running, packaging](#13-building-running-packaging)
+14. [Repository map](#14-repository-map)
+15. [Explicitly out of scope](#15-explicitly-out-of-scope)
+16. [Related documents](#16-related-documents)
 
 ---
 
@@ -237,10 +239,15 @@ the user's own mail.
 `BigInt`. `better-sqlite3` passes plain numbers as doubles and `vec0` rejects a
 non-integer primary key, with an error that does not obviously say so.
 
-**A measured decision.** Seeding the store with Enron examples *hurt* accuracy
-when those examples did not resemble the user's mail. Production therefore
-ships with an **empty** store: zero-shot until the user's own mail has been
-read. The cost is that the first weeks have no few-shots at all.
+**A measured decision.** Seeding the store with non-representative examples
+trades precision for recall, and on this task that is the wrong direction.
+Retrieval-augmented few-shots took recall from 5/7 to 7/7 but dropped precision
+from 100% to 87.5% and empty-specificity by the same margin: the model started
+finding tasks in control messages that contain none. Since a hallucinated task
+is the failure that makes the overlay untrustworthy, production ships with an
+**empty** store — zero-shot until the user's own mail has been read. The cost
+is that the first weeks have no few-shots at all. This result matters again in
+§12.4, because it is the cheap version of the fine-tuning experiment.
 
 ### 3.5 Speech recognition: Whisper
 
@@ -355,15 +362,30 @@ human prose. Everything downstream of that is arithmetic.**
 - `npm run check:migration` — applies pending migrations to a **copy** of the
   live database and reports whether the data survived.
 
+**The corpus, stated precisely.** `eval/corpus/seed.jsonl` holds **14
+hand-written messages in Enron house style** — real Enron names and addresses
+used as set dressing, with Sally Beck as the user under evaluation. It is *not*
+real Enron mail. Six messages carry seven gold tasks between them and the other
+eight are deliberate controls, because false positives on newsletters and FYI
+threads are the dominant failure mode for this task. The file exists to
+validate the harness and demonstrate the labelling format. The real benchmark
+it refers to, `eval/corpus/enron-200.jsonl`, **has never been built** (§12.3).
+
 **Measured results so far:**
 
 | Measurement | Result | Caveat |
 | --- | --- | --- |
-| Extraction F1 | ~83% | 14-message Enron seed corpus |
-| Extraction precision | 100% | Same tiny corpus |
+| Extraction F1 | 83.3% | 14 hand-written messages, 7 gold tasks |
+| Extraction precision | 100% | One error moves any metric ~12 points |
+| Extraction recall | 71.4% | 5 of 7 |
+| Empty-specificity | 100% | No invented tasks on the 8 controls |
 | Deadline accuracy | 60% | Only 5 matched pairs; mostly noise |
 | Chat action selection | 10/10 | Was 6/10 before worked examples were added |
 | Real-mail precision | No false positives on 13 messages | See §10.2 |
+
+Every one of those numbers comes from a corpus small enough that a single
+message changes the second digit. They are useful for catching regressions —
+which they did, twice — and useless as an absolute claim of quality.
 
 ---
 
@@ -795,8 +817,8 @@ can poison later prompts — there is still no thumbs-down on an example.
 ### 8.5 A 3B model
 
 Fits VRAM. See §3.1 for the alternatives: a cloud API (better quality, kills
-the privacy premise), an 8B model (needs a bigger GPU), fine-tuning (no
-labelled volume, no VRAM headroom).
+the privacy premise), an 8B model (needs a bigger GPU), and fine-tuning, which
+has its own full treatment in §12.
 
 *Drawbacks.* Weak on messy relative dates unless code post-processes them, and
 still capable of inventing a deadline on screen capture.
@@ -925,8 +947,10 @@ miss is a service nudge asking the user to choose between two options.
 - Gmail's 50-message cap means the 30-day window came back truncated. A larger
   sample needs pagination.
 
-Every precision and recall figure elsewhere in this document is still measured
-on Enron mail, not the user's.
+Every precision and recall figure elsewhere in this document is measured on the
+14 hand-written stand-in messages described in §3.8 — not on real Enron mail,
+and not on the user's. The Enron benchmark those numbers are often assumed to
+come from was scoped and tooled but never built (§12.3).
 
 ### 10.3 Packaging hazards
 
@@ -1010,15 +1034,262 @@ is no longer at the front of this list.
 
 ---
 
-## 12. Building, running, packaging
+## 12. Fine-tuning: the case for, the case against, and the recipe
 
-### 12.1 Prerequisites
+Fine-tuning has been considered seriously, has a half-built data pipeline in
+the repository, and is **not being done**. This section records the whole
+argument, because "we decided not to train a model" is worth more written down
+than the decision to train one would have been.
+
+### 12.1 What fine-tuning would and would not fix
+
+It is worth being exact about the target, because most fine-tuning projects aim
+at something this app has already solved by other means.
+
+**It would not fix output format.** The usual reason small models get
+fine-tuned is to make them emit reliable JSON. Grammar-constrained decoding
+(§3.2) already makes malformed output *structurally impossible*, for zero
+training cost and with no risk of regression. The most common payoff is
+therefore unavailable here, which removes a large part of the usual case.
+
+**It would not add knowledge.** The model does not lack facts about email. It
+has read more email-shaped text in pre-training than this app will ever show
+it.
+
+**It would fix the decision boundary**, which is the one thing genuinely worth
+training. The hard judgement in this app is not parsing, it is:
+
+- Is this sentence a commitment *for the reader*, or for somebody else on the
+  thread, or for nobody?
+- Is this a task, or is it a status update phrased with a verb?
+- Does a message with no task in it return an empty list, confidently?
+
+That last one is the expensive failure. It is also the one a 3B model is
+weakest at, and the one that few-shot prompting improves least reliably.
+
+**It would probably fix deadline normalisation**, currently patched in code
+(`shared/deadline.ts`) because the schema can require a string but cannot
+require a *real* datetime. A model trained on well-formed deadlines would need
+less post-processing — though the post-processing is deterministic, tested and
+cheap, so this is a modest prize.
+
+### 12.2 Why it has not been done: two independent blockers
+
+Either one alone would be sufficient to stop it.
+
+**Blocker 1: there is no labelled data.** LoRA on a 3B model needs something in
+the range of 500 to 1000 in-domain examples before it reliably beats a
+well-written prompt, and meaningfully more before it beats prompting *plus*
+retrieval. The repository currently holds **14 hand-written examples carrying
+7 gold tasks** (§3.8). That is three orders of magnitude short, and it is not a
+labelling-effort problem: §10.2 established that the user's own inbox contains
+essentially no task-bearing mail, so the obvious source of in-domain training
+data does not exist to be labelled.
+
+**Blocker 2: 4 GB of VRAM runs this model but cannot train it.** These are very
+different requirements, and the gap is easy to underestimate:
+
+| Phase | What must be in VRAM | Rough cost for 3B |
+| --- | --- | --- |
+| Inference | 4-bit weights + KV cache | ~2 GB — **fits** |
+| QLoRA training | 4-bit frozen weights + LoRA adapters + adapter gradients + optimizer moments + activations retained for backprop | ~10–14 GB — **does not fit** |
+
+The frozen base is the *cheap* part. What overflows the card is the activation
+memory held for the backward pass, which scales with sequence length — and
+these sequences are long, since a prompt carries a full email plus up to five
+few-shot examples. Gradient checkpointing and a batch size of 1 would trade
+compute for memory, but not by the factor of three-plus needed here. Training
+must happen on rented hardware (§12.5).
+
+### 12.3 The Enron path: what actually exists
+
+`eval/prepare-enron.ts` is a complete, working sampler for the
+[Kaggle Enron dataset](https://www.kaggle.com/datasets/wcukierski/enron-email-dataset)
+— roughly 500,000 real corporate emails released into the public record by
+FERC after the collapse. It is more carefully built than a throwaway script,
+and the reasoning inside it survives whether or not Enron is ever used:
+
+- **Streaming CSV reassembly.** The dump is a two-column CSV whose `message`
+  field contains raw RFC-822 text with embedded newlines. Rows are rebuilt by
+  tracking quote parity across lines, so the 1.4 GB file is never loaded into
+  memory.
+- **Reservoir sampling**, keeping the pass single and memory flat across half a
+  million rows.
+- **A seeded PRNG** (`mulberry32`, default seed 42), so a given seed always
+  produces the same sample and two people can discuss "the same corpus".
+- **Stratified sampling, 60/40.** Messages matching an action hint go in one
+  bucket, everything else in the other, and the sample is deliberately padded
+  with **40% obvious non-tasks**. The reasoning is recorded in the file header:
+  a corpus drawn uniformly from 500k emails is mostly forwarded chaff, and
+  would flatter the model's precision without ever testing it.
+- **Length and noise filters:** bodies of 80–4000 characters, no `Fw:`
+  subjects.
+
+That 40% negative ratio is the detail that would carry directly into training.
+A model trained only on emails that contain tasks learns that *every* email
+contains a task, and the failure is invisible until it is in front of a user.
+
+**What does not exist is the labelling.** The script emits records with
+`goldTasks: []` and `notes: 'UNLABELLED'`, and the pipeline's final step —
+"fill in goldTasks by hand, then rename to `eval/corpus/enron-200.jsonl`" — was
+never carried out. The raw dump was never downloaded. Every number in this
+document comes from the 14 hand-written stand-ins.
+
+### 12.4 Why Enron would be a poor teacher for this app
+
+The data is available, public, free of privacy constraints, and 500,000
+messages deep. It is still probably the wrong training set, for one weak reason
+and one strong one.
+
+**The weak reason is domain shift**, which is nonetheless severe. Enron is 2001
+corporate energy-trading correspondence between colleagues inside one company.
+This app reads 2026 personal Gmail belonging to a student. The register,
+threading conventions, signature blocks, and — most importantly — *what counts
+as a commitment* all differ. "Can you get me the Q1 volumes by Thursday" from a
+managing director is a task in a way that shares very little structure with
+anything in the inbox measured in §10.2.
+
+**The strong reason is that the experiment has already been run, cheaply, and
+came back negative.** Conditioning the model on examples that did not resemble
+the user's mail produced exactly the predicted pathology: recall rose to 7/7
+while precision and empty-specificity both fell to 87.5% (§3.4). The model
+started finding tasks in messages that contained none, because it had been
+shown a world in which emails generally contain tasks.
+
+That was retrieval, and retrieval is **per-message, reversible, and switched
+off by deleting a row**. Fine-tuning is the same bias baked into the weights
+permanently. Spending money and a rented GPU to make a measured regression
+harder to undo is a poor trade, and this is the single most decisive argument
+in this section.
+
+**The one real advantage of Enron** is legal rather than technical: it is
+public record, so it can be uploaded to rented hardware with no privacy cost.
+The user's own mail cannot, which is the tension §12.7 has to resolve.
+
+### 12.5 The recipe, if it were done anyway
+
+Recorded concretely so the decision can be revisited without re-deriving it.
+
+**Method: QLoRA.** Full fine-tuning of 3B parameters is out of reach on any
+hardware worth renting for this. QLoRA freezes the base model at 4-bit NF4
+precision and trains small low-rank adapter matrices injected into the
+attention and MLP projections, computing in bf16. Trainable parameters drop
+from 3 billion to roughly 20–30 million.
+
+| Hyperparameter | Value | Reason |
+| --- | --- | --- |
+| Base | `Qwen2.5-3B-Instruct` (HF weights) | Must match the served model, not a different checkpoint |
+| Quantisation | 4-bit NF4, bf16 compute, double quant | Standard QLoRA configuration |
+| LoRA rank | 16 | 8 underfits a judgement task; 64 overfits at this data size |
+| LoRA alpha | 32 | Conventional 2× rank |
+| Dropout | 0.05 | Small dataset, real overfitting risk |
+| Target modules | `q,k,v,o,gate,up,down_proj` | Attention alone is measurably weaker for format-plus-judgement tasks |
+| Learning rate | 1e-4 to 2e-4, cosine, 3% warmup | Standard LoRA band |
+| Epochs | 2–3 | Beyond that it memorises a 1000-row set |
+| Batch | 1, with gradient accumulation to ~16 | Sequences are long |
+
+**Three details that decide whether it works at all:**
+
+1. **Mask the loss to the completion.** Compute loss only on the emitted JSON,
+   never on the system prompt and message. Training on the prompt spends model
+   capacity learning to reproduce instructions it will always be handed anyway,
+   and is the most common way this kind of run quietly underperforms.
+2. **The training prompt must be byte-identical to the production prompt**,
+   rendered from `prompts/taskExtraction.ts` through the same code path, using
+   Qwen's ChatML template exactly. Training against a paraphrase produces a
+   model tuned for a prompt that is never shipped.
+3. **Keep the negatives.** Roughly 40% of training rows must have
+   `{"tasks": []}` as their correct output, matching `prepare-enron.ts`
+   (§12.3).
+
+**Where it would run.** A 16 GB T4 on Colab's free tier is sufficient; a rented
+A10 or 4090 at roughly $0.30–0.50 per hour is more comfortable. A thousand
+examples for three epochs on a 3B model is well under an hour of compute, so
+the cash cost is negligible — the cost is entirely in labelling.
+
+**How it would ship.** Merge the adapter into the base weights, convert to GGUF
+with llama.cpp's conversion script, quantise to Q4_K_M, and register it with
+`ollama create ambientmind-extract -f Modelfile`. It then drops into the
+existing serving path **with no code change at all**, because the model id is
+already a configuration field (§5.3). That the deployment story is this cheap
+is a genuine point in favour of eventually doing it.
+
+### 12.6 How it would be judged, and one architectural catch
+
+**The bar.** It must beat the prompted baseline on the same harness, on a
+**held-out split that was never trained on**. Given §3.8, the corpus would have
+to grow substantially first, or the comparison is noise: at 14 messages a
+single flipped judgement moves F1 by roughly 12 points.
+
+**The catch, specific to this codebase.** The extraction model and the chat
+model are *the same model* — `config.ollamaModel` serves both §6.1 and §6.7.
+Fine-tuning hard on extraction risks degrading general conversational ability,
+and the chat panel's action selection is already the most fragile measured
+behaviour in the app, having needed deliberate prompt work to reach 10/10.
+
+There is no room to sidestep this by running two models: 2 GB each on a 4 GB
+card does not fit, and swapping models per call would mean paying a multi-second
+load on every chat turn. So a fine-tune must either preserve chat ability — a
+light touch, low rank, few epochs, and `eval/chatActions.ts` re-run as a
+regression gate — or the app must first be restructured around model swapping.
+Neither is free, and neither was obvious before writing this down.
+
+### 12.7 Verdict, and the path that actually leads there
+
+**Fine-tuning is the last lever, not the first**, and the cheaper levers are
+not yet exhausted. Prompt engineering took chat action selection from 6/10 to
+10/10 at zero training cost. Retrieval provides per-user adaptation online,
+with no training step, and can be undone by deleting a row. The binding
+constraint on quality today is labelled in-domain data, and fine-tuning does
+not produce data — it consumes it.
+
+**But the data problem is already being solved, quietly, by a feature built for
+another purpose.** The `decisions` table (§7.5) is a label generator that has
+been running since it shipped:
+
+| User action | Implicit label |
+| --- | --- |
+| Completes a task | This *was* a real task for me |
+| Deletes a task | This was **not** a task for me — a hard negative |
+| Edits a title | The correct title, against the model's attempt |
+| Dismisses a suggestion | This pattern is not a commitment |
+| Snoozes repeatedly | Real, but the deadline was wrong |
+
+This is in-domain, personally relevant, continuously accumulating supervision
+of exactly the kind Enron cannot provide — and deletions are *hard negatives*,
+which are the most valuable and most tedious rows to label by hand. Each one is
+paired with the `rawContext` that produced it, so a training row can be
+reconstructed without storing anything extra.
+
+That points at a real sequence, in order:
+
+1. Keep accumulating decisions. Nothing new is needed; this is already
+   happening.
+2. When a few hundred exist, build the exporter that turns them into training
+   rows, and measure the **prompted** model against them first. That alone may
+   close the gap and cost nothing.
+3. Only if a genuine gap remains, run §12.5 — on the user's own distribution,
+   not Enron's.
+
+**The unresolved tension** is that step 3 requires uploading the user's mail to
+a rented GPU, which contradicts the founding premise that the data never leaves
+the machine. Enron is attractive precisely because it has no such cost, and
+useless precisely because it is not this user's mail. The honest resolutions
+are: train locally once hardware allows, ask for explicit informed consent for
+a one-off upload, or never do it. **That question should be answered before any
+training runs, not after.**
+
+---
+
+## 13. Building, running, packaging
+
+### 13.1 Prerequisites
 
 - Node 20+
 - Ollama running, with `qwen2.5:3b` and `nomic-embed-text` pulled
 - A Google Cloud OAuth desktop client — see `docs/google-setup.md`
 
-### 12.2 Commands
+### 13.2 Commands
 
 ```powershell
 npm install          # postinstall rebuilds native modules for Electron
@@ -1039,7 +1310,7 @@ npm run sync:now
 npm run corpus:export -- --days=30 --limit=120
 ```
 
-### 12.3 Shortcuts
+### 13.3 Shortcuts
 
 | Shortcut | Action |
 | --- | --- |
@@ -1048,7 +1319,7 @@ npm run corpus:export -- --days=30 --limit=120
 | `Ctrl+Shift+C` | Ask about your tasks |
 | `Ctrl+Shift+,` | Settings |
 
-### 12.4 Packaging configuration
+### 13.4 Packaging configuration
 
 `electron-builder.yml` produces a **per-user** NSIS installer: no UAC prompt,
 and the app only ever writes to the profile it runs as. Uninstall deliberately
@@ -1057,7 +1328,7 @@ than the app's scratch space. See §10.3 for the two hazards.
 
 ---
 
-## 13. Repository map
+## 14. Repository map
 
 ```
 electron/             main, overlay, tray, quickAdd, settings, chat, preload
@@ -1086,12 +1357,15 @@ tesseract.js 7, electron-builder 26.
 
 ---
 
-## 14. Explicitly out of scope
+## 15. Explicitly out of scope
 
 Unless the brief changes:
 
-- **Fine-tuning Qwen on the user's life.** No labelled volume, no VRAM
-  headroom.
+- **Fine-tuning Qwen on the user's life — for now.** No labelled volume, no
+  VRAM headroom, and the cheap version of the experiment already regressed
+  precision. This is the one item on this list with a written path back:
+  §12 sets out the blockers, the full QLoRA recipe, and the conditions under
+  which the decision should be revisited.
 - **On-device neural reinforcement learning for prioritisation.** Wrong tool at
   this data scale; counting accepts and deletes is both sufficient and
   inspectable.
@@ -1100,7 +1374,7 @@ Unless the brief changes:
 
 ---
 
-## 15. Related documents
+## 16. Related documents
 
 - `docs/google-setup.md` — OAuth client, scopes, consent screen
 - `docs/voice.md` — the speech path and why Transformers.js
