@@ -1386,6 +1386,9 @@ Unless the brief changes:
 
 ## 16. Related documents
 
+- `docs/BACKLOG.md` — audited list of current problems, remaining features,
+  and the sequenced plan. This file explains the system; that one is the
+  working list of what to do about it.
 - `docs/google-setup.md` — OAuth client, scopes, consent screen
 - `docs/voice.md` — the speech path and why Transformers.js
 - `docs/screen-capture.md` — OCR versus a VLM, deadline normalisation
