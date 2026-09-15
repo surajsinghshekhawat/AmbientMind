@@ -27,6 +27,7 @@ Version 0.2.0. Last updated: 16 September 2026.
 14. [Repository map](#14-repository-map)
 15. [Explicitly out of scope](#15-explicitly-out-of-scope)
 16. [Related documents](#16-related-documents)
+17. [Appendix: the neural networks, in full detail](#17-appendix-the-neural-networks-in-full-detail)
 
 ---
 
@@ -102,6 +103,10 @@ in the code: the model id in `config.json`, the Whisper model id in
 Four separate models run in this app, none of them in the cloud. This section
 covers what each one is, how it is invoked, and — just as importantly — where
 a model is deliberately *not* used.
+
+**§17 is the deep version of this section**: architectures, tensor dimensions,
+the memory arithmetic behind every VRAM claim made here, and why several
+choices that look arbitrary are forced by the internals.
 
 ### 3.1 The language model: Qwen2.5 3B
 
@@ -915,6 +920,11 @@ timeout, and the overlay already repositions on `display-metrics-changed`,
 - A 3B ceiling on nuance and on messy relative dates.
 - RAG starts empty, and there is still no feedback loop on the stored few-shot
   *examples* — only on tasks.
+- **Embeddings are sent without nomic-embed's task prefixes.** The model
+  expects `search_document:` and `search_query:`; `embed()` sends raw text for
+  both. Usage is at least symmetric, so retrieval still ranks sensibly, but the
+  model is being run outside its trained input distribution and the fix is
+  cheap. See §17.5.
 - The chat panel keeps no transcript between windows. It sees past *decisions*,
   but closing the panel forgets the conversation.
 - No mobile client. Recurring rules reach a phone via Calendar; one-off tasks
@@ -1381,3 +1391,368 @@ Unless the brief changes:
 - `docs/screen-capture.md` — OCR versus a VLM, deadline normalisation
 - `eval/results/` — measured prompt experiments, including the weekday-header
   regression that cost 42 points of recall
+
+---
+
+## 17. Appendix: the neural networks, in full detail
+
+§3 covers what each model is *for* and how the app calls it. This appendix
+covers what they *are*: architectures, tensor dimensions, how a forward pass
+actually proceeds, where the memory goes, and why several apparently arbitrary
+design choices in this codebase are forced by the internals.
+
+Configuration figures are from each model's published config. Where a number
+drives a decision elsewhere in this document, the arithmetic is shown rather
+than asserted.
+
+### 17.1 The four networks at a glance
+
+| Model | Family | Params | Precision | Device | Runtime |
+| --- | --- | --- | --- | --- | --- |
+| Qwen2.5-3B-Instruct | Decoder-only transformer | 3.09 B | 4-bit (Q4_K_M) | GPU | Ollama / llama.cpp |
+| nomic-embed-text v1.5 | Bidirectional encoder (BERT-style) | 137 M | F16 | GPU | Ollama |
+| Whisper base.en | Encoder-decoder transformer | 74 M | INT8/F32 ONNX | **CPU** | Transformers.js / ORT |
+| Tesseract 5 | Bidirectional LSTM | ~2–3 M | F32 | **CPU** | WebAssembly |
+
+Roughly 3.3 billion parameters of neural computation run inside this app, and
+about 94% of it is the one language model. Everything else is small,
+specialised, and deliberately kept off the GPU.
+
+### 17.2 Qwen2.5-3B: architecture
+
+A decoder-only transformer — the same family as GPT and Llama. "Decoder-only"
+means a single stack with causal masking: every token attends to itself and
+everything before it, never forward.
+
+| Property | Value |
+| --- | --- |
+| Layers | 36 |
+| Hidden size (`d_model`) | 2048 |
+| Query heads | 16 |
+| Key/value heads | **2** (grouped-query attention) |
+| Head dimension | 128 |
+| MLP intermediate size | 11008 |
+| Vocabulary | 151,936 |
+| Max positions | 32,768 (the app uses 8,192) |
+| Position encoding | RoPE, θ = 1,000,000 |
+| Normalisation | RMSNorm, pre-norm |
+| MLP activation | SwiGLU |
+| Input/output embeddings | **Tied** |
+
+**One forward pass.** Text is tokenised by byte-level BPE into ids in
+`[0, 151936)`. Each id indexes a row of the embedding matrix, producing a
+2048-dimensional vector per token. That sequence then passes through 36
+identical blocks, each doing:
+
+1. RMSNorm — rescale by root-mean-square, no mean subtraction and no bias.
+   Cheaper than LayerNorm and empirically just as good at this scale.
+2. Grouped-query attention, with RoPE applied to Q and K.
+3. Residual add.
+4. RMSNorm again.
+5. SwiGLU MLP: project 2048 → 11008 twice, gate one projection by the SiLU of
+   the other, multiply elementwise, project 11008 → 2048.
+6. Residual add.
+
+After the final block, one more RMSNorm, then a projection to 151,936 logits —
+one score per vocabulary entry. Grammar masking (§17.4) is applied to those
+logits, and the highest-scoring survivor is chosen.
+
+**Grouped-query attention is the single most important number here.** Standard
+attention gives every query head its own key and value head. Qwen2.5-3B has 16
+query heads sharing just **2** key/value heads. Quality cost is small; the
+memory cost collapses, and on a 4 GB card that is decisive.
+
+The KV cache stores keys and values for every token generated so far, so
+attention does not recompute the whole prefix each step. Its size is:
+
+```
+bytes/token = 2 (K and V) × layers × kv_heads × head_dim × bytes_per_element
+            = 2 × 36 × 2 × 128 × 2          (fp16)
+            = 36,864 bytes  ≈ 36 KB per token
+```
+
+At the app's 8192-token context that is **~302 MB**. Without GQA — 16 KV heads
+instead of 2 — the same calculation gives 294 KB per token and **~2.4 GB** of
+cache. Weights plus cache would exceed the card before a single token was
+generated. GQA is why `num_ctx: 8192` is affordable at all.
+
+**Tied embeddings** are the other memory saving: the 151,936 × 2048 embedding
+matrix is reused as the output projection instead of storing a second copy.
+That is 311 million parameters not duplicated — around 150 MB at 4-bit, and
+about 5% of the model's total footprint.
+
+**RoPE** encodes position by rotating pairs of dimensions within Q and K by an
+angle proportional to absolute position. Because attention scores depend on the
+*difference* of two rotations, the mechanism sees relative position for free.
+The large θ of 1,000,000 stretches the lowest frequencies so that distant
+positions stay distinguishable, which is what makes the 32k context usable.
+
+**Quantisation: Q4_K_M.** Not a uniform 4 bits. The "K-quant" scheme splits
+each tensor into small blocks with their own scale and minimum, and the "_M"
+variant deliberately keeps certain tensors — notably the value projections and
+the second MLP projection — at higher precision, because those are measurably
+more sensitive to rounding. The effective average is around 4.5 bits per
+weight, giving roughly **1.9 GB** of weights from a model that would occupy
+6.2 GB at fp16.
+
+**The resident VRAM budget**, which explains several rules elsewhere:
+
+| Item | Size |
+| --- | --- |
+| Weights (Q4_K_M) | ~1.9 GB |
+| KV cache at 8192 context | ~0.3 GB |
+| Compute buffers and activations | ~0.3–0.5 GB |
+| **Language model total** | **~2.5–2.7 GB** |
+| nomic-embed-text at F16 | ~0.27 GB |
+| Windows desktop compositing | ~0.3–0.8 GB |
+| **Total against a 4 GB card** | **~3.1–3.8 GB** |
+
+There is no headroom. That is the whole reason extraction is strictly
+serialised (§6.1): a second concurrent generation would need its own KV cache
+and activation buffers, and would spill into system RAM, where the model runs
+roughly an order of magnitude slower. Two concurrent extractions would not be
+twice as fast — they would both be far slower than running them in sequence.
+
+### 17.3 Why generation has two phases, and what follows from it
+
+Inference is not one uniform process. It has two phases with completely
+different performance characteristics, and most of the app's tuning follows
+from the difference.
+
+**Prefill** processes the entire prompt at once. Every token is known upfront,
+so all 36 layers run as large matrix-matrix multiplications across the whole
+sequence in parallel. This phase is **compute-bound** and highly efficient.
+
+**Decode** generates output one token at a time. Each new token depends on the
+previous one, so no parallelism across the sequence is possible; every step
+reads all 1.9 GB of weights to produce a single token. This phase is
+**memory-bandwidth-bound**, and it is where essentially all the wall-clock time
+goes.
+
+Three practical consequences, all visible in the codebase:
+
+- **`num_predict: 800` bounds latency far more than prompt length does.**
+  Doubling the prompt costs a little more prefill; doubling the output roughly
+  doubles total time. This is why the output cap is a hard number and the
+  context is generous.
+- **`temperature: 0` means pure greedy argmax** — take the highest logit, no
+  sampling, no randomness. The same prompt yields byte-identical output every
+  run. Without this the eval harness (§3.8) would be measuring sampling noise
+  rather than prompt changes, and the weekday-header regression that cost 42
+  points of recall could never have been attributed with confidence.
+- **`top_p: 0.9` is inert at temperature 0** and is kept only as a guard
+  against someone later raising the temperature without thinking about it.
+
+### 17.4 Constrained decoding, at the tensor level
+
+§3.2 describes the effect. The mechanism is worth stating precisely because it
+is often misunderstood as validation.
+
+At every decode step the model produces 151,936 logits. Ollama compiles the
+supplied JSON Schema into a grammar and maintains a parser state alongside
+generation. Before sampling, it computes the set of tokens that could legally
+continue the document from the current state and sets every other logit to
+negative infinity. Softmax then assigns those tokens probability exactly zero.
+
+Two consequences follow, and they are the entire reason this technique is load
+bearing here:
+
+**It is structurally impossible to emit invalid output.** Not unlikely —
+impossible. There is no retry loop, no repair pass, no JSON parse guarded by a
+try/catch. If the schema says `priority` is one of four strings, no other
+string can be produced, because the tokens spelling it were masked before
+sampling.
+
+**It constrains syntax, never semantics.** The mask does not change the weights
+or what the model "believes"; it removes options. If the model's actual
+preference was an illegal continuation, it is pushed onto its best *legal*
+path, which may be one it assigned low probability. A confidently wrong,
+perfectly schema-valid task is entirely possible. Every deterministic guard in
+this app — deduplication, deadline normalisation, decision-based suppression,
+the four-action cap and similarity floor in chat — exists in the gap between
+"structurally valid" and "true".
+
+This is also why fine-tuning has less to offer here than usual (§12.1): the
+payoff most people seek from it is already guaranteed by construction.
+
+### 17.5 nomic-embed-text: a different kind of network
+
+The embedding model is **not** generative and is architecturally unlike Qwen.
+
+| Property | Value |
+| --- | --- |
+| Architecture | BERT-style bidirectional encoder |
+| Layers | 12 |
+| Hidden size | 768 |
+| Attention heads | 12 |
+| Max sequence | 8192 (rotary positions) |
+| Output | 768-d vector, mean-pooled, L2-normalised |
+| Parameters | 137 M |
+
+**Bidirectional, not causal.** There is no mask: every token attends to every
+other token in both directions. That is legitimate here because the goal is not
+to predict what comes next but to *represent the whole passage at once*.
+
+**Pooling.** Twelve layers produce one 768-d vector per token. Mean pooling
+averages them into a single passage vector, which is then L2-normalised to unit
+length. Normalisation is what makes distance comparisons meaningful, and it
+makes Euclidean distance and cosine similarity monotonically related — so
+`sqlite-vec`'s default L2 ordering and cosine ranking agree.
+
+**Contrastive training** is why the geometry means anything. The model was
+trained to pull genuinely related text pairs together and push unrelated pairs
+apart. Semantic similarity as spatial proximity is a *learned property*, not an
+automatic one — this is precisely what a raw language model's hidden states do
+not reliably give you.
+
+**A real gap in the current integration.** nomic-embed v1.5 was trained with
+task prefixes: documents to be stored should be embedded as
+`search_document: ...` and queries as `search_query: ...`. The app's `embed()`
+in `electron/services/ollama.ts` sends **raw text with no prefix** for both
+sides.
+
+The damage is limited because it is *symmetric* — stored examples and queries
+are embedded the same unprefixed way, so neighbours are still ranked sensibly
+and retrieval works. But the model is being used outside its trained input
+distribution, and the asymmetric document/query geometry it learned is going
+unused. Adding the prefixes is a small, cheap change that should improve
+few-shot retrieval quality, and it is worth measuring rather than assuming.
+Recorded here as a known deficiency rather than a plan.
+
+**Matryoshka representations.** v1.5 was trained so that truncating the vector
+to 512, 256 or 128 dimensions degrades quality gracefully, which would allow a
+storage/quality trade. This app does not use it: migration 002 fixes the `vec0`
+column at 768 dimensions, so changing it means a migration, not a config
+change.
+
+### 17.6 Whisper: sequence-to-sequence over audio
+
+Whisper is an **encoder-decoder** transformer, the only model in the app with
+that shape. The encoder reads audio; the decoder writes text while attending to
+what the encoder saw.
+
+| | tiny.en | base.en (default) | small.en |
+| --- | --- | --- | --- |
+| Parameters | 39 M | 74 M | 244 M |
+| Encoder/decoder layers | 4 / 4 | 6 / 6 | 12 / 12 |
+| Width (`d_model`) | 384 | 512 | 768 |
+| Attention heads | 6 | 8 | 12 |
+
+**The audio front end** is fixed and worth following precisely, because one of
+its properties has a direct effect on latency:
+
+1. Input is mono 16 kHz float32 PCM — resampled in the renderer (§3.5) because
+   this is exactly what the model expects.
+2. A short-time Fourier transform with a 25 ms window and a 10 ms hop gives
+   100 frames per second.
+3. Frequencies are mapped onto **80 mel bins**, a perceptually spaced scale,
+   and log-compressed.
+4. The result is padded or trimmed to exactly **30 seconds** — 3000 frames.
+5. Two 1-D convolutions, the second with stride 2, halve the time axis to
+   **1500 encoder positions**.
+
+**Step 4 is the one with consequences.** Whisper always processes a 30-second
+window. A two-second "remind me to call the bank tomorrow" is zero-padded to
+thirty seconds and costs the *same* encoder pass as a full half-minute of
+speech. Transcription latency is therefore essentially constant regardless of
+how briefly the user spoke, which is why the QuickAdd flow can be designed
+around a predictable delay rather than a variable one.
+
+**The encoder** applies bidirectional self-attention over those 1500 positions
+with sinusoidal position encodings. **The decoder** is autoregressive with both
+causal self-attention and *cross-attention* into the encoder output — the
+mechanism by which text generation is conditioned on sound. It is primed with
+special tokens (`<|startoftranscript|>`, `<|en|>`, `<|transcribe|>`,
+`<|notimestamps|>`) and emits BPE text tokens until `<|endoftext|>`.
+
+**Why it hallucinates on silence, and why §3.5's energy gate is the right
+fix.** The decoder is a language model conditioned on audio. Trained on 680,000
+hours of weakly aligned web audio — much of it subtitled video — it learned
+strong textual priors. When the audio carries no speech, cross-attention
+supplies nothing to override those priors, and the language model prior wins,
+producing whatever commonly fills silence in the training data: "Thank you.",
+"Thanks for watching!", subtitle credits. The model is doing exactly what it
+was trained to do. No prompt can reliably suppress it, because the failure is
+upstream of any instruction. A mean-amplitude check before invoking the model
+sidesteps the problem entirely, which is why a crude energy threshold beats a
+sophisticated prompt here.
+
+**Execution.** The ONNX export runs on the CPU through `onnxruntime-node`. This
+is the deliberate choice from §2: it costs seconds of latency and **zero VRAM**,
+leaving the whole card to the language model. Moving Whisper to the GPU would
+make it faster and would make extraction worse.
+
+### 17.7 Tesseract: the one recurrent network
+
+Tesseract is the odd one out — not a transformer, and older in lineage, but
+genuinely neural since version 4 replaced the classic pattern-matching engine
+with an LSTM recogniser.
+
+**LSTM** (Long Short-Term Memory) is a recurrent network: it processes a
+sequence one step at a time while carrying a hidden state forward, with learned
+gates controlling what to keep, forget and output. Before transformers, this
+was the standard answer to sequence modelling.
+
+**The pipeline:**
+
+1. Layout analysis segments the page image into text lines.
+2. Each line is normalised to a fixed height (~36 px) and treated as a sequence
+   of thin vertical slices scanned left to right.
+3. A **bidirectional** LSTM runs over those slices in both directions — forward
+   and backward passes are concatenated, because character identity genuinely
+   depends on both sides. An `l` versus a `1` is often only resolvable from
+   surrounding letters.
+4. Each time step emits a distribution over characters plus a blank symbol.
+5. A CTC-style collapse merges repeats and drops blanks to produce final text,
+   which is what allows the network to be trained without knowing in advance
+   which slice corresponds to which character.
+
+**What it fundamentally cannot do.** Tesseract recognises *glyphs*. It has no
+concept of a button, a heading, a menu, or which part of the screen the user
+cares about. It returns a flat stream of text with no notion of meaning or
+salience.
+
+That limitation is the direct cause of the heuristics in §3.6 — dropping lines
+under three characters, and lines where fewer than half the characters are
+letters. Toolbars, icon rows and window chrome OCR into punctuation soup that a
+scene-understanding model would simply ignore. The network supplies characters;
+structure has to be reconstructed downstream by ordinary code and then handed
+to Qwen. A vision-language model would collapse steps 1–5 and the denoising
+into a single pass, and needs roughly 3.2 GB of VRAM to do it (§2).
+
+### 17.8 Where the neural networks stop
+
+Worth restating in this context, because the boundary is a design position
+rather than an accident (§3.7). These subsystems could plausibly have been
+modelled and are deliberately plain code:
+
+| Subsystem | Implementation | Why not a model |
+| --- | --- | --- |
+| Recurrence parsing | Regular expressions | A wrong recurrence repeats forever |
+| Habit detection | Fixed threshold: 3 weeks, same weekday, ±90 min | Predictability beats sophistication at this data scale |
+| Clash resolution | Fixed decision ladder | Advice that changes between identical runs is not advice |
+| Calendar → task | Arithmetic | The input is already structured |
+| Decision matching | Dice similarity on titles | Must work with the embedding model down; must be testable |
+| Deduplication | Dice ≥ 0.72 plus a 24 h window | Same |
+| Urgency ordering | Derived from the clock | Must never be stale or surprising |
+
+The rule the whole system follows: **neural networks are used to understand
+unstructured human input — prose, speech, pixels. Everything downstream of that
+understanding is arithmetic.** Each of the four models sits at an input
+boundary, converting something unstructured into something typed, after which
+ordinary testable code takes over.
+
+### 17.9 Total budget
+
+| Model | Device | Memory | Resident |
+| --- | --- | --- | --- |
+| Qwen2.5-3B | GPU | ~2.5–2.7 GB | While Ollama keeps it loaded |
+| nomic-embed-text | GPU | ~0.27 GB | During sync only |
+| Whisper base.en | CPU RAM | ~150 MB | Warmed at launch, kept |
+| Tesseract | CPU RAM | ~30 MB | One cached worker per session |
+
+The GPU total is the binding constraint and the reason for nearly every
+substitution in §2. The CPU models are small enough to stay resident
+permanently, which is why both are warmed once and cached rather than loaded
+per use — for Whisper in particular, a cold load is several seconds and would
+land squarely in the middle of the user trying to speak.
