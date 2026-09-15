@@ -1,702 +1,1109 @@
 # AmbientMind — System document
 
-This file is the long-form record of the project: what the system is, what has
-been built, how and why those choices were made, what was rejected, what still
-hurts, and what is planned next. Short how-tos for Google, voice, and screen
-capture live in the other files under `docs/`.
+The long-form record of the project: what the system is, every part it is built
+from, how each part works, why it was chosen, what was rejected, what it costs,
+what has been measured, and what is planned. Short how-tos for Google, voice
+and screen capture live alongside this file under `docs/`.
 
-Last updated: 9 September 2026.
+Version 0.2.0. Last updated: 16 September 2026.
+
+---
+
+## Table of contents
+
+1. [What this product is](#1-what-this-product-is)
+2. [Hardware, and what it forced](#2-hardware-and-what-it-forced)
+3. [The machine-learning stack, in detail](#3-the-machine-learning-stack-in-detail)
+4. [Architecture](#4-architecture)
+5. [Data model](#5-data-model)
+6. [The pipelines](#6-the-pipelines)
+7. [Complete feature inventory](#7-complete-feature-inventory)
+8. [Design decisions: why, alternatives, drawbacks](#8-design-decisions-why-alternatives-drawbacks)
+9. [Failure modes that were real](#9-failure-modes-that-were-real)
+10. [Known limitations](#10-known-limitations)
+11. [What is planned](#11-what-is-planned)
+12. [Building, running, packaging](#12-building-running-packaging)
+13. [Repository map](#13-repository-map)
+14. [Explicitly out of scope](#14-explicitly-out-of-scope)
 
 ---
 
 ## 1. What this product is
 
 AmbientMind is a **Windows desktop overlay** that keeps a short, urgency-sorted
-todo list on screen at all times. The list is meant to fill itself: a local
-language model reads Gmail and Google Calendar, extracts only the things *you*
-have to do, and writes them into a local SQLite database. You can also add
-tasks by typing, by speaking, or by asking the app to read whatever is on
-screen.
+todo list on screen at all times. The list is meant to fill *itself*: a local
+language model reads Gmail and Google Calendar, extracts only the things the
+user personally has to do, and writes them into a local SQLite database. Tasks
+can also arrive by typing, by speaking, by asking the app to read whatever is
+on screen, or from recurring rules.
 
-Design goals that have not changed:
+It sits collapsed as a small circle in a corner of the screen and expands into
+the full list when clicked.
 
-- **Zero extra destination.** The list sits on the desktop. You should not have
-  to open another productivity app to know what is due.
-- **Local by default.** Extraction, embeddings, speech-to-text, and OCR run on
-  this machine. Mail and calendar still go to Google because that is where the
-  data lives; bodies are not sent to a cloud LLM.
-- **Ambient, not demanding.** Click-through overlay, no dock presence, tray
-  resident. It should not steal focus from whatever you are typing.
+### 1.1 Design goals
 
-The original write-up asked for the list to sit *above the wallpaper and below
-apps*, and also to be clickable. On Windows those two things cannot both be
-true. The implemented compromise is documented in §4.1.
+- **Zero extra destination.** The list lives on the desktop. You should not
+  have to open another productivity app to know what is due.
+- **Local by default.** Extraction, embeddings, speech-to-text and OCR all run
+  on this machine. Mail and calendar come from Google because that is where the
+  data already is, but message bodies are never sent to a cloud language model.
+- **Ambient, not demanding.** Click-through overlay, no taskbar presence, tray
+  resident. It must not steal focus from whatever is being typed.
+- **Never lie.** An empty list should say *why* it is empty. A wrong action is
+  worse than no action. Anything the app learns should be inspectable and
+  reversible.
 
----
+### 1.2 The one goal that could not be met literally
 
-## 2. Hardware and why it dictates the stack
-
-The development machine is the binding constraint, not a footnote:
-
-- ~8 GB system RAM
-- GTX 1650, 4 GB VRAM
-- i7-10750H
-
-**Llama 3.1 8B** (the original spec) does not fit in 4 GB of VRAM at a usable
-quantisation. It would spill into system RAM that is already shared with
-Windows and Electron (a full Chromium). The live model is **Qwen2.5 3B** via
-Ollama (`qwen2.5:3b`). Embeddings use **nomic-embed-text** (768 dimensions).
-
-Speech uses **Whisper** through Transformers.js (ONNX), not a native
-whisper.cpp build. The size is a setting — tiny (~75 MB), base (~145 MB,
-default) or small (~480 MB). All three run on CPU, so this trades seconds of
-latency against accuracy and does not compete with the 3B model for VRAM; tiny
-was the old default and is visibly weak on accented English. Screen understanding uses **Tesseract**
-(`tesseract.js`), not a vision-language model. Both of those substitutions are
-VRAM decisions, not quality decisions. They are reversible if the machine
-changes; the swap points are named in the code (`readScreenText`, the Whisper
-model id in `electron/services/speech.ts`).
+The original brief asked for the list to sit *above the wallpaper and below
+applications*, and also to be clickable. On Windows those two things cannot
+both be true — see §8.1. The implemented compromise is always-on-top plus
+click-through.
 
 ---
 
-## 3. How the system is put together
+## 2. Hardware, and what it forced
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Renderers (Chromium, isolated)                                 │
-│  overlay  │  quickadd  │  settings                              │
-│  React + Tailwind. No Node. Talks only through preload IPC.     │
-└───────────────┬─────────────────────────────────────────────────┘
-                │ contextBridge `window.ambient`
-┌───────────────▼─────────────────────────────────────────────────┐
-│  Electron main process                                          │
-│  overlay window, tray, global shortcuts, OAuth loopback server  │
-│  sync scheduler, task store, Ollama client, Whisper, Tesseract  │
-└───────┬────────────┬─────────────┬──────────────┬───────────────┘
-        │            │             │              │
-        ▼            ▼             ▼              ▼
-   SQLite +      Ollama        Google APIs    OS APIs
-   sqlite-vec    localhost     Gmail +        safeStorage (DPAPI),
-   %APPDATA%     11434         Calendar       desktopCapturer, mic
-```
+The development machine is the binding constraint on nearly every technical
+decision in this document, so it belongs near the front rather than in a
+footnote:
 
-### 3.1 Processes and windows
-
-| Surface | Role |
+| Component | Spec |
 | --- | --- |
-| **Overlay** | Always-on-top, transparent, click-through until the cursor is over a control. Full-height list on the configured corner. |
-| **QuickAdd** | `Ctrl+Shift+A`. Palette for typed or spoken add. Mic starts on open; 3 s of silence after speech stops recording. |
-| **Settings** | `Ctrl+Shift+,` or ⚙. Google connect, corner, sync interval, model name. |
-| **Tray** | Hide/show overlay, Google, Sync now, start at login, quit. No main window, so closing overlay must not quit the app. |
+| System RAM | ~8 GB |
+| GPU | NVIDIA GTX 1650, **4 GB VRAM** |
+| CPU | Intel i7-10750H (6 cores, 12 threads) |
+| OS | Windows 11 |
 
-The overlay uses `setIgnoreMouseEvents(true, { forward: true })` so the desktop
-stays usable. The renderer hit-tests `data-ambient-interactive` on mousemove
-and asks main to enable capture only while hovering a real control. That is
-why empty transparent space does not eat clicks.
+Three consequences follow, and each one is a substitution rather than a
+preference:
 
-### 3.2 Data on disk
+1. **Llama 3.1 8B**, the model in the original spec, does not fit in 4 GB of
+   VRAM at any usable quantisation. It would spill into system RAM that is
+   already shared with Windows and Electron, which is a full Chromium. The live
+   model is **Qwen2.5 3B**.
+2. **Speech-to-text runs on the CPU**, not the GPU, so it never competes with
+   the language model for VRAM.
+3. **Screen understanding uses OCR, not a vision-language model.** A capable
+   VLM needs roughly 3.2 GB of VRAM, which would evict the extraction model on
+   every single capture.
 
-All under `%APPDATA%\ambientmind\` (not the generic Electron folder):
+All three are reversible if the machine changes, and the swap points are named
+in the code: the model id in `config.json`, the Whisper model id in
+`electron/services/speech.ts`, and `readScreenText` in
+`electron/services/screenContext.ts`.
+
+---
+
+## 3. The machine-learning stack, in detail
+
+Four separate models run in this app, none of them in the cloud. This section
+covers what each one is, how it is invoked, and — just as importantly — where
+a model is deliberately *not* used.
+
+### 3.1 The language model: Qwen2.5 3B
+
+**What it is.** Qwen2.5 3B Instruct, a decoder-only transformer in the same
+architectural family as GPT and Llama: stacked self-attention and feed-forward
+blocks, rotary position embeddings, grouped-query attention, trained for
+instruction following. "3B" is the parameter count, roughly three billion
+weights.
+
+**How it is served.** Through [Ollama](https://ollama.com) on
+`http://localhost:11434`, as the tag `qwen2.5:3b`. Ollama applies a 4-bit
+quantisation by default, which brings the weights down to roughly 2 GB — the
+number that actually matters on a 4 GB card, since the KV cache and the
+context window need room too. Quantisation means the weights are stored at
+reduced numeric precision rather than 16-bit floats; it costs a little accuracy
+and buys the ability to run at all.
+
+**Why Ollama rather than embedding a runtime.** Ollama is a separate process
+with its own lifecycle, model cache and GPU management. The alternative —
+linking llama.cpp into Electron directly — means compiling a native addon
+against Electron's Node ABI, which this project already fought over
+`better-sqlite3`. Ollama also lets the model be swapped from a text field in
+Settings without rebuilding anything. The cost is a hard dependency on an
+external service, which is precisely why the health check in §7.3 exists.
+
+**Inference settings**, identical everywhere the model is called:
+
+| Setting | Value | Reason |
+| --- | --- | --- |
+| `temperature` | `0` | Extraction is a parsing task, not a creative one. The same email must produce the same tasks on every run, or the eval harness measures noise. |
+| `top_p` | `0.9` | Belt and braces; at temperature 0 it barely matters. |
+| `num_ctx` | `8192` | Context window. Large enough for a long email plus five few-shot examples plus the system prompt. |
+| `num_predict` | `800` | Output cap. A runaway generation is bounded rather than hoped against. |
+| `stream` | `false` | Nothing here renders token-by-token, and a non-streamed call is simpler to time out. |
+| timeout | 120 s | A stalled model must not wedge the sync loop forever. |
+
+### 3.2 Grammar-constrained decoding
+
+This is the single most important technique in the app, and it is worth
+explaining properly.
+
+**The problem.** A 3B model asked to "reply with JSON" will usually comply and
+occasionally not: a trailing comma, a missing brace, a stray sentence before
+the opening `{`, an enum value that was not on the list. At that size the
+failure rate is high enough to matter on every pass.
+
+**The mechanism.** Every call passes a JSON Schema in Ollama's `format`
+parameter. Ollama compiles that schema into a *grammar* and applies it during
+decoding: at each step, tokens that could not continue a valid document are
+masked out before sampling. The model is not asked to produce valid JSON and
+checked afterwards — it is made structurally incapable of producing anything
+else. A field declared `enum: ['low','medium','high','urgent']` cannot come
+back as `"Medium-High"`.
+
+**What it does not fix.** The grammar constrains *shape*, never *truth*. A
+schema-valid task can still be a hallucination, a wrong deadline, or a
+misreading of who is being asked to do what. Everything in §3.7 exists because
+of that gap.
+
+**The four schemas:**
+
+| Prompt | Schema shape | Purpose |
+| --- | --- | --- |
+| `taskExtraction` | `{ tasks: [{ title, deadline, priority, people, confidence }] }` | Mail → zero or more tasks |
+| `taskEnrichment` | `{ title, deadline, priority, people }` | One typed or spoken line → a structured task |
+| `screenTask` | single task object | One screenshot → at most one task |
+| `chat` | `{ action, query?, title?, deadline?, priority?, until?, weekdays?, time?, reply }` | One conversational turn → one action plus a human reply |
+
+`deadline` is declared as `anyOf: [string, null]`, which is what lets the model
+say "there is no deadline here" rather than inventing one to satisfy the type.
+
+### 3.3 Prompt architecture
+
+Prompts are TypeScript modules under `prompts/`, not text files. One source is
+shared by the bundled app and by the `tsx` eval harness, so what is measured is
+exactly what ships.
+
+Each prompt is assembled from named blocks:
+
+- **Identity.** Who the user is. This turned out to be load-bearing: the model
+  needs to know it is reading *Suraj's* mail to decide whether "can you send
+  this over?" is addressed to him. Identity uses an explicit display name from
+  Settings, falling back to the OS username — never the Gmail local part.
+  Extracting as `firstnamelastname08` made the model miss messages opening
+  "Hi Suraj".
+- **About-me block.** Optional free text describing the user's life, injected
+  into the **system** prompt beside the identity. Labelled as background that
+  must never itself become a task. When the field is empty it contributes
+  exactly zero characters, which `eval/aboutMe.test.ts` pins.
+- **Current time.** Formatted locally, so relative deadlines have an anchor.
+- **Few-shot block.** Up to five retrieved prior extractions (§3.4). Empty
+  store means zero-shot.
+- **The message.**
+
+**A measured negative result worth preserving.** Extra context in the *message*
+block, rather than the system prompt, actively hurts. Including weekday names
+from email `Date:` headers dropped recall from 71% to 29% on the seed corpus —
+the boilerplate crowded out the actual body. This is why the about-me profile
+goes in the system prompt and why quoted reply chains are stripped before the
+model sees anything.
+
+### 3.4 Embeddings and retrieval (RAG)
+
+**The model.** `nomic-embed-text` via Ollama, producing **768-dimensional**
+vectors. An embedding model is not generative: it maps a passage of text to a
+fixed-length vector positioned so that semantically similar passages land near
+each other.
+
+**The store.** `sqlite-vec`, a SQLite extension that adds a `vec0` virtual
+table, living in the *same database file* as everything else. Migration 002
+declares `example_vectors` with a 768-wide float column, which must match
+`EMBEDDING_DIM` in `vectorStore.ts` or inserts are rejected.
+
+**The query.** Nearest-neighbour search is expressed in plain SQL:
+
+```sql
+SELECT e.id, e.message, e.tasks, v.distance
+  FROM example_vectors v
+  JOIN examples e ON e.id = v.rowid
+ WHERE v.embedding MATCH ? AND k = ?
+ ORDER BY v.distance
+```
+
+`sqlite-vec` scans every stored vector rather than building an approximate
+index. At the scale this app will ever reach — hundreds to low thousands of
+examples — a brute-force scan is faster than maintaining an ANN index, and it
+is exact.
+
+**The loop.** On each Gmail message: embed it, retrieve up to five nearest past
+extractions, render them as few-shot examples, extract, then store *this*
+message and its extraction as a new example. The corpus grows into the shape of
+the user's own mail.
+
+**A sharp edge worth recording.** Vector rowids must be bound as JavaScript
+`BigInt`. `better-sqlite3` passes plain numbers as doubles and `vec0` rejects a
+non-integer primary key, with an error that does not obviously say so.
+
+**A measured decision.** Seeding the store with Enron examples *hurt* accuracy
+when those examples did not resemble the user's mail. Production therefore
+ships with an **empty** store: zero-shot until the user's own mail has been
+read. The cost is that the first weeks have no few-shots at all.
+
+### 3.5 Speech recognition: Whisper
+
+**What it is.** OpenAI's Whisper, an encoder-decoder transformer trained on
+audio paired with transcripts. The encoder consumes a log-Mel spectrogram; the
+decoder emits text tokens. The `.en` variants are English-only and are more
+accurate than the multilingual models of the same size for English speech.
+
+**How it runs.** Through `@xenova/transformers` (Transformers.js), executing an
+ONNX export on the **CPU** via `onnxruntime-node`. No Python, no CUDA, no
+native compilation step.
+
+**The size is a user setting**, defaulting to base:
+
+| Model | Parameters | Download | Character |
+| --- | --- | --- | --- |
+| `whisper-tiny.en` | 39 M | ~75 MB | Fastest, visibly weak on accented English |
+| `whisper-base.en` | 74 M | ~145 MB | **Default.** The right balance on this machine |
+| `whisper-small.en` | 244 M | ~480 MB | Most accurate, noticeably slower |
+
+Because all three run on the CPU, the choice trades seconds of transcription
+latency against accuracy and **does not compete with the 3B model for VRAM**.
+That is the reason tiny was the wrong default: it was chosen as if it were
+saving a scarce resource that it was not actually using.
+
+**Audio path.** The renderer captures microphone audio, downmixes to mono and
+resamples to **16 kHz float32 PCM** — Whisper's expected input — and passes an
+`ArrayBuffer` over IPC. The main process never touches the microphone.
+
+**Silence gating.** Before transcription, a cheap mean-amplitude check rejects
+near-silent buffers. Whisper hallucinates confidently on silence, typically
+producing "Thank you." or a YouTube sign-off, and an energy gate is a more
+reliable filter than any prompt.
+
+**Why not whisper.cpp.** A native addon compiled against Electron's ABI, which
+is the same class of pain as `better-sqlite3`. Transformers.js downloads a
+model once and runs in-process with no build step. The cost is a slow first
+load, which is hidden by warming the model shortly after launch.
+
+### 3.6 OCR: Tesseract
+
+**What it is.** Tesseract 5 via `tesseract.js`, a WebAssembly build. Modern
+Tesseract is itself a neural recogniser — an LSTM over image line strips — not
+the older pattern-matching engine, though it is a text recogniser and not a
+scene-understanding model.
+
+**The pipeline.** `desktopCapturer` grabs the display at native resolution
+(thumbnails are downscaled by default and unreadable to OCR), Tesseract returns
+raw text, a denoise pass drops lines shorter than three characters or with
+fewer than half their characters being letters — toolbars and icon rows OCR
+into punctuation soup — and the surviving text, capped at 6000 characters, goes
+to the language model with the one-task schema.
+
+The worker is created once per session and cached under `userData/tesseract`;
+without an explicit `cachePath`, `tesseract.js` writes into the process working
+directory.
+
+### 3.7 Where a neural network is deliberately not used
+
+This is a design position, not an omission. Four subsystems that could
+plausibly have been handed to the model are written as ordinary code instead,
+and each has the same justification: **a small model's mistakes are
+unpredictable, and in these particular places a mistake is expensive or
+invisible.**
+
+**Recurrence parsing** (`shared/recurrence.ts`). "Tuition Tue, Thu, Sat at 5pm"
+is turned into a rule by regular expressions. A one-off task extracted wrongly
+is a nuisance you delete; a *recurrence* extracted wrongly repeats forever
+until you hunt it down. Regexes are also faster and byte-identical between
+runs. The cost is coverage — phrasings outside the grammar fall through to
+being a normal one-off task, which is the safe direction to fail.
+
+**Recurrence detection** (`shared/recurrenceDetect.ts`). Deciding that
+something is a habit is a threshold, not a learner: the same fuzzy-matched
+title on the same weekday across three distinct weeks, with the time of day
+varying by at most 90 minutes. With a handful of rows, predictability beats
+sophistication, and every detection is raised as a *question* rather than
+applied.
+
+**Clash resolution** (`shared/clash.ts`). When two tasks collide, the app says
+which to do first using a fixed ladder: a clearly earlier deadline wins; inside
+15 minutes priority decides; on a genuine tie a standing commitment beats an
+ad-hoc task, because other people have arranged themselves around it;
+otherwise, whatever was committed to first. Advice that changes its wording or
+flips its verdict between identical runs is not advice.
+
+**Calendar events** (`integrations/gcalendar.ts`). Calendar entries are already
+structured, so they are converted to tasks arithmetically. Spending a
+generation call to turn "Call with Sarah at 3pm" into a prep task would be
+slower *and* less reliable than the rule.
+
+**Decision matching** (`shared/decisions.ts`) also avoids embeddings, using the
+same fuzzy title rule as recurrence detection, for two reasons: it must keep
+working when the embedding model is unavailable, and it is testable without a
+running Ollama.
+
+The boundary is consistent: **the model is used for understanding unstructured
+human prose. Everything downstream of that is arithmetic.**
+
+### 3.8 How quality is measured
+
+- `npm test` — 85 unit tests over the deterministic logic (recurrence parsing
+  and detection, clash resolution, deduplication, deadline normalisation,
+  snooze arithmetic, decision memory, retry policy, calendar event shaping,
+  voice intent, scoring).
+- `npm run eval` — the extraction harness. Reports precision, recall, F1,
+  empty-specificity (does it correctly return *nothing* for mail with no task)
+  and deadline accuracy against a labelled corpus.
+- `npx tsx eval/chatActions.ts` — runs the chat prompt against the **real**
+  model with ten scripted messages and checks which action it chose. This
+  exists because the risk in chat is not the wiring but the model's judgement.
+- `npm run check:migration` — applies pending migrations to a **copy** of the
+  live database and reports whether the data survived.
+
+**Measured results so far:**
+
+| Measurement | Result | Caveat |
+| --- | --- | --- |
+| Extraction F1 | ~83% | 14-message Enron seed corpus |
+| Extraction precision | 100% | Same tiny corpus |
+| Deadline accuracy | 60% | Only 5 matched pairs; mostly noise |
+| Chat action selection | 10/10 | Was 6/10 before worked examples were added |
+| Real-mail precision | No false positives on 13 messages | See §10.2 |
+
+---
+
+## 4. Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Renderers (Chromium, context-isolated, no Node)                 │
+│  overlay   │   quickadd   │   settings   │   chat                │
+│  React 19 + Tailwind 4. Talk only through the preload bridge.    │
+└───────────────┬──────────────────────────────────────────────────┘
+                │  contextBridge: window.ambient
+┌───────────────▼──────────────────────────────────────────────────┐
+│  Electron main process (Node)                                    │
+│  windows · tray · global shortcuts · OAuth loopback server       │
+│  sync scheduler · task store · rule engine · decision memory     │
+│  Ollama client · Whisper · Tesseract · power & display events    │
+└───┬──────────────┬───────────────┬──────────────┬────────────────┘
+    │              │               │              │
+    ▼              ▼               ▼              ▼
+SQLite +        Ollama         Google APIs     OS APIs
+sqlite-vec      localhost      Gmail,          safeStorage/DPAPI,
+%APPDATA%       :11434         Calendar        desktopCapturer, mic
+```
+
+### 4.1 Windows
+
+| Surface | Trigger | Behaviour |
+| --- | --- | --- |
+| **Overlay** | Always present | Starts as a ~70 px circle in the configured corner. Click expands to the full-height list. Transparent, always-on-top, click-through except over real controls. |
+| **QuickAdd** | `Ctrl+Shift+A` | Palette for typed or spoken capture. Mic opens with the window; three seconds of silence after speech ends recording and submits. |
+| **Settings** | `Ctrl+Shift+,`, tray, or the gear | Google connection, models, profile, recurring rules, health, learned suppressions, corpus export. |
+| **Chat** | `Ctrl+Shift+C`, tray, or the overlay header | Conversational panel that can both answer about and modify the list. |
+| **Tray** | Always | Show/hide, sync now, chat, settings, quit. There is no main window, so closing the overlay must never quit the process. |
+
+### 4.2 The click-through mechanism
+
+The overlay calls `setIgnoreMouseEvents(true, { forward: true })`, which makes
+the window transparent to the mouse while still receiving move events. The
+renderer hit-tests `data-ambient-interactive` on every mousemove and asks main
+to enable capture only while the cursor is genuinely over a control. That is
+why empty transparent space does not swallow clicks on the desktop behind it.
+
+The collapsed orb is the exception: it always accepts clicks, since a
+click-through orb cannot be opened.
+
+### 4.3 Windows 11 transparency
+
+A transparent frameless window on Windows 11 draws a grey DWM plate and
+sometimes caption buttons behind custom-shaped content. Suppressing that took
+a combination of measures, all of which are load-bearing:
+
+- `thickFrame: false`, `roundedCorners: false`, `backgroundMaterial: 'none'`,
+  `backgroundColor: '#00000000'`, `titleBarStyle: 'hidden'`, `type: 'toolbar'`
+- command-line switches `enable-transparent-visuals` and
+  `disable-features=EnableTransparentHwndEnlargement`
+- `BrowserWindow.setShape()` clipping the window to the circle while collapsed
+- an `overlay-window` class on `<html>` forcing a truly transparent document
+
+### 4.4 The IPC contract
+
+Every channel name lives in `shared/ipc.ts`, imported by both sides, so main
+and renderer cannot drift apart. Renderers have `nodeIntegration: false` and
+`contextIsolation: true`; the only surface they can reach is the `window.ambient`
+object built in `electron/preload.ts`.
+
+Channel groups: tasks (get/add/complete/delete/update/snooze, plus a pushed
+`TasksChanged`), overlay (mouse capture, expand state), config, accounts,
+sync, rules, suggestions, chat, health, learned suppressions, corpus export,
+quick-add, and speech transcription.
+
+A production-only Content Security Policy is applied as a response header
+rather than a meta tag, so the dev server's HMR websocket is not blocked during
+development.
+
+---
+
+## 5. Data model
+
+Everything lives under `%APPDATA%\ambientmind\`, not the generic Electron
+folder:
 
 | File | Contents |
 | --- | --- |
-| `ambientmind.db` | Tasks, RAG examples + vectors, processed message ids, sync cursors. WAL mode. |
-| `config.json` | Overlay corner, max visible, sync interval, model ids, display name, about-me profile. |
-| `corpus-*.jsonl` | Optional export of your own mail for accuracy measurement (§4.10). |
-| `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (DPAPI). |
+| `ambientmind.db` | Tasks, RAG examples and vectors, processed message ids, sync cursors, rules, suggestions, decisions. WAL mode. |
+| `config.json` | All user preferences (§5.3). |
+| `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (DPAPI on Windows). |
 | `google-credentials.json` | Desktop OAuth client JSON from Google Cloud Console. |
-| `whisper/` | Cached ONNX + tokenizer for the selected Whisper size. |
+| `corpus-*.jsonl` | Optional export of the user's own mail for accuracy measurement. |
+| `whisper/` | Cached ONNX weights and tokenizer for the selected Whisper size. |
 | `tesseract/` | Cached OCR language data. |
 
-Schema version is SQLite `user_version`. Migrations are append-only SQL files
-bundled as raw strings so they exist inside a packaged asar:
+### 5.1 Migrations
 
-1. `001_init.sql` — `tasks`
-2. `002_rag.sql` — `examples`, `example_vectors` (sqlite-vec `vec0`, 768-d)
-3. `003_sync.sql` — `processed_messages`, `sync_state`
-4. `004_snooze.sql` — `tasks.snoozed_until`
-5. `005_rules.sql` — `recurrence_rules`, and a **rebuild of `tasks`** so
-   `source` admits `'rule'`. SQLite cannot alter a CHECK constraint, so the
-   table is copied, dropped and renamed inside one transaction.
-   `npm run check:migration` rehearses this against a copy of the live database
-   and reports whether the row count survived.
-6. `006_suggestions.sql` — `recurrence_suggestions` (pending/accepted/dismissed)
+Schema version is SQLite's `user_version`. Migrations are append-only SQL files
+imported as **raw strings** so they exist inside a packaged asar, where reading
+them from a path would fail.
 
-### 3.3 Task model
+| # | File | Change |
+| --- | --- | --- |
+| 1 | `001_init.sql` | `tasks` |
+| 2 | `002_rag.sql` | `examples`, `example_vectors` (`vec0`, 768-d) |
+| 3 | `003_sync.sql` | `processed_messages`, `sync_state` |
+| 4 | `004_snooze.sql` | `tasks.snoozed_until` |
+| 5 | `005_rules.sql` | `recurrence_rules`, plus a **full rebuild of `tasks`** so `source` admits `'rule'` |
+| 6 | `006_suggestions.sql` | `recurrence_suggestions` |
+| 7 | `007_retry.sql` | `processed_messages.attempts` |
+| 8 | `008_rule_calendar.sql` | `recurrence_rules.gcal_event_id` |
+| 9 | `009_decisions.sql` | `decisions` |
 
-A task is the only object the overlay understands.
+Migration 005 is the interesting one. SQLite cannot alter a `CHECK`
+constraint, so adding `'rule'` to the allowed task sources required copying the
+table, dropping the original and renaming — inside a single transaction.
+`npm run check:migration` rehearses exactly that against a copy of the live
+database and reports whether the row count survived. That rehearsal has since
+caught a real problem (§9.1), which is the argument for keeping it.
 
-- **title, deadline** (ISO-8601 or null), **priority** (low/medium/high/urgent)
-- **source** (`gmail` | `gcalendar` | `manual` | `voice` | `rule` | reserved
-  outlook/teams)
-- **sourceId** — unique per source; partial unique index prevents the same
-  Gmail message from inserting the same title twice, and makes materialising a
-  recurrence rule (`ruleId:YYYY-MM-DD`) idempotent
-- **people, rawContext, confidence, status** (pending/done/archived/snoozed)
-- **snoozedUntil** — set only while snoozed; a 30-second sweep, plus a check at
-  launch, returns the task to pending
+### 5.2 Tables
 
-Urgency on screen is **derived**, not stored: overdue / inside 24h / inside 72h /
-none, then sort by imminent, then deadline, then priority
-(`shared/urgency.ts`).
+**`tasks`** — the only object the overlay understands.
 
-Cross-source duplicates (mail + calendar describing the same work) are rejected
-in JS with Dice similarity ≥ 0.72 and deadlines within 24 h (`dedup.ts`).
+- `title`, `deadline` (ISO-8601 or null), `priority` (low/medium/high/urgent)
+- `source` — `gmail` | `gcalendar` | `manual` | `voice` | `rule`, with
+  `outlook`/`teams` reserved
+- `sourceId` — unique per source. A partial unique index stops the same Gmail
+  message inserting the same title twice, and makes materialising a rule
+  occurrence (`ruleId:YYYY-MM-DD`) idempotent.
+- `people`, `rawContext`, `confidence`
+- `status` — pending / done / archived / snoozed
+- `snoozedUntil` — set only while snoozed
 
-### 3.4 Sync pipeline (Gmail + Calendar)
+Urgency is **derived, never stored**: overdue, inside 24 h, inside 72 h, or
+none; then sorted by imminence, deadline, priority (`shared/urgency.ts`).
+Storing it would mean a task's colour could go stale relative to the clock.
 
-Triggered on a timer (default 15 minutes, delayed 60 s after launch so login is
-not competing with a 2 GB model load), from Settings → Sync now, or after
-connect. Manual sync **reopens Gmail ids from the last 48 hours** so a zero-task
-extraction is not sticky forever.
+**`examples` / `example_vectors`** — RAG corpus and its 768-d vectors.
 
-**Gmail**
+**`processed_messages`** — `(source, source_id)` with an outcome
+(`extracted` | `skipped` | `failed`), a task count, a timestamp and an
+**attempts** counter. The attempts column is what makes a failure retryable
+rather than permanent (§9.1).
 
-1. List `newer_than:2d -in:chats` (Promotions are included; excluding that tab
-   hid real first-time senders).
-2. Skip already-processed ids (unless force).
-3. Fetch full message, strip quoted replies, drop bulk by headers
-   (`List-Unsubscribe`, `Precedence`, no-reply senders, too short/long).
-4. Embed the message, retrieve up to 5 prior examples from sqlite-vec, build
-   few-shot block (empty store → zero-shot).
-5. `extractTasks` against Qwen with JSON schema / grammar, `temperature: 0`.
-6. User identity in the prompt is the **OS username** (e.g. Suraj), not the
-   Gmail local-part. Using `firstnamelastname08` made the model miss
-   “Hi Suraj…”.
-7. Mark processed, store example embedding, dedup, insert.
+**`sync_state`** — per-source cursor, last run and last error. Calendar stores
+its incremental `syncToken` here.
 
-Budget: 15 model calls per pass so one busy morning cannot peg the GPU.
+**`recurrence_rules`** — title, weekdays as a JSON array (0 = Sunday), local
+`HH:MM`, priority, lead minutes, enabled flag, origin (`explicit` |
+`suggested`), and the mirrored Google Calendar event id.
 
-**Calendar**
+**`recurrence_suggestions`** — detected patterns with a status of pending,
+accepted or dismissed. Dismissals **persist**, because an assistant that asks
+the same question every week is worse than one that never asks.
 
-Events in the next 7 days are turned into tasks **without** an LLM call:
-meetings with other people become “Prepare for {title}” one hour before start;
-solo blocks use the title as-is. Incremental `syncToken`; HTTP 410 → full
-resync. Manual sync clears the token so new events are not missed.
+**`decisions`** — every complete, delete, snooze and dismissed suggestion, with
+a normalised subject for fuzzy matching, the original title, the source and a
+timestamp. Outlives the task itself.
 
-### 3.5 Other inputs
+### 5.3 Configuration reference
 
-**QuickAdd / voice.** Typed text is inserted immediately, then `enrichTask`
-upgrades title/deadline/priority in place. Spoken audio is mono PCM resampled
-to 16 kHz in the renderer, transcribed in main. Phrases that mean “look at my
-screen” (`shared/voiceIntent.ts`) call the same function as `Ctrl+Shift+S`.
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `overlayCorner` | `top-right` | Which corner the orb and panel occupy |
+| `overlayOpacity` | `0.92` | Panel opacity |
+| `overlayWidth` | `380` | Expanded panel width in px |
+| `workHoursStart` / `End` | `9` / `18` | Used when resolving vague deadlines |
+| `syncIntervalMinutes` | `15` | Background sync cadence |
+| `maxTasksVisible` | `7` | Before "+N more · show all" |
+| `ollamaModel` | `qwen2.5:3b` | Extraction and chat model |
+| `embeddingModel` | `nomic-embed-text` | RAG embeddings |
+| `whisperModel` | `Xenova/whisper-base.en` | Speech-to-text size |
+| `launchAtLogin` | `true` | Start with Windows |
+| `calendarWriteBack` | `false` | Mirror rules to Google Calendar (opt-in) |
+| `displayName` | `''` | What your mail calls you; beats the OS guess |
+| `aboutMe` | `''` | Free-text profile, max 1200 characters |
 
-**Screen.** `desktopCapturer` at native resolution → Tesseract → denoise
-punctuation-heavy lines → Qwen one-task JSON. Deadlines like `"Thursday"` are
-normalised in `shared/deadline.ts` (weekday → next occurrence at 17:00), because
-the schema cannot force a real datetime.
+### 5.4 Background timers
 
-### 3.6 Auth
+| Sweep | Interval | Work |
+| --- | --- | --- |
+| Snooze | 30 s | Wake due tasks, top up rule occurrences |
+| Archive | 15 min | Archive stale completed tasks, refresh habit suggestions |
+| Sync | 15 min (configurable) | Gmail and Calendar, first run delayed 60 s after launch |
+| Resume | on wake | Everything above, immediately |
 
-Google **Desktop OAuth client**, PKCE, system browser, ephemeral
-`127.0.0.1` loopback. Favicon and other non-callback GETs are ignored; an
-earlier bug treated `/favicon.ico` as a CSRF failure and closed the listener,
-which produced `ERR_CONNECTION_REFUSED` on the real redirect.
-
-Scopes: `gmail.readonly`, `calendar.readonly`, `openid`, `email`. Sensitive but
-not restricted; unverified app + test user is enough for personal use (100-user
-cap).
+The 60-second delay after launch is deliberate: login is the worst possible
+moment to pull a 2 GB model into memory, because the user is still waiting for
+the desktop to settle.
 
 ---
 
-## 4. What has been built, how, why, alternatives, drawbacks
+## 6. The pipelines
 
-### 4.1 Overlay layering
+### 6.1 Gmail
 
-**Done.** Transparent always-on-top list, click-through, hover capture,
-urgency colours, complete checkbox, hover to expand full title + from/people +
-added + deadline + raw context snippet.
+1. **Retry first.** Message ids that previously failed and still have attempts
+   remaining are fetched by id, ahead of everything else. Without this they
+   would age out of the recent listing and never be retried at all (§9.1).
+2. **List** `newer_than:2d -in:chats`, capped by the API at 50 per call.
+   Promotions are deliberately *included* — excluding that tab hid real
+   first-time senders.
+3. **Skip** ids already processed, unless this is a forced sync.
+4. **Fetch** the full message, strip quoted reply chains.
+5. **Pre-filter** on headers, before the model costs anything:
+   `List-Unsubscribe`, `Precedence: bulk|list|junk|auto_reply`,
+   `Auto-Submitted`, no-reply sender patterns, bodies under 40 characters or
+   over 20,000.
+6. **Retrieve** up to five nearest past examples from sqlite-vec.
+7. **Extract** against Qwen under the extraction schema.
+8. **Record** the outcome, store the example and its embedding.
+9. **Deduplicate** against existing tasks — Dice similarity ≥ 0.72 with
+   deadlines within 24 hours catches mail and calendar describing the same
+   work.
+10. **Suppress** anything the user has repeatedly deleted (§7.5).
+11. **Insert.**
 
-**Why this z-order.** “Above wallpaper, below apps” needs the WorkerW /
-Progman hack on Windows. That window cannot receive normal input. An
-interactive list that disappears under every maximised browser is also not
-ambient. Always-on-top + click-through is the only pair that stays visible
-*and* clickable.
+The pass is capped at **15 extractions**, so one busy morning cannot peg the
+GPU. Extraction is strictly serialised: the model holds around 2 GB on a 4 GB
+card, so concurrent generations would thrash rather than parallelise.
 
-**Tried and reverted.** Collapsed corner orb (user asked, then wanted the
-original list back). Solid navy/teal restyle (rejected). Light-blue text
-(rejected). Current look is the original glass cards and white type.
+### 6.2 Calendar (read)
 
-**Drawbacks.** The list floats over apps. It is a HUD, not wallpaper. Full
-height on the right edge still occupies a strip of the desktop.
+Events in the next seven days become tasks with **no model call at all**.
+Meetings with other attendees become "Prepare for {title}" one hour before the
+start; solo blocks keep their title; all-day events become low-priority context
+at 09:00. Declined events and working-location entries are dropped. Sync is
+incremental via `syncToken`, and an HTTP 410 — Google's documented signal that
+the token is too old — triggers a full resync rather than surfacing as an
+error.
 
-### 4.2 Storage: SQLite, not a server
+### 6.3 Calendar (write)
 
-**Done.** `better-sqlite3`, WAL, migrations, seed tasks in unpackaged runs.
+Recurring rules are mirrored to Google Calendar so they appear on a phone
+without any mobile app. The details that matter:
 
-**Why.** One file, no daemon, survives restarts, unique index for source
-dedup. Electron’s userData path is the right home.
+- Events go to a **separate calendar the app creates**, named "AmbientMind",
+  never the user's own.
+- The OAuth scope is `calendar.app.created`, which grants access *only* to
+  calendars this app made. A bug in this code physically cannot damage a real
+  appointment.
+- Times are sent as **local wall-clock plus an IANA zone**, not UTC instants,
+  which is what keeps "tuition at five" at five across travel and daylight
+  saving.
+- The rule becomes an `RRULE:FREQ=WEEKLY;BYDAY=...`, anchored on a real
+  occurrence so the first instance never lands on a day the rule does not fall
+  on.
+- Pausing a rule **deletes** its event; an event deleted on the phone is
+  recreated rather than lost.
+- Off by default, and calendar pushes are never awaited by the UI.
 
-**Drawback.** Native module must be rebuilt for Electron’s Node ABI
-(`postinstall`: `electron-builder install-app-deps`). Paths with spaces broke
-node-gyp once; the project was copied to `ambientmind` for that reason.
+### 6.4 Voice and QuickAdd
 
-### 4.3 Secrets: `safeStorage`, not keytar
+Typed text is inserted **immediately**, then `enrichTask` upgrades the title,
+deadline and priority in place. The insert never waits on the model, so the
+palette stays instant and keeps working with Ollama stopped.
 
-**Done.** Tokens encrypted at rest.
+Spoken audio follows §3.5. Phrases meaning "look at my screen"
+(`shared/voiceIntent.ts`) route to the screen capture path instead of creating
+a task with those words as its title.
 
-**Why.** keytar is archived and is another native module. `safeStorage` ships
-with Electron and uses DPAPI on Windows.
+### 6.5 Screen capture
 
-**Drawback.** Ciphertext is bound to the OS user. Copying `secrets.json` to
-another machine or profile is unreadable; the app must reconnect Google.
+`Ctrl+Shift+S` or a spoken screen intent. Captures the display **the cursor is
+on** — on a two-monitor desk, capturing the primary screen silently produces a
+task about whatever was idle on the other one. OCR, denoise, then a one-task
+extraction. Deadlines like `"Thursday"` are normalised in
+`shared/deadline.ts` (weekday → next occurrence at 17:00), because the schema
+can require a string but cannot require a *real datetime*.
 
-### 4.4 RAG: sqlite-vec, not ChromaDB
+### 6.6 Recurrence
 
-**Done.** Vector table in the same DB. Live Gmail path retrieves neighbours and
-stores observed extractions.
+Parsing is deterministic (§3.7). A single weekday only counts as recurring when
+the text says so — "every", "daily", "weekdays" — so "meeting Tuesday at 5pm"
+stays one meeting. Named times resolve to the same hours the enrichment prompt
+uses (morning 09:00, afternoon 14:00, evening 19:00, night 21:00), and imply a
+daily schedule **only when no weekday was named**, so "every Tuesday evening"
+remains a single Tuesday.
 
-**Why.** ChromaDB is a sidecar process. sqlite-vec loads as an extension.
-Embeddings are 768-d to match nomic-embed-text. Vector `rowid` must be bound
-as `BigInt` or better-sqlite3 hands a double and vec0 rejects it.
+Occurrences are materialised two weeks out, keyed `ruleId:date` so re-running
+is idempotent. Pending occurrences that no longer match their rule are dropped
+when the rule is edited, paused or deleted.
 
-**Alternatives.** A separate vector DB, or no RAG. Eval showed RAG-on-Enron
-few-shots can *hurt* if the examples are not this user’s mail — so production
-does **not** seed Enron into the live store. Empty store = zero-shot, which is
-correct until *your* mail has been extracted.
+Detection groups fuzzily: Dice similarity, plus a word-subset rule so "Tuition"
+and "Tuition class" are one habit rather than two halves that each fall short
+of the threshold. Rows are sorted before clustering so the signature does not
+depend on arrival order — otherwise a dismissal would stop matching and the
+same question would return.
 
-**Drawback.** First weeks have no few-shots. Bad extractions, if stored, can
-poison later prompts (no thumbs-down UI yet).
+### 6.7 Chat
 
-### 4.5 Model and prompts
+One grammar-constrained action per turn, from a fixed enum: `answer`,
+`add_task`, `complete_task`, `snooze_task`, `delete_task`, `add_rule`. The
+panel sees the real task list, the real rules, and the decisions relevant to
+whatever was just asked.
 
-**Done.** Grammar-constrained JSON via Ollama `format`. Extraction and
-enrichment prompts as TypeScript modules (bundler + `tsx` eval share one
-source). Eval harness with precision/recall/F1, empty-specificity, deadline
-accuracy.
+Rails that do not depend on the model behaving:
 
-**Why 3B.** Fits VRAM. Iterated on a 14-message seed corpus: missing user
-identity collapsed recall; naming weekdays *inside email Date headers* dropped
-recall from 71% to 29% (boilerplate crowding the message). Those runs are kept
-under `eval/results/`. Baseline after identity fix: **~83% F1, 100% precision,
-60% deadline accuracy** on that tiny set. Deadline % is 5 matched pairs —
-mostly noise until the corpus is larger.
+- at most **four** actions per message, so a loop is impossible rather than
+  unlikely
+- loose task names resolved against real rows by similarity, and **refused**
+  below a threshold rather than guessed
+- snoozes without a future timestamp rejected
+- past decisions marked as history, not instructions, so it cannot undo one on
+  its own
 
-**Alternatives.** Cloud API (better quality, kills local/privacy). 8B on a
-bigger GPU. Fine-tuning (no labelled volume yet).
+### 6.8 Authentication
 
-**Drawbacks.** Weak on messy relative dates unless code post-processes.
-Invented deadlines still happen on screen capture. Eval is not yet your inbox.
+Google **Desktop OAuth client** with PKCE, opened in the system browser,
+redirecting to an ephemeral `127.0.0.1` loopback listener. Non-callback GETs
+are ignored — an early bug treated `/favicon.ico` as a CSRF failure and closed
+the listener, producing `ERR_CONNECTION_REFUSED` on the real redirect.
 
-### 4.6 Google integration
-
-**Done.** PKCE loopback, Gmail + Calendar adapters, scheduler, force re-scan,
-Windows notification with sync counts.
-
-**Why PKCE.** Desktop clients are public; the “client secret” is not a secret.
-PKCE is the actual protection.
-
-**Drawbacks.** User must create a Cloud project and drop JSON in app data.
-Unverified consent interstitial. `gmail.readonly` is sensitive. Gmail API
-delay and Promotions/Spam still miss mail. Calendar incremental tokens can go
-stale (410 handled). First extraction pass used the wrong display name (fixed).
-
-### 4.7 Screen capture
-
-**Done.** `Ctrl+Shift+S` and spoken screen-intent. OCR + Qwen. Docs:
-`docs/screen-capture.md`.
-
-**Why OCR not a VLM.** A capable VLM (~3.2 GB VRAM) would evict the extraction
-model on a 4 GB card every capture.
-
-**Drawbacks.** Whole-desktop OCR: a second text-heavy window can win.
-Misreads. Occasional invented deadlines. Maximise the window you care about.
-
-### 4.8 Voice
-
-**Done.** Transformers.js Whisper (size selectable, base.en by default), warmed
-after launch; switching size reloads in the background rather than mid-sentence. Shortcut opens
-QuickAdd and starts the mic; after speech, **3 seconds of silence** ends
-recording, transcribes, submits. Screen-intent routing. Docs: `docs/voice.md`.
-
-**Why not whisper.cpp.** Native addon × Electron ABI, same class of pain as
-sqlite. Why not Porcupine wake word: custom wake words are paid / limited; push
-to talk is free.
-
-**Drawbacks.** tiny.en mishears (“buy” → “by”). First load is slow. Room noise
-can delay the silence stop. No “hey AmbientMind” while the overlay sits idle.
-
-### 4.9 Settings and config
-
-**Done.** Persist `config.json`, live-apply corner and interval (interval/model
-changes restart the scheduler; corner does not). Google connect from settings
-or overlay.
-
-Settings now also holds the about-me profile (§4.10), recurring rules, the
-health panel and the corpus export.
-
-### 4.10 Trust, recurrence, profile and chat
-
-Four things were added together because they answer the same complaint: the
-app did things you could neither see nor steer.
-
-**Health.** An empty list had several very different causes — Ollama down, a
-model never pulled, Google not connected, or genuinely nothing to do. The
-overlay now names the one that applies. Alternative considered: a first-run
-wizard. Rejected because the failure is not limited to first run; Ollama gets
-stopped on an 8 GB machine all the time, so the check re-runs on a timer.
-
-**Recurrence.** Parsed in code, not by the model. A one-off task extracted
-wrongly is a nuisance; a recurrence extracted wrongly repeats until you find
-it. Regexes are also faster and identical run to run. The cost is coverage:
-phrasings outside the grammar fall through to a normal task, which is the safe
-direction to fail.
-
-**Suggestions.** Detection is a threshold, not a learner — with a handful of
-rows, predictability beats sophistication, and every suggestion is a question.
-Dismissals persist, because an assistant that asks the same question weekly is
-worse than one that never asks.
-
-**Chat.** One grammar-constrained action per turn instead of Ollama's
-tool-calling API; see §7 Phase C2 for why, and for the 6/10 → 10/10 measurement
-that shaped the prompt. Worth noting the shape of the original failure: the
-model produced a *correct English answer* attached to the *wrong action*. Only
-checking the reply would have missed it.
-
-**Corpus export.** Settings can dump your recent mail to JSONL pre-filled with
-the model's current extractions, so labelling is correcting a draft. Messages
-the cheap pre-filter rejects are left out: scoring them would measure the
-filter, not the extractor.
+Scopes: `gmail.readonly`, `calendar.readonly`, `calendar.app.created`,
+`openid`, `email`. Access tokens refresh with a 60-second skew, concurrent
+refreshes share one in-flight promise, and a 401 forces one retry with a fresh
+token.
 
 ---
 
-## 5. Repository map
+## 7. Complete feature inventory
 
-```
-electron/          main, overlay, tray, quickAdd, settings, chat, preload
-electron/services  taskStore, ruleStore, suggestionStore, sync, ollama, chat,
-                   health, googleAuth, gmail, gcalendar, vectorStore, speech,
-                   screenContext, corpusExport, config, secrets, dedup
-src/overlay        orb + list, health banner, suggestion card
-src/quickadd       voice + type palette
-src/settings       preferences, status, recurring rules, about-me
-src/chat           ask-about-your-tasks panel
-shared/            types, IPC names, urgency, similarity, deadline,
-                   voiceIntent, recurrence, recurrenceDetect, snooze, clash
-prompts/           extraction, enrichment, screen-task, chat (TS modules)
-db/migrations      SQL (006 migrations; 005 rebuilds tasks)
-eval/              harness, seed corpus, unit tests, chat action eval
-scripts/           icon generation, migration rehearsal, smoke tests
-docs/              this file + google / voice / screen how-tos
-```
+### 7.1 Capture
 
-**Runtime:** Electron 37, React 19, Tailwind 4, TypeScript, electron-vite,
-Ollama, better-sqlite3, sqlite-vec, @xenova/transformers, tesseract.js.
-
-IPC contract is `shared/ipc.ts` so main and renderers cannot drift.
-
----
-
-## 6. Known limitations (current build)
-
-- Overlay is on top of apps, not in the wallpaper layer.
-- 3B ceiling on nuance and dates.
-- RAG starts empty. There is now a feedback loop on *tasks* (§7 Phase C4), but
-  not on the stored few-shot examples themselves.
-- **Recall on your own mail is unmeasured, because there is nothing to measure
-  it on.** The export has now been run against 30 days of real mail: 50
-  messages, 37 rejected by the header pre-filter (30 `List-Unsubscribe`, 7 bulk
-  senders, all correct on inspection), 13 reaching the model, and **zero tasks
-  extracted**. Reading all 13 confirms zero is the right answer for essentially
-  every one: recommendation and marketing mail, automated acknowledgements, an invoice, and a mass mail that only looks personal
-  because a human sent it. The one arguable miss is a service nudge
-  asking the user to pick "re-surface" or "wait".
-  - What this *does* establish is precision: 13 noisy messages, nothing
-    invented. Hallucinated tasks are the failure that would make the overlay
-    unusable, and it is not happening.
-  - What it does not establish is recall, and no amount of labelling will fix
-    that while the inbox holds no "send me the numbers by Friday" mail. **The
-    premise that mail carries this user's todos does not currently hold**, which
-    is why Phase D work went to voice, screen and recurrence instead.
-  - Gmail's fetch is capped at 50 messages per call, so the 30-day window came
-    back truncated. A larger sample needs pagination.
-- Precision/recall figures elsewhere in this document are still Enron's.
-- ~~No installer.~~ **Done.** `npm run dist` produces a per-user NSIS installer
-  in `release/`, and the app starts with Windows unless the Settings toggle is
-  cleared. Unsigned, so SmartScreen warns on first run.
-  - The one packaging subtlety worth remembering: `dlopen` cannot read out of
-    an asar archive, so `better-sqlite3`, `sqlite-vec`, `onnxruntime-node` and
-    `tesseract.js` are listed under `asarUnpack`, and `sqlite-vec`'s
-    `getLoadablePath()` is rewritten to the unpacked copy at runtime. Anything
-    native added later needs the same treatment.
-  - `sharp` arrives transitively via `@xenova/transformers` and gets rebuilt
-    during packaging. If the app is running it holds `libgobject-2.0-0.dll`
-    open and the rebuild fails with `EPERM`; close it before `npm run dist`.
-- No mobile client, though recurring rules now reach a phone through Calendar
-  (§7 Phase B2).
-- No Outlook/Teams (Graph / admin consent).
-- No OS notification ingestion.
-- ~~Recurrence detection groups by exact normalised title.~~ **Fixed.**
-  Grouping is fuzzy, and a title whose words are contained in another's counts
-  as the same habit.
-- The chat panel still keeps no memory *between windows* — closing it forgets
-  the conversation. It does now see past decisions about whatever was asked
-  (§7 Phase C4); what is missing is the transcript, not the history.
-- No auto-update, and the installer is unsigned.
-- Native modules and a space in the old folder path were operational hazards.
-
-### Failure modes that were real, and are now handled
-
-Found by auditing the error paths rather than the happy one. Recorded because
-each was silent, and silence is what made them expensive.
-
-- **A message that threw was never read again.** `isProcessed()` could not
-  distinguish "handled" from "failed", so any transient cause — no network, an
-  expired token, Ollama restarting — retired that mail permanently, with no
-  error the user would ever see. Migration 007 counts attempts: three tries,
-  then the message is left alone so a genuinely unparseable one stops costing a
-  model call. Rehearsing the migration against a copy of the live database
-  found two messages already lost this way.
-- **Ollama dying mid-pass burned the whole retry budget.** Every remaining
-  message was marked failed. That case now stops the pass, since the model
-  going away says nothing about the mail behind it.
-- **Sleeping through the night left the list showing yesterday.** Timers do not
-  run while the machine is suspended, so snoozed tasks stayed hidden past their
-  time and overnight mail went unread until the next half-hourly tick.
-  `powerMonitor` `resume` now wakes snoozes, tops up rule occurrences and syncs.
-
-Two suspected problems were checked and found already correct, and were left
-alone: Ollama calls carry a bounded timeout, and the overlay already
-repositions on `display-metrics-changed`, `display-added` and
-`display-removed`.
-
----
-
-## 7. What is left — phased plan
-
-Constraints for every phase: this PC, local 3B, Google already connected,
-privacy story stays “LLM never leaves localhost.”
-
-### Phase A — Make today’s app trustworthy — **done**
-
-**Definition.** You can install it, connect Google, and believe the list.
-
-- **A1. Done (health check).** `electron/services/health.ts` reports whether
-  Ollama answers and whether the configured extraction and embedding models are
-  pulled, matching Ollama's implicit `:latest`. The overlay shows the actual
-  reason the list is empty instead of a blank panel; Settings lists every check.
-  The installer half is now done too; see §6. When calendar write-back is on,
-  the check also names the reconnect that scope needs.
-- **A2. Done.** `scripts/make-icons.cjs` renders the mark to anti-aliased PNGs
-  with no image dependency and emits base64, so the tray icon loads identically
-  from source, from `out/`, and inside an asar. Tooltip carries the pending
-  count; left-click expands the overlay.
-- **A3. Done.** `GetSyncSummary` surfaces last run, counts and errors, so the
-  result outlives the toast. Fixed a real bug on the way: scheduled syncs were
-  writing tasks the overlay was never told about.
-- **A4. Done.** Edit inline, snooze (1h / 3h / this evening / tomorrow 9am /
-  next week), delete. Migration 004 adds `tasks.snoozed_until`, because status
-  alone could hide a task with nothing to bring it back.
-- **A5. Done.** "+N more · show all" opens the full scrollable list.
-- **A6. Done.** Working tree committed.
-- **A7. Tooling done, labelling outstanding.** Settings → Model → *Export mail
-  for labelling* writes your recent mail to JSONL pre-filled with what the
-  model extracts today, so labelling is correcting a draft rather than
-  authoring one. **You still have to correct it** and run
-  `npm run eval -- --corpus <file>`. Until then the metrics are Enron's.
-
-### Phase B — Recurring life
-
-**Definition.** Repeating commitments are **rules**, not daily voice nags.
-
-- **B1. Done.** Migration 005 adds `recurrence_rules` and rebuilds `tasks` so
-  `source` admits `'rule'` (SQLite cannot alter a CHECK constraint;
-  `npm run check:migration` rehearses the rebuild against a copy of the live
-  database first). `shared/recurrence.ts` parses "remind me for tuition Tue,
-  Thu, Sat at 5pm" **deterministically** — a regex, not the model, because a
-  wrong recurrence repeats forever and a 3B model is neither faster nor more
-  predictable here. A single weekday is only treated as recurring when the text
-  says so ("every", "daily", "weekdays"); "meeting Tuesday at 5pm" is one
-  meeting. Occurrences are materialised two weeks out, keyed `rule:date` so
-  re-running is idempotent, and pending occurrences that no longer match a rule
-  are dropped on edit, pause or delete.
-- **B2. Done.** Rules are mirrored onto a Google Calendar the app creates,
-  under the `calendar.app.created` scope, which grants access *only* to
-  calendars the app made. Writing into `primary` with the full calendar scope
-  would have been fewer lines and would have left a bug here able to damage
-  real appointments; a separate calendar can also be hidden in one tap and its
-  entries can never be mistaken for the user's own. Off by default, because
-  silently creating events in someone's account is not a default to be
-  discovered. Times are sent as local wall-clock plus an IANA zone rather than
-  UTC instants, so "tuition at five" survives travel and DST. Pausing a rule
-  deletes its event; an event deleted on the phone is recreated. Migration 008
-  stores the event id. The scope postdates existing sign-ins, so the health
-  check names the required reconnect.
-- **B3. Done.** `shared/recurrenceDetect.ts` requires the same normalised title
-  on the same weekday across **three distinct weeks**, with the time of day
-  varying by at most 90 minutes. Three hits in one busy week is not a routine;
-  the same weekday at 9am, 2pm and 8pm is a coincidence. Migration 006 persists
-  each suggestion with a status, because "not weekly" has to stick — re-asking
-  hourly is worse than never asking. Nothing is ever created without a yes.
-- **B4. Done, merged with C4.** See §7 Phase C — the same `decisions` table
-  serves both, because separate stores would have meant recording every action
-  twice.
-
-**Acceptance.** Tuition appears for the next month without a daily reminder.
-A false “weekly dentist” cannot appear without confirmation.
-
-### Phase C — Brain: profile + chat + priority
-
-**Definition.** A **written** model of you, plus a chat that may only use
-tools over your store.
-
-- **C1. Done.** Two settings: what your mail calls you (an explicit display
-  name now beats the OS-account guess) and free text about your life. The
-  profile goes into the **system** prompt beside the identity, never into the
-  message block — extra context there was measured to crowd out the body and
-  cost recall. It is labelled as background that must not become a task, and
-  `eval/aboutMe.test.ts` pins the empty case to *zero* added prompt text.
-- **C2. Done.** Ctrl+Shift+C, the tray, or the overlay header. It reads the
-  real store and can complete, snooze, delete, add, or create a rule.
-  Ollama's tool-calling API was rejected for a 3B model: free-form tool
-  arguments are exactly where small models emit nearly-right JSON, and a
-  malformed call that silently does nothing is worse than no assistant.
-  Instead one action per turn from a fixed enum under a flat grammar.
-  `eval/chatActions.ts` runs it against the real model — the first version
-  scored 6/10 because questions like "what's most urgent?" came back as
-  `add_task` with a correct reply attached, which would have quietly created
-  junk. Worked examples in the prompt took it to 10/10. Rails that do not
-  depend on the model: at most four actions per message, loose task names
-  resolved against real rows by similarity and refused below a threshold, and
-  snoozes without a future time rejected.
-- **C3. Done.** `shared/clash.ts` names the collision and says which to do
-  first, entirely in code — advice that changes wording or flips its verdict
-  between identical runs is not advice. The ladder: a clearly earlier deadline
-  wins; inside 15 minutes priority decides; on a genuine tie a standing
-  commitment beats an ad-hoc task because other people are arranged around it;
-  otherwise whatever was committed to first. Tests pin order-independence.
-- **C4. Done (with B4).** Migration 009 adds `decisions`: every complete,
-  delete, snooze and dismissed suggestion, from the overlay and from chat
-  alike, outliving the task itself. Matching is the same fuzzy-title rule used
-  by recurrence detection, not embeddings — it must work with the embed model
-  down, and it is testable. Two uses. Chat is shown only the decisions matching
-  what was just asked, because a 3B model given the whole log starts treating
-  it as a to-do list, and the prompt states decisions are history rather than
-  instructions so it cannot undo one; `eval/chatActions.ts` still scores 10/10
-  with the digest added. Second, deleting the same thing three times without
-  ever completing it keeps *new* ones off the list. Thresholds are cautious on
-  purpose: three rather than two because people misclick, and a single
-  completion outweighs any number of deletions, because a suppressed task is
-  invisible and the user cannot discover the mistake from the list.
-  Suppression never applies retroactively, and Settings lists everything
-  learned with an undo.
-
-**Acceptance.** “What should I do Thursday 5pm?” answers tuition if a rule
-exists. Chat cannot invent a job you never had.
-
-### Phase D — More desktop capture (optional / later)
-
-| Item | Plan |
+| Feature | Detail |
 | --- | --- |
-| Voice: larger Whisper if VRAM allows | Polish |
-| Screen: capture foreground window only | Polish |
-| **OS notification scraping** | **Defer.** No clean Windows API; looks like spyware. Mail/calendar/voice already cover appointments. |
-| Wake word | **Defer.** Shortcut is v1. |
-| Outlook / Teams | **Defer.** Graph permissions. After Google is boringly reliable. |
-| Multi-monitor / DPI | **Done.** Capture follows the cursor's display, not the primary one. |
-| Foreground-window capture | **Blocked.** Electron cannot identify the foreground window; `desktopCapturer` returns window sources in no documented order. Needs a native Win32 call. |
-| macOS | After Windows installer |
+| Gmail extraction | Local model, RAG few-shots, header pre-filter, 15 calls per pass |
+| Calendar import | Deterministic, 7-day lookahead, prep tasks for meetings |
+| Typed quick-add | Instant insert, model enrichment in place |
+| Voice quick-add | Local Whisper, selectable size, 3 s silence to submit |
+| Screen capture | OCR plus model, follows the cursor's display |
+| Recurring rules | Deterministic parsing, materialised two weeks out |
+| Habit suggestions | Three weeks, same weekday, ±90 min, always asked |
 
-### Phase E — Companion mobile app
+### 7.2 The list
 
-**Definition.** Phone views and light-edits the **same** tasks. Desktop stays
-the LLM engine.
+Inline editing, snooze (1 h / 3 h / this evening / tomorrow 9am / next week),
+delete, complete, derived urgency colours, hover for full title and context,
+"+N more · show all" for the complete scrollable list, clash warnings naming
+which task to do first, and cross-source deduplication.
 
-**E0 is partly answered.** Option 1 now exists: recurring rules reach the phone
-through Calendar (§7 Phase B2), which covers standing commitments without any
-mobile code. What it does *not* cover is one-off tasks, or completing something
-on the phone and having the overlay clear — both need a real bus.
+### 7.3 Trust
 
-1. **Calendar as the bus** — ~~fastest~~ **done for rules.** One-way, rules
-   only.
-2. **Private encrypted relay** — real product, real ops.
-3. **LAN only** — demo; dies off home Wi‑Fi.
+- **Health check** — is Ollama running, are the configured models actually
+  pulled (matching Ollama's implicit `:latest`), is Google connected, does the
+  calendar scope need a reconnect. The overlay names the reason the list is
+  empty instead of showing a blank panel. Re-runs on a timer, because Ollama
+  gets stopped on an 8 GB machine all the time.
+- **Sync summary** — last run, counts and errors, surviving long after the
+  toast has gone.
+- **Learned suppressions panel** — everything the app has decided to hide, with
+  counts and an undo.
+- **Corpus export** — dump recent mail to JSONL, pre-filled with the model's
+  current extractions, so labelling is correcting a draft rather than authoring
+  one. Pre-filtered mail is written to a *separate* audit file with its skip
+  reason.
 
-Then: read-only list → complete/snooze/toggle rule → chat only if C2 exists
-and the phone hits the same backend (not a second Ollama on the phone).
+### 7.4 Brain
 
-**Acceptance.** Completing on the phone clears the desktop overlay. Two lists
-never diverge silently.
+About-me profile, chat panel with real actions, deterministic clash advice, and
+decision memory.
 
-### Phase F — Hardening
+### 7.5 Decision memory and learning
 
-Auto-update or a documented update path; crash UX; encrypted export of the DB
-without tokens; privacy copy (what is local vs Google); “pause AI for an
-hour”; test start-at-login after reboot.
+Every complete, delete, snooze and dismissed suggestion is recorded, from the
+overlay and from chat alike, and outlives the task. Two uses:
+
+1. **Chat recall.** Only decisions matching what was just asked are injected —
+   a 3B model shown the entire log starts treating it as a to-do list.
+2. **Suppression.** Deleting the same thing three times without ever completing
+   it keeps *new* ones off the list.
+
+The thresholds are cautious on purpose. Three rather than two, because people
+delete things by mistake. A single completion outweighs any number of
+deletions, because a suppressed task is **invisible** — the user has no way to
+discover the mistake from the list. Suppression never applies retroactively,
+and everything learned is listed in Settings with an undo.
+
+### 7.6 Platform
+
+Per-user NSIS installer, launch at login, tray icon rendered from code, global
+shortcuts, and two headless CLI modes:
+
+```powershell
+npm run corpus:export -- --days=30 --limit=120
+npm run sync:now
+```
 
 ---
 
-## 8. Suggested build order
+## 8. Design decisions: why, alternatives, drawbacks
+
+### 8.1 Overlay layering
+
+"Above wallpaper, below apps" requires the WorkerW/Progman hack on Windows, and
+that window **cannot receive normal input**. An interactive list that vanishes
+under every maximised browser is equally not ambient. Always-on-top plus
+click-through is the only pair that stays both visible and clickable.
+
+*Drawback.* It is a HUD floating over applications, not wallpaper.
+
+*History.* The full-height list came first; a collapsed orb was added, reverted
+on request, then reinstated as the default when minimising became a
+requirement. The current design is orb-by-default, expanding on click.
+
+### 8.2 SQLite, not a server
+
+One file, no daemon, survives restarts, gives unique indexes for source
+deduplication, and hosts the vector store in the same transaction domain.
+
+*Drawback.* `better-sqlite3` is a native module that must be rebuilt for
+Electron's ABI via `electron-builder install-app-deps`. Paths containing spaces
+broke node-gyp once, which is why the project lives in `ambientmind`.
+
+### 8.3 `safeStorage`, not keytar
+
+keytar is archived and is another native module. `safeStorage` ships with
+Electron and uses DPAPI.
+
+*Drawback.* Ciphertext is bound to the OS user; copying `secrets.json` to
+another machine is useless and the app must reconnect.
+
+### 8.4 sqlite-vec, not ChromaDB
+
+ChromaDB is a sidecar process. sqlite-vec is an extension loaded into the
+database already open.
+
+*Drawback.* First weeks have no few-shots, and bad extractions, once stored,
+can poison later prompts — there is still no thumbs-down on an example.
+
+### 8.5 A 3B model
+
+Fits VRAM. See §3.1 for the alternatives: a cloud API (better quality, kills
+the privacy premise), an 8B model (needs a bigger GPU), fine-tuning (no
+labelled volume, no VRAM headroom).
+
+*Drawbacks.* Weak on messy relative dates unless code post-processes them, and
+still capable of inventing a deadline on screen capture.
+
+### 8.6 A fixed action enum, not tool calling
+
+Ollama's tool-calling API was the obvious choice and was rejected for a 3B
+model. Free-form tool arguments are exactly where small models emit
+nearly-right JSON, and **a malformed call that silently does nothing is worse
+than having no assistant at all**.
+
+The measurement that justified the extra prompt work is worth keeping: the
+first version scored 6/10, and the failures were instructive. Asked "what's
+most urgent?", it produced a *correct English answer* attached to an
+`add_task` action — which would have quietly created junk. Checking only the
+reply would have missed it entirely. Worked examples took it to 10/10.
+
+### 8.7 A separate calendar, not `primary`
+
+Fewer lines would have written into the user's own calendar with the full
+`calendar` scope. The separate calendar plus `calendar.app.created` means a bug
+here *cannot* reach a real appointment, the entries can never be mistaken for
+ones the user made, and the whole thing can be hidden or deleted in one tap.
+
+*Drawback.* The scope postdates existing sign-ins and Google will not upgrade a
+grant silently, so the user must reconnect once. The health check says so
+rather than letting the feature look broken.
+
+### 8.8 One decisions table for two features
+
+"Memory of decisions" and "learn from accepts and rejects" were planned
+separately. They need identical rows, so building both would have meant
+recording every action twice and then reconciling two half-truths about the
+same history.
+
+---
+
+## 9. Failure modes that were real
+
+Found by auditing the error paths rather than the happy one. Each was
+**silent**, and the silence is what made them expensive.
+
+### 9.1 Mail that failed was never read again
+
+`isProcessed()` could not distinguish "handled" from "failed", so any transient
+cause — no network, an expired token, Ollama restarting — retired that message
+permanently, with no error the user would ever see.
+
+Migration 007 counts attempts: three tries, then the message is left alone so a
+genuinely unparseable one stops costing a model call. Rehearsing the migration
+against a copy of the live database found **two messages already lost this
+way**.
+
+The first fix was incomplete, and only running it revealed why. Sync lists mail
+with `newer_than:2d`, so a message that failed during a longer outage had
+already aged out of the listing: it had attempts remaining that would never be
+used. Retryable ids are now fetched directly, ahead of the window. When that
+landed, the two recovered messages turned out to be **"projct" and
+"Re: projct"** — ordinary personal mail from a human, which is exactly the
+category this app exists to catch.
+
+### 9.2 Ollama dying mid-pass burned the whole retry budget
+
+Every remaining message in the pass was marked failed, which would have spent a
+dozen messages' worth of retries on a single restart. That case now stops the
+pass, because the model going away says nothing about the mail behind it.
+
+### 9.3 Sleeping overnight left the list showing yesterday
+
+Timers do not run while a machine is suspended, so snoozed tasks stayed hidden
+past their time and overnight mail went unread until the next tick.
+`powerMonitor`'s `resume` event now wakes snoozed tasks, tops up rule
+occurrences and syncs.
+
+### 9.4 Scheduled syncs were invisible
+
+Background passes wrote tasks to the database that the overlay was never told
+about, so new mail only appeared after the next manual action.
+
+### 9.5 Two suspicions that were already handled
+
+Checked and deliberately left alone: Ollama calls already carry a bounded
+timeout, and the overlay already repositions on `display-metrics-changed`,
+`display-added` and `display-removed`.
+
+---
+
+## 10. Known limitations
+
+### 10.1 Structural
+
+- The overlay floats over applications rather than living in the wallpaper
+  layer (§8.1).
+- A 3B ceiling on nuance and on messy relative dates.
+- RAG starts empty, and there is still no feedback loop on the stored few-shot
+  *examples* — only on tasks.
+- The chat panel keeps no transcript between windows. It sees past *decisions*,
+  but closing the panel forgets the conversation.
+- No mobile client. Recurring rules reach a phone via Calendar; one-off tasks
+  and completing from the phone do not.
+- No Outlook or Teams, no OS notification ingestion, no wake word, no macOS
+  build.
+- The installer is unsigned, so SmartScreen warns on first run, and there is no
+  auto-update.
+
+### 10.2 The accuracy situation, stated honestly
+
+Extraction quality on the user's own mail is **unmeasured, because there is
+nothing to measure it on.** The export was run against 30 days of real mail:
+50 messages, 37 rejected by the header pre-filter (30 `List-Unsubscribe`, 7
+bulk senders, every one correct on inspection), 13 reaching the model, and
+**zero tasks extracted**.
+
+Reading all 13 confirms zero is the right answer for essentially every one:
+recommendation and marketing mail, automated acknowledgements, an invoice, and
+a mass mail that only looks personal because a human sent it. The one arguable
+miss is a service nudge asking the user to choose between two options.
+
+- **This does establish precision.** Thirteen noisy messages and nothing
+  invented. Hallucinated tasks are the failure that would make the overlay
+  unusable, and it is not happening.
+- **It does not establish recall**, and no amount of labelling will fix that
+  while the inbox holds no "send me the numbers by Friday" mail. **The premise
+  that mail carries this user's todos does not currently hold**, which is why
+  effort moved to voice, screen capture, recurrence and trust.
+- Gmail's 50-message cap means the 30-day window came back truncated. A larger
+  sample needs pagination.
+
+Every precision and recall figure elsewhere in this document is still measured
+on Enron mail, not the user's.
+
+### 10.3 Packaging hazards
+
+- `dlopen` cannot read out of an asar archive, so `better-sqlite3`,
+  `sqlite-vec`, `onnxruntime-node` and `tesseract.js` are listed under
+  `asarUnpack`, and `sqlite-vec`'s `getLoadablePath()` is rewritten to the
+  unpacked copy at runtime. **Any native dependency added later needs the same
+  treatment.**
+- `sharp` arrives transitively via `@xenova/transformers` and is rebuilt during
+  packaging. If the app is running it holds `libgobject-2.0-0.dll` open and the
+  rebuild fails with `EPERM`. **Close AmbientMind before `npm run dist`.**
+
+---
+
+## 11. What is planned
+
+Constraints for every item: this PC, a local 3B model, Google already
+connected, and the privacy story stays "the LLM never leaves localhost".
+
+### 11.1 Next
+
+1. **Code signing.** The last thing between "it installs" and "it installs
+   without frightening the user". Needs a paid certificate.
+2. **Auto-update**, or at minimum a documented update path. Today a new version
+   means running the installer again.
+3. **Gmail pagination** past the 50-message cap, which would also allow a real
+   accuracy sample if the inbox ever contains one.
+
+### 11.2 After that
+
+- **A real sync bus (E0).** Calendar write-back covers recurring rules one-way.
+  Completing on a phone and having the overlay clear needs either a private
+  encrypted relay (a real product with real operational cost) or a LAN-only
+  bridge (a demo that dies off home Wi-Fi). This decision gates the mobile app
+  entirely.
+- **Mobile, read-only first.** List, then complete and snooze, then chat — and
+  only if the phone reaches the same backend rather than running a second model
+  on the device.
+- **Phase F hardening.** Crash UX, encrypted export of the database without
+  tokens, privacy copy explaining what is local versus Google, a "pause AI for
+  an hour" switch, and a reboot test for start-at-login.
+- **Feedback on RAG examples themselves**, closing the one learning loop that
+  is still open.
+
+### 11.3 Blocked, with reasons
+
+| Item | Status |
+| --- | --- |
+| Foreground-window-only capture | **Blocked.** Electron cannot identify the foreground window; `desktopCapturer` returns window sources in no documented order. Needs a native Win32 call. |
+| Labelling the corpus | **Moot.** There is no task mail to label (§10.2). |
+| Outlook / Teams | **Deferred.** Graph admin consent. After Google is boringly reliable. |
+| OS notification scraping | **Deferred, probably permanently.** No clean Windows API, and it looks like spyware. Mail, calendar and voice already cover the same ground. |
+| Wake word | **Deferred.** Custom wake words are paid or limited; a shortcut is free and works. |
+| macOS | **Deferred.** After Windows is solid. |
+
+### 11.4 Build order, as it actually happened
 
 ```
-A  trust            done
-B1 recurrences      done
-B3 suggest-repeats  done
-C1 about-me         done
-C2 chat             done
-C3 clash helper     done
-A7 corpus export    done; labelling moot (see §6)
-   installer        done
-B2 calendar write   done
-B4 + C4 decisions   done
-   retry hardening  done
-  → code signing, so SmartScreen stops warning   ← next
-  → auto-update, or a documented update path
-  → Gmail pagination past the 50-message cap
-  → E0 pick a real sync mechanism (Calendar covers rules only)
-  → E1 mobile read-only
-  → D5 Outlook only if still needed
-  → D3 notifications almost certainly never
+A   trust, health, editing      done
+B1  recurrence rules            done
+B3  habit suggestions           done
+C1  about-me profile            done
+C2  chat panel                  done
+C3  clash helper                done
+A7  corpus export               done; labelling moot (§10.2)
+    installer + launch at login done
+B2  calendar write-back         done
+B4+C4 decision memory           done
+    retry + resume hardening    done
+  → code signing                next
+  → auto-update
+  → Gmail pagination
+  → E0 pick a real sync bus
+  → E1 mobile, read-only
 ```
 
 A7 was expected to gate everything, and it did — by answering a different
 question than the one asked. Running the export showed the inbox contains no
-task mail to label, so labelling would have measured nothing (§6). That is why
-effort went to voice, screen, recurrence and trust instead, and why accuracy
-work is no longer at the front of this list.
-
-Signing comes next because it is the last thing between "it installs" and "it
-installs without frightening the user".
-
-Do not start mobile or a “reinforcement learning brain” before there is a real
-sync bus.
+task mail, so labelling would have measured nothing. That is why accuracy work
+is no longer at the front of this list.
 
 ---
 
-## 9. Explicitly out of scope unless you override
+## 12. Building, running, packaging
 
-- Fine-tuning Qwen on your life (no labelled volume, no VRAM headroom)
-- On-device neural RL for prioritisation
-- Always-on wake word in the next slice
-- Scraping every Windows toast
-- A cloud LLM “for quality” (contradicts the original privacy brief)
+### 12.1 Prerequisites
 
----
+- Node 20+
+- Ollama running, with `qwen2.5:3b` and `nomic-embed-text` pulled
+- A Google Cloud OAuth desktop client — see `docs/google-setup.md`
 
-## 10. How to run what exists today
+### 12.2 Commands
 
 ```powershell
-cd C:\Users\Suraj\Downloads\ambientmind
-npm install
-npm start
+npm install          # postinstall rebuilds native modules for Electron
+npm run dev          # electron-vite dev server with HMR
+npm start            # preview the production bundle
+npm run build        # typecheck, then bundle
+npm test             # 85 unit tests
+npm run eval         # extraction precision/recall against a corpus
+npm run check:migration   # rehearse migrations on a copy of the live DB
+npm run dist         # per-user NSIS installer into release/
 ```
 
-Ollama must be running with `qwen2.5:3b` (and `nomic-embed-text` for RAG).
-Google: `docs/google-setup.md`, then Settings → Connect / Sync now.
+Headless modes, useful for scripting and for checking a change against real
+data without waiting for the scheduler:
+
+```powershell
+npm run sync:now
+npm run corpus:export -- --days=30 --limit=120
+```
+
+### 12.3 Shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+Shift+A` | QuickAdd; mic starts; 3 s silence submits |
-| `Ctrl+Shift+S` | Capture screen as a task |
-| `Ctrl+Shift+C` | Ask about your tasks (chat) |
+| `Ctrl+Shift+A` | QuickAdd; mic starts; 3 s of silence submits |
+| `Ctrl+Shift+S` | Capture the screen as a task |
+| `Ctrl+Shift+C` | Ask about your tasks |
 | `Ctrl+Shift+,` | Settings |
+
+### 12.4 Packaging configuration
+
+`electron-builder.yml` produces a **per-user** NSIS installer: no UAC prompt,
+and the app only ever writes to the profile it runs as. Uninstall deliberately
+leaves `userData` alone, because the database is the user's task history rather
+than the app's scratch space. See §10.3 for the two hazards.
 
 ---
 
-## 11. Related docs
+## 13. Repository map
 
-- `docs/google-setup.md` — OAuth client and scopes
-- `docs/voice.md` — STT path and why Transformers.js
-- `docs/screen-capture.md` — OCR vs VLM and deadline normalisation
-- `eval/results/` — measured prompt experiments (including the weekday-header
-  regression)
+```
+electron/             main, overlay, tray, quickAdd, settings, chat, preload
+electron/services/    taskStore, ruleStore, suggestionStore, decisionStore,
+                      sync, calendarSync, ollama, chat, health, googleAuth,
+                      vectorStore, speech, screenContext, corpusExport,
+                      config, secrets, dedup, migrations
+electron/services/integrations/   gmail, gcalendar, gcalendarWrite
+src/overlay/          orb, task list, health banner, suggestion card
+src/quickadd/         voice and type palette
+src/settings/         preferences, status, rules, profile, learned
+src/chat/             ask-about-your-tasks panel
+shared/               types, ipc, urgency, similarity, deadline, voiceIntent,
+                      recurrence, recurrenceDetect, snooze, clash, decisions,
+                      calendarEvent, promptTime
+prompts/              taskExtraction, taskEnrichment, screenTask, chat
+db/migrations/        9 append-only SQL files
+eval/                 harness, corpus, unit tests, chat action eval
+scripts/              icons, migration rehearsal, smoke tests, db inspection
+docs/                 this file plus google / voice / screen how-tos
+```
+
+**Runtime stack:** Electron 37, React 19, Tailwind 4, TypeScript 5.8,
+electron-vite 4, better-sqlite3 13, sqlite-vec 0.1, @xenova/transformers 2.17,
+tesseract.js 7, electron-builder 26.
+
+---
+
+## 14. Explicitly out of scope
+
+Unless the brief changes:
+
+- **Fine-tuning Qwen on the user's life.** No labelled volume, no VRAM
+  headroom.
+- **On-device neural reinforcement learning for prioritisation.** Wrong tool at
+  this data scale; counting accepts and deletes is both sufficient and
+  inspectable.
+- **Scraping every Windows toast.** See §11.3.
+- **A cloud LLM "for quality".** Contradicts the founding privacy premise.
+
+---
+
+## 15. Related documents
+
+- `docs/google-setup.md` — OAuth client, scopes, consent screen
+- `docs/voice.md` — the speech path and why Transformers.js
+- `docs/screen-capture.md` — OCR versus a VLM, deadline normalisation
+- `eval/results/` — measured prompt experiments, including the weekday-header
+  regression that cost 42 points of recall
