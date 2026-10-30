@@ -62,6 +62,11 @@ export interface Config {
    * extraction; this is the same lever, made explicit.
    */
   aboutMe: string
+  /**
+   * ISO timestamp until which extraction, chat and screen capture stay off.
+   * Recurrence and snooze keep running. Null means not paused.
+   */
+  pauseAiUntil: string | null
 }
 
 export interface ModelHealth {
@@ -129,7 +134,8 @@ export const DEFAULT_CONFIG: Config = {
   launchAtLogin: true,
   calendarWriteBack: false,
   displayName: '',
-  aboutMe: ''
+  aboutMe: '',
+  pauseAiUntil: null
 }
 
 /** Long enough for real context, short enough not to crowd out the message. */

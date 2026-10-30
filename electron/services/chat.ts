@@ -207,9 +207,10 @@ export async function runChat(
     let action: Action
     try {
       action = JSON.parse(raw) as Action
-    } catch {
+    } catch (err) {
       // Unreachable while `format` holds, but a schema rejection upstream must
       // not surface to the user as a crash.
+      console.warn('[chat] malformed action JSON:', (err as Error).message)
       return { reply: 'I could not put that together. Try rephrasing?', actions: performed, changed }
     }
 

@@ -20,3 +20,10 @@ eval/enron-raw/
 
 .DS_Store
 Thumbs.db
+
+# Never commit these even if copied into the repo
+*.log
+*.amb
+secrets.json
+google-credentials.json
+chat-history.json

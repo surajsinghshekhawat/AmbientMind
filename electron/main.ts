@@ -1,5 +1,7 @@
 import { userInfo } from 'node:os'
-import { app, globalShortcut, ipcMain, Notification, session, shell } from 'electron'
+import { appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { app, dialog, globalShortcut, ipcMain, Notification, session, shell } from 'electron'
 import {
   CAPTURE_SCREEN_SHORTCUT,
   CHAT_SHORTCUT,
@@ -11,6 +13,50 @@ import {
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
 app.commandLine.appendSwitch('disable-features', 'EnableTransparentHwndEnlargement')
+
+function crashLogPath() {
+  const base = process.env.APPDATA ? join(process.env.APPDATA, 'ambientmind') : process.cwd()
+  return join(base, 'crash.log')
+}
+
+function recordCrash(kind: string, err: unknown) {
+  const text = err instanceof Error ? err.stack ?? err.message : String(err)
+  const line = `${new Date().toISOString()} [${kind}] ${text}\n`
+  console.error(line.trimEnd())
+  try {
+    appendFileSync(crashLogPath(), line)
+  } catch (logErr) {
+    console.warn('[crash] could not write crash.log', logErr)
+  }
+}
+
+process.on('uncaughtException', (err) => {
+  recordCrash('uncaughtException', err)
+  try {
+    dialog.showErrorBox('AmbientMind crashed', err.message)
+  } catch {
+    // Dialog is unavailable before app ready; the log is the record.
+  }
+  app.exit(1)
+})
+
+process.on('unhandledRejection', (reason) => {
+  recordCrash('unhandledRejection', reason)
+})
+
+app.on('render-process-gone', (_event, webContents, details) => {
+  recordCrash('render-process-gone', `${details.reason} exit=${details.exitCode}`)
+  try {
+    dialog.showErrorBox('AmbientMind', 'A window crashed and will be reloaded.')
+  } catch {
+    /* ignore */
+  }
+  if (!webContents.isDestroyed()) webContents.reload()
+})
+
+app.on('child-process-gone', (_event, details) => {
+  recordCrash('child-process-gone', `${details.type} ${details.reason} exit=${details.exitCode}`)
+})
 import {
   applyOverlayConfig,
   createOverlayWindow,
@@ -75,9 +121,13 @@ import {
   warmSpeechModel
 } from './services/speech'
 import { loadConfig, saveConfig } from './services/config'
-import { exampleCount } from './services/vectorStore'
+import { writeEncryptedBackup } from './services/backup'
+import { loadChatHistory, saveChatHistory } from './services/chatHistory'
+import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
+import { backfillEmbeddings, runRetention } from './services/maintenance'
 import { isScreenCaptureIntent } from '@shared/voiceIntent'
-import type { ChatTurn, Config, SyncSummary } from '@shared/types'
+import type { ChatTurn, Config, SyncSummary, Task } from '@shared/types'
+import { describePause, isAiPaused } from '@shared/pauseAi'
 import { powerMonitor } from 'electron'
 import { forgetSubject, learnedSuppressions, recordDecision } from './services/decisionStore'
 import {
@@ -99,6 +149,25 @@ let lastReport: SyncSummary['lastReport'] = null
 
 function broadcastTasks() {
   getOverlayWindow()?.webContents.send(IPC.TasksChanged, listActive())
+}
+
+/**
+ * Closes the feedback loop that migration 002 designed and nothing wrote to.
+ *
+ * Acting on a task is the cheapest honest signal available about the
+ * extraction that produced it: completing it says the model read the mail
+ * correctly, deleting it says the model invented work. renderFewShot already
+ * replays thumbs-down examples as empty extractions, so a rating teaches the
+ * user's own boundary for "not a task" rather than merely hiding a mistake.
+ */
+function rateSourceExample(task: Task, feedback: -1 | 1) {
+  const messageId = messageIdFromTask(task)
+  if (!messageId) return
+  try {
+    rateExampleBySource(getTaskStore(), messageId, feedback)
+  } catch (err) {
+    console.warn('[rag] rating failed:', (err as Error).message)
+  }
 }
 
 function syncOptions(config: Config = loadConfig(), extra: { force?: boolean } = {}) {
@@ -198,7 +267,10 @@ function registerIpc() {
     // Recorded before the status change, while the task is still readable.
     const task = getTask(id)
     setStatus(id, 'done')
-    if (task) recordDecision({ kind: 'completed', title: task.title, source: task.source })
+    if (task) {
+      recordDecision({ kind: 'completed', title: task.title, source: task.source })
+      rateSourceExample(task, 1)
+    }
     broadcastTasks()
     trayHandle?.refresh()
     return listActive()
@@ -207,7 +279,10 @@ function registerIpc() {
   ipcMain.handle(IPC.DeleteTask, (_event, id: string) => {
     const task = getTask(id)
     deleteTask(id)
-    if (task) recordDecision({ kind: 'deleted', title: task.title, source: task.source })
+    if (task) {
+      recordDecision({ kind: 'deleted', title: task.title, source: task.source })
+      rateSourceExample(task, -1)
+    }
     broadcastTasks()
     trayHandle?.refresh()
     return listActive()
@@ -275,6 +350,7 @@ function registerIpc() {
     broadcastTasks()
 
     void enrichTask(trimmed).then((enriched) => {
+      if (isAiPaused(loadConfig().pauseAiUntil)) return
       if (enriched.title === trimmed && enriched.deadline === null) return
       updateTask(task.id, {
         title: enriched.title,
@@ -389,7 +465,8 @@ function registerIpc() {
     return checkHealth({
       ollamaModel: config.ollamaModel,
       embeddingModel: config.embeddingModel,
-      calendarWriteBack: config.calendarWriteBack
+      calendarWriteBack: config.calendarWriteBack,
+      pauseAiUntil: config.pauseAiUntil
     })
   })
 
@@ -418,6 +495,25 @@ function registerIpc() {
 
   ipcMain.handle(IPC.OpenUserData, () => shell.openPath(app.getPath('userData')))
 
+  ipcMain.handle(IPC.GetAppInfo, () => ({
+    version: app.getVersion(),
+    userData: app.getPath('userData')
+  }))
+
+  ipcMain.handle(IPC.ExportBackup, async (_event, passphrase: string) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Save encrypted backup',
+      defaultPath: `ambientmind-backup-${new Date().toISOString().slice(0, 10)}.amb`,
+      filters: [{ name: 'AmbientMind backup', extensions: ['amb'] }]
+    })
+    if (canceled || !filePath) return { canceled: true as const }
+    writeEncryptedBackup(filePath, String(passphrase ?? ''))
+    return { canceled: false as const, path: filePath }
+  })
+
+  ipcMain.handle(IPC.GetChatHistory, () => loadChatHistory())
+  ipcMain.handle(IPC.SaveChatHistory, (_event, turns: ChatTurn[]) => saveChatHistory(turns ?? []))
+
   ipcMain.handle(IPC.GetRagCount, () => exampleCount(getTaskStore()))
 
   ipcMain.on(IPC.OpenSettings, () => showSettingsWindow())
@@ -426,6 +522,13 @@ function registerIpc() {
 
   ipcMain.handle(IPC.ChatSend, async (_event, message: string, history: ChatTurn[]) => {
     const config = loadConfig()
+    if (isAiPaused(config.pauseAiUntil) && config.pauseAiUntil) {
+      return {
+        reply: describePause(config.pauseAiUntil),
+        actions: [],
+        changed: false
+      }
+    }
     const reply = await runChat(message, history ?? [], {
       model: config.ollamaModel,
       userName: currentUserName(),
@@ -466,6 +569,11 @@ function currentUserName(): string {
  * serves Ctrl+Shift+S and spoken/typed "add what's on my screen" intents.
  */
 async function captureScreenAsTask(instruction = ''): Promise<void> {
+  const pausedUntil = loadConfig().pauseAiUntil
+  if (isAiPaused(pausedUntil) && pausedUntil) {
+    new Notification({ title: 'AmbientMind', body: describePause(pausedUntil) }).show()
+    return
+  }
   const overlay = getOverlayWindow()
   overlay?.webContents.send(IPC.SyncStatus, { state: 'running' })
 
@@ -525,7 +633,9 @@ async function triggerSync(force = true): Promise<SyncReport> {
   const summary = report.errors[0]
     ? report.errors[0]
     : `Scanned ${report.scanned}, added ${report.added} task${report.added === 1 ? '' : 's'}`
-  new Notification({ title: 'AmbientMind sync', body: summary }).show()
+  if (!isAiPaused(loadConfig().pauseAiUntil)) {
+    new Notification({ title: 'AmbientMind sync', body: summary }).show()
+  }
   console.log('[sync] report', report)
   return report
 }
@@ -636,10 +746,15 @@ if (process.argv.includes('--sync-now')) {
     wakeSnoozed()
     materialiseRules()
     refreshSuggestions()
+    runRetention()
     registerIpc()
 
     const config = loadConfig()
     applyLoginItem(config)
+    // A store holding two embedding conventions ranks neighbours across two
+    // slightly different spaces, so this is a repair and should start now
+    // rather than at the first sweep. It no-ops once every row agrees.
+    void backfillEmbeddings(config.embeddingModel)
     createOverlayWindow(config)
     createQuickAddWindow()
     trayHandle = createTray({
@@ -678,6 +793,10 @@ if (process.argv.includes('--sync-now')) {
       if (archiveStaleCompleted() > 0) broadcastTasks()
       // Hourly is plenty: a habit that took three weeks to form will keep.
       refreshSuggestions()
+      // Cheap and usually a no-op, but it is the only thing standing between
+      // the vector store and unbounded linear growth in retrieval cost.
+      runRetention()
+      void backfillEmbeddings(loadConfig().embeddingModel)
     }, ARCHIVE_SWEEP_MS)
 
     // Closing the lid at night and opening it in the morning is the normal

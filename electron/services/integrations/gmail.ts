@@ -112,12 +112,42 @@ async function json<T>(url: string): Promise<T> {
   return (await response.json()) as T
 }
 
+/**
+ * Gmail returns at most 500 ids per call and far fewer by default, so a single
+ * request silently truncates a busy day. Because the caller's window is
+ * `newer_than:2d`, anything past the cap was not merely delayed — it aged out
+ * of the query before it was ever seen, with nothing surfaced to the user.
+ *
+ * Paging is bounded rather than exhaustive: the extraction budget is the real
+ * limit on a pass, and an unbounded loop over a first sync on an old mailbox
+ * would spend minutes listing mail it is not going to read.
+ */
+const PAGE_SIZE = 100
+const MAX_PAGES = 5
+
 export async function listRecentMessageIds(
-  query = 'newer_than:2d -in:chats'
+  query = 'newer_than:2d -in:chats',
+  maxPages = MAX_PAGES
 ): Promise<{ id: string; threadId: string }[]> {
-  const url = `${API}/messages?maxResults=50&q=${encodeURIComponent(query)}`
-  const data = await json<{ messages?: { id: string; threadId: string }[] }>(url)
-  return data.messages ?? []
+  const collected: { id: string; threadId: string }[] = []
+  let pageToken: string | undefined
+
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({ maxResults: String(PAGE_SIZE), q: query })
+    if (pageToken) params.set('pageToken', pageToken)
+
+    const data = await json<{
+      messages?: { id: string; threadId: string }[]
+      nextPageToken?: string
+    }>(`${API}/messages?${params.toString()}`)
+
+    collected.push(...(data.messages ?? []))
+    if (!data.nextPageToken) return collected
+    pageToken = data.nextPageToken
+  }
+
+  console.warn(`[gmail] stopped after ${maxPages} pages; ${collected.length} ids listed`)
+  return collected
 }
 
 export async function fetchMessage(id: string): Promise<{

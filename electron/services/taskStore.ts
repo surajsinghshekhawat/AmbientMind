@@ -55,9 +55,11 @@ function toTask(row: TaskRow): Task {
 }
 
 let db: Database.Database | null = null
+let openedPath: string | null = null
 
 export function openTaskStore(filename?: string) {
   const path = filename ?? join(app.getPath('userData'), 'ambientmind.db')
+  openedPath = path
   db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
@@ -78,9 +80,14 @@ export function getTaskStore(): Database.Database {
   return handle()
 }
 
+export function taskStorePath(): string | null {
+  return openedPath
+}
+
 export function closeTaskStore() {
   db?.close()
   db = null
+  openedPath = null
 }
 
 /** Everything the overlay may need to render, archived rows excluded. */

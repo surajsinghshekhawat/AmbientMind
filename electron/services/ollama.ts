@@ -213,9 +213,10 @@ export async function extractTasks(
 
   try {
     return sanitise(JSON.parse(content), config.minConfidence)
-  } catch {
+  } catch (err) {
     // Should be unreachable while `format` is set, but a schema rejection at the
     // server would otherwise surface as an unhandled parse error mid-sync.
+    console.warn('[ollama] extraction JSON rejected:', (err as Error).message)
     return []
   }
 }
@@ -271,13 +272,53 @@ export async function enrichTask(
         ? parsed.people.filter((p): p is string => typeof p === 'string')
         : []
     }
-  } catch {
+  } catch (err) {
+    console.warn('[ollama] enrichment JSON rejected:', (err as Error).message)
     return fallback
   }
 }
 
-export async function embed(text: string, model = 'nomic-embed-text'): Promise<number[]> {
-  const data = await post<{ embeddings?: number[][] }>('/api/embed', { model, input: text })
+/**
+ * nomic-embed was trained with task prefixes and learned a deliberately
+ * asymmetric geometry: a stored passage and a lookup of it are not meant to be
+ * embedded the same way. Sending raw text for both is self-consistent, so
+ * retrieval still ranks, but it uses the model outside its training
+ * distribution and throws away that asymmetry.
+ *
+ * Applied only to nomic models. Every other embedding model treats these as
+ * ordinary words and would be measurably worse for the addition.
+ */
+export type EmbedKind = 'document' | 'query'
+
+const NOMIC_PREFIX: Record<EmbedKind, string> = {
+  document: 'search_document: ',
+  query: 'search_query: '
+}
+
+/**
+ * Bumped when the convention changes, so stored vectors can be re-embedded.
+ *
+ *   1 — nomic task prefixes
+ *   2 — example text capped, and the embedded string is the stored string
+ *
+ * Version 2 exists because version 1 rewrote vectors without rewriting the
+ * text they came from, leaving rows whose vector described a longer string
+ * than the one retained. Bumping is the cheap fix; that is the point of
+ * recording a version rather than a boolean.
+ */
+export const EMBED_VERSION = 2
+
+export function prefixFor(model: string, kind: EmbedKind): string {
+  return /nomic/i.test(model) ? NOMIC_PREFIX[kind] : ''
+}
+
+export async function embed(
+  text: string,
+  model = 'nomic-embed-text',
+  kind: EmbedKind = 'document'
+): Promise<number[]> {
+  const input = `${prefixFor(model, kind)}${text}`
+  const data = await post<{ embeddings?: number[][] }>('/api/embed', { model, input })
   const vector = data.embeddings?.[0]
   if (!vector) throw new Error('Ollama returned no embedding')
   return vector

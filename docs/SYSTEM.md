@@ -240,6 +240,31 @@ extractions, render them as few-shot examples, extract, then store *this*
 message and its extraction as a new example. The corpus grows into the shape of
 the user's own mail.
 
+**The feedback loop.** Acting on a task rates the example it came from:
+completing sets `+1`, deleting sets `-1`, and `renderFewShot` replays
+thumbs-down examples as *empty* extractions, so a rating teaches the user's
+boundary for "not a task" rather than merely hiding a mistake. A completion is
+sticky and a later deletion cannot overturn it — the same asymmetry decision
+memory uses, because a wrongly negative example quietly teaches the model to
+extract less and the user cannot see that happening from the list. Tasks are
+matched to examples through `examples.source_id` (migration 010).
+
+**Retention.** `electron/services/maintenance.ts` caps the corpus at 2000
+unrated examples, expires `processed_messages` after 90 days and bounds
+`decisions` at 5000. This is not housekeeping for disk: `sqlite-vec` scans
+every stored vector on every query, so an uncapped store makes each sync
+slower than the last, forever, with no symptom but gradual sluggishness.
+Rated examples are never evicted — they are the only supervision the system
+has.
+
+**Embedding versions.** `examples.embed_version` records which convention
+produced a row's vector, and stale rows are re-embedded in bounded batches in
+the background. Mixing conventions is worse than consistently using the older
+one, since neighbours then rank across two slightly different spaces, so this
+is a repair that has to finish rather than an optimisation. Measured on the
+live store: adding the task prefix moves a vector by a cosine of 0.903, which
+is the margin that made the backfill necessary rather than cosmetic.
+
 **A sharp edge worth recording.** Vector rowids must be bound as JavaScript
 `BigInt`. `better-sqlite3` passes plain numbers as doubles and `vec0` rejects a
 non-integer primary key, with an error that does not obviously say so.
@@ -500,6 +525,7 @@ them from a path would fail.
 | 7 | `007_retry.sql` | `processed_messages.attempts` |
 | 8 | `008_rule_calendar.sql` | `recurrence_rules.gcal_event_id` |
 | 9 | `009_decisions.sql` | `decisions` |
+| 10 | `010_example_feedback.sql` | `examples.source_id`, `examples.embed_version`, retention index |
 
 Migration 005 is the interesting one. SQLite cannot alter a `CHECK`
 constraint, so adding `'rule'` to the allowed task sources required copying the
@@ -903,7 +929,22 @@ occurrences and syncs.
 Background passes wrote tasks to the database that the overlay was never told
 about, so new mail only appeared after the next manual action.
 
-### 9.5 Two suspicions that were already handled
+### 9.5 The migration rehearsal was testing a stale snapshot
+
+`check-migration.cjs` copied `ambientmind.db` and nothing else. The database
+runs in **WAL mode**, so recent commits live in `ambientmind.db-wal` until a
+checkpoint — 1.7 MB of them at the time this was found. The rehearsal was
+therefore blind to the newest rows, which are precisely the ones most likely to
+be unusual and most likely to break a migration.
+
+Measured: 34 examples visible to the rehearsal against 54 actually committed.
+The tool built to catch data problems before they reached real data had a
+20-row hole in it. It now copies `-wal` and `-shm` alongside the main file.
+
+The same run caught a duplicate index name in a draft of migration 010, which
+is the rehearsal doing its job.
+
+### 9.6 Two suspicions that were already handled
 
 Checked and deliberately left alone: Ollama calls already carry a bounded
 timeout, and the overlay already repositions on `display-metrics-changed`,
@@ -918,13 +959,8 @@ timeout, and the overlay already repositions on `display-metrics-changed`,
 - The overlay floats over applications rather than living in the wallpaper
   layer (§8.1).
 - A 3B ceiling on nuance and on messy relative dates.
-- RAG starts empty, and there is still no feedback loop on the stored few-shot
-  *examples* — only on tasks.
-- **Embeddings are sent without nomic-embed's task prefixes.** The model
-  expects `search_document:` and `search_query:`; `embed()` sends raw text for
-  both. Usage is at least symmetric, so retrieval still ranks sensibly, but the
-  model is being run outside its trained input distribution and the fix is
-  cheap. See §17.5.
+- RAG starts empty. There is now a feedback loop on the stored examples as well
+  as on tasks (§3.4), but it only learns from mail the user actually acts on.
 - The chat panel keeps no transcript between windows. It sees past *decisions*,
   but closing the panel forgets the conversation.
 - No mobile client. Recurring rules reach a phone via Calendar; one-off tasks
@@ -954,8 +990,8 @@ miss is a service nudge asking the user to choose between two options.
   while the inbox holds no "send me the numbers by Friday" mail. **The premise
   that mail carries this user's todos does not currently hold**, which is why
   effort moved to voice, screen capture, recurrence and trust.
-- Gmail's 50-message cap means the 30-day window came back truncated. A larger
-  sample needs pagination.
+- Gmail's 50-message cap meant the 30-day window came back truncated. Listing
+  now pages up to 5 × 100 ids, so a repeat run would sample properly.
 
 Every precision and recall figure elsewhere in this document is measured on the
 14 hand-written stand-in messages described in §3.8 — not on real Enron mail,
@@ -1309,8 +1345,12 @@ npm run build        # typecheck, then bundle
 npm test             # 85 unit tests
 npm run eval         # extraction precision/recall against a corpus
 npm run check:migration   # rehearse migrations on a copy of the live DB
-npm run dist         # per-user NSIS installer into release/
+npm run preflight    # refuse to package while the app is running
+npm run dist         # preflight, build, then a per-user NSIS installer
 ```
+
+`npx electron ./scripts/check-embeddings.cjs` reports how far the embedding
+backfill has progressed and whether the feedback loop has any signal yet.
 
 Headless modes, useful for scripting and for checking a change against real
 data without waiting for the scheduler:
@@ -1608,19 +1648,18 @@ apart. Semantic similarity as spatial proximity is a *learned property*, not an
 automatic one — this is precisely what a raw language model's hidden states do
 not reliably give you.
 
-**A real gap in the current integration.** nomic-embed v1.5 was trained with
-task prefixes: documents to be stored should be embedded as
-`search_document: ...` and queries as `search_query: ...`. The app's `embed()`
-in `electron/services/ollama.ts` sends **raw text with no prefix** for both
-sides.
+**Task prefixes — fixed.** nomic-embed v1.5 was trained with task prefixes:
+stored passages as `search_document: ...` and lookups as `search_query: ...`.
+The app originally sent raw text for both, which was at least *symmetric* — so
+retrieval still ranked — but used the model outside its trained distribution
+and wasted the asymmetric geometry it learned.
 
-The damage is limited because it is *symmetric* — stored examples and queries
-are embedded the same unprefixed way, so neighbours are still ranked sensibly
-and retrieval works. But the model is being used outside its trained input
-distribution, and the asymmetric document/query geometry it learned is going
-unused. Adding the prefixes is a small, cheap change that should improve
-few-shot retrieval quality, and it is worth measuring rather than assuming.
-Recorded here as a known deficiency rather than a plan.
+`prefixFor()` now applies them, and only to nomic models, since any other
+embedding model reads those tokens as ordinary words and would be worse for
+the addition. Because the change alters every vector (measured cosine shift of
+0.903 against the unprefixed vector), existing rows had to be re-embedded
+rather than left alongside new ones; see the embedding-version mechanism in
+§3.4.
 
 **Matryoshka representations.** v1.5 was trained so that truncating the vector
 to 512, 256 or 128 dimensions degrades quality gracefully, which would allow a

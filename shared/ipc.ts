@@ -54,6 +54,10 @@ export const IPC = {
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',
   OpenSettings: 'settings:open',
+  GetAppInfo: 'app:info',
+  ExportBackup: 'settings:export-backup',
+  GetChatHistory: 'chat:history-get',
+  SaveChatHistory: 'chat:history-save',
 
   QuickAddSubmit: 'quickadd:submit',
   QuickAddCancel: 'quickadd:cancel',

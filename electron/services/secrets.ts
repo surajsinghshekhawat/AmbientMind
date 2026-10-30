@@ -24,7 +24,8 @@ function load(): SecretMap {
   if (cache) return cache
   try {
     cache = JSON.parse(readFileSync(file(), 'utf8')) as SecretMap
-  } catch {
+  } catch (err) {
+    console.warn('[secrets] no secrets file yet:', (err as Error).message)
     cache = {}
   }
   return cache
@@ -55,9 +56,10 @@ export function getSecret(key: string): string | null {
   if (!encoded) return null
   try {
     return safeStorage.decryptString(Buffer.from(encoded, 'base64'))
-  } catch {
+  } catch (err) {
     // Ciphertext written under a different OS user or profile is unreadable.
     // Treat as absent so the app re-prompts rather than crashing on launch.
+    console.warn('[secrets] decrypt failed:', (err as Error).message)
     return null
   }
 }
@@ -77,7 +79,8 @@ export function getJson<T>(key: string): T | null {
   if (!raw) return null
   try {
     return JSON.parse(raw) as T
-  } catch {
+  } catch (err) {
+    console.warn('[secrets] json parse failed:', (err as Error).message)
     return null
   }
 }

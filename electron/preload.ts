@@ -81,6 +81,9 @@ const api = {
   openChat: () => ipcRenderer.send(IPC.OpenChat),
   chat: (message: string, history: ChatTurn[]): Promise<ChatReply> =>
     ipcRenderer.invoke(IPC.ChatSend, message, history),
+  getChatHistory: (): Promise<ChatTurn[]> => ipcRenderer.invoke(IPC.GetChatHistory),
+  saveChatHistory: (turns: ChatTurn[]): Promise<ChatTurn[]> =>
+    ipcRenderer.invoke(IPC.SaveChatHistory, turns),
 
   rules: {
     list: (): Promise<RecurrenceRule[]> => ipcRenderer.invoke(IPC.GetRules),
@@ -118,6 +121,14 @@ const api = {
     prefilledTasks: number
     skipped: number
   }> => ipcRenderer.invoke(IPC.ExportCorpus),
+
+  exportBackup: (
+    passphrase: string
+  ): Promise<{ canceled: true } | { canceled: false; path: string }> =>
+    ipcRenderer.invoke(IPC.ExportBackup, passphrase),
+
+  getAppInfo: (): Promise<{ version: string; userData: string }> =>
+    ipcRenderer.invoke(IPC.GetAppInfo),
 
   openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
   getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),

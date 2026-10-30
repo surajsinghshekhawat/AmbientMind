@@ -1,3 +1,4 @@
+import { describePause, isAiPaused } from '@shared/pauseAi'
 import type { Task } from '@shared/types'
 import { rejectDuplicates } from './dedup'
 import { fetchUpcoming } from './integrations/gcalendar'
@@ -5,6 +6,7 @@ import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/g
 import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
 import {
   embed,
+  EMBED_VERSION,
   extractTasks,
   isAvailable,
   OllamaUnavailableError,
@@ -23,8 +25,15 @@ import {
   setSyncState,
   type NewTask
 } from './taskStore'
-import { exampleCount, nearestExamples, renderFewShot, storeExample } from './vectorStore'
+import {
+  exampleCount,
+  nearestExamples,
+  renderFewShot,
+  storeExample,
+  truncateExample
+} from './vectorStore'
 import { suppressionFor } from './decisionStore'
+import { loadConfig } from './config'
 
 export interface SyncReport {
   ranAt: string
@@ -155,8 +164,13 @@ async function syncGmail(
   return candidates
 }
 
+/**
+ * The same string is both stored and embedded, so a vector always describes
+ * text that still exists and can be reproduced exactly during a re-embed. The
+ * cap lives in vectorStore because the backfill applies it too.
+ */
 function embeddingText(message: { subject: string; sender: string; body: string }) {
-  return `Subject: ${message.subject}\nFrom: ${message.sender}\n\n${message.body}`
+  return truncateExample(`Subject: ${message.subject}\nFrom: ${message.sender}\n\n${message.body}`)
 }
 
 /**
@@ -171,7 +185,7 @@ async function retrieveFewShot(
     const db = getTaskStore()
     const available = exampleCount(db)
     if (available === 0) return ''
-    const vector = await embed(embeddingText(message), embedModel)
+    const vector = await embed(embeddingText(message), embedModel, 'query')
     return renderFewShot(nearestExamples(db, vector, Math.min(5, available)))
   } catch (err) {
     console.warn('[rag] retrieve failed:', (err as Error).message)
@@ -180,13 +194,19 @@ async function retrieveFewShot(
 }
 
 async function rememberExtraction(
-  message: { subject: string; sender: string; body: string },
+  message: { id: string; subject: string; sender: string; body: string },
   tasks: ExtractedTask[],
   embedModel?: string
 ) {
   try {
-    const vector = await embed(embeddingText(message), embedModel)
-    storeExample(getTaskStore(), embeddingText(message), tasks, vector, 'observed')
+    const text = embeddingText(message)
+    const vector = await embed(text, embedModel, 'document')
+    storeExample(getTaskStore(), text, tasks, vector, {
+      source: 'observed',
+      // Lets a task rate the example it came from once the user acts on it.
+      sourceId: message.id,
+      embedVersion: EMBED_VERSION
+    })
   } catch (err) {
     console.warn('[rag] store failed:', (err as Error).message)
   }
@@ -221,6 +241,11 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
   // A slow pass must never overlap the next tick and double the model load.
   if (running) {
     report.errors.push('a sync is already in progress')
+    return report
+  }
+  const pausedUntil = loadConfig().pauseAiUntil
+  if (isAiPaused(pausedUntil) && pausedUntil) {
+    report.errors.push(describePause(pausedUntil))
     return report
   }
   if (!isGoogleConnected()) {

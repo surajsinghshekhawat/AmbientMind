@@ -53,7 +53,8 @@ export async function exportCorpus(
     let fetched
     try {
       fetched = await fetchMessage(id)
-    } catch {
+    } catch (err) {
+      console.warn('[corpus] fetch failed:', id, (err as Error).message)
       continue
     }
 

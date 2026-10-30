@@ -8,6 +8,7 @@ import suggestions from '../../db/migrations/006_suggestions.sql?raw'
 import retry from '../../db/migrations/007_retry.sql?raw'
 import ruleCalendar from '../../db/migrations/008_rule_calendar.sql?raw'
 import decisions from '../../db/migrations/009_decisions.sql?raw'
+import exampleFeedback from '../../db/migrations/010_example_feedback.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
@@ -23,7 +24,8 @@ const MIGRATIONS: string[] = [
   suggestions,
   retry,
   ruleCalendar,
-  decisions
+  decisions,
+  exampleFeedback
 ]
 
 export function migrate(db: Database.Database) {

@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { ABOUT_ME_MAX_CHARS, DEFAULT_CONFIG, type Config, type OverlayCorner } from '@shared/types'
+import { normalizePauseAiUntil } from '@shared/pauseAi'
 
 const CORNERS: OverlayCorner[] = ['top-right', 'top-left', 'bottom-right', 'bottom-left']
 const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
@@ -43,17 +44,25 @@ function sanitize(raw: Partial<Config>): Config {
     whisperModel:
       (raw.whisperModel ?? DEFAULT_CONFIG.whisperModel).trim() || DEFAULT_CONFIG.whisperModel,
     displayName: (raw.displayName ?? '').trim().slice(0, 80),
-    aboutMe: (raw.aboutMe ?? '').trim().slice(0, ABOUT_ME_MAX_CHARS)
+    aboutMe: (raw.aboutMe ?? '').trim().slice(0, ABOUT_ME_MAX_CHARS),
+    pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil)
   }
 }
 
 export function loadConfig(): Config {
-  if (cached) return cached
-  try {
-    const raw = JSON.parse(readFileSync(filePath(), 'utf8')) as Partial<Config>
-    cached = sanitize(raw)
-  } catch {
-    cached = { ...DEFAULT_CONFIG }
+  if (!cached) {
+    try {
+      const raw = JSON.parse(readFileSync(filePath(), 'utf8')) as Partial<Config>
+      cached = sanitize(raw)
+    } catch (err) {
+      console.warn('[config] using defaults:', (err as Error).message)
+      cached = { ...DEFAULT_CONFIG }
+    }
+  }
+  // Expiry is wall-clock, so a cached future timestamp must drop once it elapses.
+  const pauseAiUntil = normalizePauseAiUntil(cached.pauseAiUntil)
+  if (pauseAiUntil !== cached.pauseAiUntil) {
+    cached = { ...cached, pauseAiUntil }
   }
   return cached
 }

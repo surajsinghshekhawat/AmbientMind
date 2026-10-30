@@ -8,6 +8,12 @@ about it.
 Compiled 16 September 2026 against commit `b136530`, from a live audit rather
 than from memory. Every claim below has evidence attached.
 
+> **Update — Wave 1 and Wave 2 are done.** P1-1 through P1-5 and P2-6 are
+> implemented, tested and verified against the live database; see §7 for what
+> shipped and what the verification actually showed. P1-6 remains blocked on
+> usage. P0-1 and P0-2 are untouched and are now the whole of the critical
+> path.
+
 ---
 
 ## 1. Verified snapshot

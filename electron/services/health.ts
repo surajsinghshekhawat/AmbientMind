@@ -1,4 +1,5 @@
 import type { HealthReport, ModelHealth } from '@shared/types'
+import { describePause, isAiPaused } from '@shared/pauseAi'
 import { OLLAMA_URL, listModels } from './ollama'
 import { hasCalendarWriteScope, isGoogleConnected, loadCredentials } from './googleAuth'
 
@@ -20,6 +21,7 @@ export interface HealthInput {
   embeddingModel: string
   /** Checked only when the user has asked for calendar write-back. */
   calendarWriteBack?: boolean
+  pauseAiUntil?: string | null
 }
 
 /**
@@ -53,6 +55,9 @@ export async function checkHealth(config: HealthInput): Promise<HealthReport> {
   const credentialsConfigured = loadCredentials() !== null
 
   const problems: string[] = []
+  if (isAiPaused(config.pauseAiUntil) && config.pauseAiUntil) {
+    problems.push(describePause(config.pauseAiUntil))
+  }
   if (!running) {
     problems.push(`Ollama is not reachable at ${OLLAMA_URL}. Start it, then re-check.`)
   } else {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatTurn } from '@shared/types'
 
 interface Entry extends ChatTurn {
@@ -14,10 +14,23 @@ const SUGGESTIONS = [
 
 export function App() {
   const [entries, setEntries] = useState<Entry[]>([])
+  const [ready, setReady] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    void window.ambient.getChatHistory().then((turns) => {
+      setEntries(turns)
+      setReady(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    void window.ambient.saveChatHistory(entries.map(({ role, content }) => ({ role, content })))
+  }, [entries, ready])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -59,7 +72,7 @@ export function App() {
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {entries.length === 0 && (
+        {ready && entries.length === 0 && (
           <div className="space-y-2">
             {SUGGESTIONS.map((suggestion) => (
               <button

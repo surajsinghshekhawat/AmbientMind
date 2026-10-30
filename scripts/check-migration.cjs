@@ -23,7 +23,16 @@ app.whenReady().then(() => {
     }
 
     const copy = path.join(app.getPath('temp'), `ambientmind-migration-check-${Date.now()}.db`)
+
+    // The database runs in WAL mode, so recent commits live in the -wal file
+    // and not in the main one. Copying only the main file rehearses against a
+    // stale snapshot that is missing precisely the newest rows — the ones most
+    // likely to be unusual, and the ones a migration is most likely to break.
+    // Measured: 34 examples in the main file against 54 actually committed.
     copyFileSync(live, copy)
+    for (const suffix of ['-wal', '-shm']) {
+      if (existsSync(live + suffix)) copyFileSync(live + suffix, copy + suffix)
+    }
 
     const db = new Database(copy)
     db.pragma('journal_mode = WAL')
@@ -80,6 +89,37 @@ app.whenReady().then(() => {
     console.log(
       'SEEDED_OLD_FAILURES',
       db.prepare(`SELECT COUNT(*) AS n FROM processed_messages WHERE outcome = 'failed'`).get().n
+    )
+
+    // Migration 010: examples must survive, gain the two new columns, and
+    // still be reachable from the vector table by rowid. The join is the part
+    // worth probing — pruning and re-embedding both delete from vec0 by rowid,
+    // and a mismatch there would orphan vectors rather than fail loudly.
+    const examplesBefore = db.prepare('SELECT COUNT(*) AS n FROM examples').get().n
+    console.log('EXAMPLES', examplesBefore)
+    console.log(
+      'EXAMPLES_JOIN_VECTORS',
+      db.prepare('SELECT COUNT(*) AS n FROM examples e JOIN example_vectors v ON e.id = v.rowid').get()
+        .n
+    )
+    console.log(
+      'STALE_EMBEDDINGS',
+      db.prepare('SELECT COUNT(*) AS n FROM examples WHERE embed_version < 1').get().n
+    )
+
+    // Feedback must be writable by source_id, and a completion must outrank a
+    // later deletion, which is the asymmetry the loop depends on.
+    db.prepare(
+      `INSERT INTO examples (message, tasks, source, source_id, embed_version, created_at)
+       VALUES ('probe message', '[]', 'observed', 'probe-msg', 1, datetime('now'))`
+    ).run()
+    db.prepare(`UPDATE examples SET feedback = 1 WHERE source_id = 'probe-msg'`).run()
+    db.prepare(
+      `UPDATE examples SET feedback = -1 WHERE source_id = 'probe-msg' AND feedback <> 1`
+    ).run()
+    console.log(
+      'COMPLETION_OUTRANKS_DELETION',
+      db.prepare(`SELECT feedback FROM examples WHERE source_id = 'probe-msg'`).get().feedback === 1
     )
 
     db.close()

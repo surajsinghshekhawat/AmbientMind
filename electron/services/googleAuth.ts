@@ -84,7 +84,8 @@ export function loadCredentials(): GoogleCredentials | null {
       if (raw.clientId && raw.clientSecret) {
         return { clientId: raw.clientId, clientSecret: raw.clientSecret }
       }
-    } catch {
+    } catch (err) {
+      console.warn('[oauth] credentials parse failed:', (err as Error).message)
       continue
     }
   }
@@ -274,7 +275,8 @@ async function fetchEmailAddress(accessToken: string): Promise<string | undefine
     })
     if (!response.ok) return undefined
     return ((await response.json()) as { email?: string }).email
-  } catch {
+  } catch (err) {
+    console.warn('[oauth] userinfo failed:', (err as Error).message)
     return undefined
   }
 }
