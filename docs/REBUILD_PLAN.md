@@ -633,8 +633,8 @@ time; these were current on 31 October 2026.
 | Anthropic `frontend-design` skill | Pushes generated UI away from generic templates | Copied into `.cursor/skills/frontend-design/` from `anthropics/skills` |
 | Vercel `web-design-guidelines` skill | Interface review checklist | Copied into `.cursor/skills/` from `vercel-labs/agent-skills` |
 | Context7 | Current docs for Electron, Base UI, Motion, EventKit | Remote MCP URL in `.cursor/mcp.json`; no local install |
-| Playwright MCP | Drive the gallery and Electron windows for screenshot review | `.cursor/mcp.json` entry running `npx @playwright/mcp`, with browsers and its profile under `.local/` |
-| Xcode MCP | Build and debug the Swift helper | `.cursor/mcp.json` entry running `xcrun mcpbridge` (Xcode 26.3 or later) |
+| Browser review | Screenshot the gallery | Cursor's built-in browser; no Playwright MCP needed. Electron windows are covered by the Playwright smoke test. |
+| Xcode MCP | Build and debug the Swift helper | Phase 4. Needs Xcode 26.3 or later; only the Command Line Tools are installed now. Then a `.cursor/mcp.json` entry running `xcrun mcpbridge`. |
 | Apple docs (Sosumi) | Apple API docs for the helper | Remote MCP URL `https://sosumi.ai/mcp` in `.cursor/mcp.json` |
 | Figma (optional) | Only if designs are drawn in Figma first | Skip unless needed; it is a user-level plugin |
 
