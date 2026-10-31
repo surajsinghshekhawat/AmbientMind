@@ -6,6 +6,7 @@ import type {
   Config,
   HealthReport,
   RecurrenceSuggestion,
+  SpeechEngineInfo,
   SyncSummary,
   Task
 } from '@shared/types'
@@ -180,6 +181,37 @@ const api = {
       ipcRenderer.on(IPC.QuickAddShortcutAgain, listener)
       return () => {
         ipcRenderer.off(IPC.QuickAddShortcutAgain, listener)
+      }
+    },
+    /** The shortcut is held down ('start') or let go after a hold ('end'). */
+    onHold: (handler: (phase: 'start' | 'end') => void): (() => void) => {
+      const listener = (_event: unknown, phase: 'start' | 'end') => handler(phase)
+      ipcRenderer.on(IPC.QuickAddHold, listener)
+      return () => {
+        ipcRenderer.off(IPC.QuickAddHold, listener)
+      }
+    }
+  },
+
+  speech: {
+    engine: (): Promise<SpeechEngineInfo> => ipcRenderer.invoke(IPC.SpeechEngine),
+    /** Downloads Apple's speech model; macOS stores it with its other language assets. */
+    install: (): Promise<SpeechEngineInfo> => ipcRenderer.invoke(IPC.SpeechInstall),
+    start: (): Promise<void> => ipcRenderer.invoke(IPC.SpeechStart),
+    stop: (): Promise<string> => ipcRenderer.invoke(IPC.SpeechStop),
+    cancel: () => ipcRenderer.send(IPC.SpeechCancel),
+    onPartial: (handler: (partial: { text: string; final: boolean }) => void): (() => void) => {
+      const listener = (_event: unknown, partial: { text: string; final: boolean }) => handler(partial)
+      ipcRenderer.on(IPC.SpeechPartial, listener)
+      return () => {
+        ipcRenderer.off(IPC.SpeechPartial, listener)
+      }
+    },
+    onLevel: (handler: (rms: number) => void): (() => void) => {
+      const listener = (_event: unknown, rms: number) => handler(rms)
+      ipcRenderer.on(IPC.SpeechLevel, listener)
+      return () => {
+        ipcRenderer.off(IPC.SpeechLevel, listener)
       }
     }
   }

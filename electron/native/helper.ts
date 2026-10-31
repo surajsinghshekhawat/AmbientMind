@@ -1,9 +1,10 @@
+import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { HelperError, type HelperMethod, type HelperMethods } from '@shared/helperProtocol'
+import { HelperError, type HelperEvents, type HelperMethod, type HelperMethods } from '@shared/helperProtocol'
 import { isMac } from '../platform'
-import { HelperClient } from './helperClient'
+import { HelperClient, type HelperState } from './helperClient'
 
 /**
  * The one helper process for the app's lifetime, Mac only.
@@ -29,9 +30,27 @@ export function startHelper(): HelperClient | null {
     return null
   }
   client = new HelperClient({ command: path, log: (message) => console.log(`[helper] ${message}`) })
-  client.on('state', (state) => console.log(`[helper] ${state}`))
+  client.on('state', (state: HelperState) => {
+    console.log(`[helper] ${state}`)
+    relay.emit('state', state)
+  })
+  client.on('event', (name: string, data: unknown) => relay.emit(`event:${name}`, data))
   client.start()
   return client
+}
+
+const relay = new EventEmitter()
+
+/** Subscribes to one kind of helper event, across restarts. Returns the unsubscribe. */
+export function onHelperEvent<E extends keyof HelperEvents>(name: E, handler: (data: HelperEvents[E]) => void): () => void {
+  relay.on(`event:${name}`, handler)
+  return () => relay.off(`event:${name}`, handler)
+}
+
+/** Fires on every state change, e.g. to re-register hotkeys once the helper is ready again. */
+export function onHelperState(handler: (state: HelperState) => void): () => void {
+  relay.on('state', handler)
+  return () => relay.off('state', handler)
 }
 
 export async function stopHelper(): Promise<void> {

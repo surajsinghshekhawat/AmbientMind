@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { describePause, isAiPaused, pauseAiForHours } from '@shared/pauseAi'
 import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
@@ -7,6 +7,7 @@ import {
   type Config,
   type HealthReport,
   type OverlayCorner,
+  type SpeechEngineInfo,
   type SyncSummary,
   type ThemeChoice
 } from '@shared/types'
@@ -31,6 +32,7 @@ export interface SettingsData {
   learned: { title: string; deletes: number }[]
   permissions: PermissionState[]
   appInfo: { version: string; userData: string } | null
+  speech: SpeechEngineInfo
 }
 
 export interface SettingsActions {
@@ -374,13 +376,85 @@ function PermissionRow({ permission, onChange }: { permission: PermissionState; 
   )
 }
 
-export function Capture({ data: { config, permissions }, actions: { patch, refresh } }: PageProps) {
+/**
+ * Apple's speech model, on a Mac that supports it. macOS keeps it with
+ * Dictation's models, outside the app, so it is only fetched on request.
+ */
+function LiveWordsRow({ speech, onChange }: { speech: SpeechEngineInfo; onChange: () => void }) {
+  const [progress, setProgress] = useState<number | null>(speech.installing)
+  const [error, setError] = useState<string | null>(null)
+  const apple = speech.apple
+  const downloading = progress !== null
+
+  useEffect(() => {
+    if (!downloading) return
+    const timer = setInterval(() => {
+      void window.ambient.speech.engine().then((info) => {
+        if (info.installing !== null) setProgress(info.installing)
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [downloading])
+
+  if (!apple?.available) return null
+  if (apple.installed) {
+    return (
+      <Row label="Live words" description={error ?? 'Words appear as you talk and land the moment you stop. Runs on this Mac.'}>
+        <Pill tone="ok">On</Pill>
+      </Row>
+    )
+  }
+  return (
+    <Row
+      label="Live words"
+      description={
+        error ??
+        (downloading || apple.downloading
+          ? 'macOS is downloading the speech model. You can keep working.'
+          : 'Words appear as you talk. A one-time download, kept by macOS with Dictation.')
+      }
+    >
+      {downloading || apple.downloading ? (
+        <Pill tone="quiet">{progress ? `Downloading ${Math.round(progress * 100)}%` : 'Downloading…'}</Pill>
+      ) : (
+        <Button
+          size="sm"
+          onClick={async () => {
+            setError(null)
+            setProgress(0)
+            try {
+              await window.ambient.speech.install()
+            } catch {
+              setError('The download didn’t finish. Check your connection and try again.')
+            } finally {
+              setProgress(null)
+              onChange()
+            }
+          }}
+        >
+          Download
+        </Button>
+      )}
+    </Row>
+  )
+}
+
+export function Capture({ data: { config, permissions, speech }, actions: { patch, refresh } }: PageProps) {
   const screen = permissions.find((p) => p.kind === 'screen')
   const accessibility = permissions.find((p) => p.kind === 'accessibility')
+  const live = speech.engine === 'apple'
   return (
     <Page title="Capture" description="Add tasks by typing, talking or pointing at your screen.">
-      <Group title="Voice" footer="Speech is turned into text on the CPU, so a larger model costs seconds, not memory. A new model downloads once, in the background.">
-        <Row label="Voice model">
+      <Group
+        title="Voice"
+        footer={
+          live
+            ? 'Hold the Quick Capture shortcut to talk and let go to finish, or tap it twice. The voice model below is only used if live words are unavailable.'
+            : 'Speech is turned into text on the CPU, so a larger model costs seconds, not memory. A new model downloads once, in the background.'
+        }
+      >
+        <LiveWordsRow speech={speech} onChange={() => void refresh()} />
+        <Row label={live ? 'Fallback voice model' : 'Voice model'}>
           <Select aria-label="Voice model" value={config.whisperModel} onChange={(e) => void patch({ whisperModel: e.target.value })}>
             {WHISPER_MODELS.map((model) => (
               <option key={model.id} value={model.id}>

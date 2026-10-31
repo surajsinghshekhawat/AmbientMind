@@ -104,4 +104,24 @@ describe('Settings', () => {
     expect(mock.calls.some((c) => c.method === 'requestPermission' && c.args[0] === 'accessibility')).toBe(true)
     expect(screen.getAllByText('Allowed')).toHaveLength(3)
   })
+
+  it('live words download only when asked, then take over from Whisper', async () => {
+    const mock = installMockAmbient({
+      speech: { engine: 'whisper', apple: { available: true, installed: false, downloading: false, locale: 'en-US' }, installing: null }
+    })
+    await open('capture')
+    expect(mock.calls.some((c) => c.method === 'speech.install')).toBe(false)
+    expect(screen.getByText('Voice model')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }))
+    await flush()
+    expect(mock.calls.some((c) => c.method === 'speech.install')).toBe(true)
+    expect(screen.getByText('On')).toBeTruthy()
+    expect(screen.getByText('Fallback voice model')).toBeTruthy()
+  })
+
+  it('no live words row where Apple speech is missing', async () => {
+    installMockAmbient()
+    await open('capture')
+    expect(screen.queryByText('Live words')).toBeNull()
+  })
 })

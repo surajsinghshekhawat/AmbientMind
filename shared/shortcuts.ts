@@ -82,6 +82,34 @@ function parse(accelerator: string, os: Os): Parsed {
   return { modifiers, key }
 }
 
+/** macOS virtual key codes (Carbon's kVK_*), which name physical keys. */
+const MAC_KEY_CODES: Record<string, number> = {
+  A: 0, S: 1, D: 2, F: 3, H: 4, G: 5, Z: 6, X: 7, C: 8, V: 9, B: 11, Q: 12, W: 13, E: 14, R: 15,
+  Y: 16, T: 17, '1': 18, '2': 19, '3': 20, '4': 21, '6': 22, '5': 23, '=': 24, '9': 25, '7': 26,
+  '-': 27, '8': 28, '0': 29, ']': 30, O: 31, U: 32, '[': 33, I: 34, P: 35, L: 37, J: 38, "'": 39,
+  K: 40, ';': 41, '\\': 42, ',': 43, '/': 44, N: 45, M: 46, '.': 47, Space: 49, '`': 50,
+  F1: 122, F2: 120, F3: 99, F4: 118, F5: 96, F6: 97, F7: 98, F8: 100, F9: 101, F10: 109,
+  F11: 103, F12: 111, F13: 105, F14: 107, F15: 113, F16: 106, F17: 64, F18: 79, F19: 80, F20: 90,
+  Home: 115, End: 119, PageUp: 116, PageDown: 121, Left: 123, Right: 124, Down: 125, Up: 126
+}
+
+const CARBON_MODIFIERS: Record<Modifier, number> = {
+  command: 0x100,
+  super: 0x100,
+  shift: 0x200,
+  alt: 0x800,
+  control: 0x1000
+}
+
+/** An accelerator as Carbon's RegisterEventHotKey wants it; null for keys the Mac lacks. */
+export function macHotkey(accelerator: string): { keyCode: number; modifiers: number } | null {
+  if (!isValidAccelerator(accelerator, 'mac')) return null
+  const { modifiers, key } = parse(accelerator, 'mac')
+  const keyCode = MAC_KEY_CODES[key]
+  if (keyCode === undefined) return null
+  return { keyCode, modifiers: [...modifiers].reduce((sum, modifier) => sum | CARBON_MODIFIERS[modifier], 0) }
+}
+
 function canonical(accelerator: string, os: Os): string {
   const { modifiers, key } = parse(accelerator, os)
   return [...[...modifiers].sort(), key].join('+')

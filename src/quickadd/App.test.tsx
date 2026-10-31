@@ -65,4 +65,46 @@ describe('Quick Capture', () => {
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'What needs doing?' }), { key: 'Escape' })
     expect(mock.calls.some((c) => c.method === 'quickAdd.cancel')).toBe(true)
   })
+
+  it('holding the shortcut shows live words and lands them on release', async () => {
+    const mock = installMockAmbient({
+      speech: { engine: 'apple', apple: { available: true, installed: true, downloading: false, locale: 'en-US' }, installing: null },
+      liveTranscript: 'Call Priya about the venue by Friday'
+    })
+    render(<App />)
+    await flush()
+    act(() => mock.emit.quickAddHold('start'))
+    await flush()
+    expect(mock.calls.some((c) => c.method === 'speech.start')).toBe(true)
+    expect(screen.getByText('Listening… let go to stop')).toBeTruthy()
+
+    act(() => mock.emit.speechPartial({ text: 'Call Priya about', final: false }))
+    const input = screen.getByRole('textbox', { name: 'What needs doing?' }) as HTMLInputElement
+    expect(input.value).toBe('Call Priya about')
+    expect(input.readOnly).toBe(true)
+
+    // Held: a pause is not the end.
+    for (let t = 0; t < 40; t++) act(() => mock.emit.speechLevel(0))
+    expect(mock.calls.some((c) => c.method === 'speech.stop')).toBe(false)
+
+    act(() => mock.emit.quickAddHold('end'))
+    await flush()
+    expect(mock.calls.some((c) => c.method === 'speech.stop')).toBe(true)
+    expect(input.value).toBe('Call Priya about the venue by Friday')
+    expect(input.readOnly).toBe(false)
+  })
+
+  it('Esc while listening live cancels the session', async () => {
+    const mock = installMockAmbient({
+      speech: { engine: 'apple', apple: { available: true, installed: true, downloading: false, locale: 'en-US' }, installing: null }
+    })
+    render(<App />)
+    await flush()
+    act(() => mock.emit.quickAddShortcut())
+    await flush()
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'What needs doing?' }), { key: 'Escape' })
+    expect(mock.calls.some((c) => c.method === 'speech.cancel')).toBe(true)
+  })
 })
+
+const flush = () => act(async () => {})

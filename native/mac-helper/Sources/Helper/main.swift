@@ -9,7 +9,7 @@ import Foundation
 ///   ambientmind-helper --selftest  print a JSON report and exit
 ///   ambientmind-helper --version
 
-let helperVersion = "0.1.0"
+let helperVersion = "0.2.0"
 let protocolVersion = 1
 
 let arguments = CommandLine.arguments
@@ -26,5 +26,8 @@ if arguments.contains("--selftest") {
 
 ParentWatch.start()
 Server.shared.start()
-// AppKit notifications, Accessibility and ScreenCaptureKit callbacks need it.
-RunLoop.main.run()
+// A full event loop rather than a bare run loop: Carbon hotkey events only
+// arrive through it. Prohibited means no Dock icon, menu or focus, ever.
+let application = NSApplication.shared
+application.setActivationPolicy(.prohibited)
+application.run()

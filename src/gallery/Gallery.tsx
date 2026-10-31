@@ -325,6 +325,11 @@ export function Gallery() {
               <QuickCapture initialPhase="listening" />
             </Backdrops>
           </State>
+          <State name="Held, with live words">
+            <Backdrops width={600} only={[0]}>
+              <QuickCapture initialPhase="listening" initialHolding initialPartial="Call Priya about the venue by Friday" />
+            </Backdrops>
+          </State>
           <State name="Writing it down">
             <Backdrops width={600} only={[0]}>
               <QuickCapture initialPhase="transcribing" />

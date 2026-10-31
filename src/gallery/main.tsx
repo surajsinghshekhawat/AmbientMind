@@ -21,7 +21,8 @@ installMockAmbient({
       canOpenSettings: true
     },
     { kind: 'accessibility', status: 'not-determined', help: null, canOpenSettings: true }
-  ]
+  ],
+  speech: { engine: 'whisper', apple: { available: true, installed: false, downloading: false, locale: 'en-US' }, installing: null }
 })
 
 createRoot(document.getElementById('root')!).render(

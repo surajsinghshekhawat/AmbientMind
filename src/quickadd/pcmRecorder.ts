@@ -7,6 +7,8 @@
  * (a few seconds of speech) do not need worklet latency.
  */
 
+import { SilenceGate } from '@shared/silence'
+
 const TARGET_RATE = 16_000
 
 export type RecorderState = 'idle' | 'recording' | 'busy'
@@ -21,11 +23,7 @@ export class PcmRecorder {
 
   private onSilence: (() => void) | null = null
   private onLevel: ((rms: number) => void) | null = null
-  private heardSpeech = false
-  private lastLoudAt = 0
-  private silenceMs = 3000
-  private maxMs = 25_000
-  private startedAt = 0
+  private gate: SilenceGate | null = null
 
   get state() {
     return this._state
@@ -41,10 +39,7 @@ export class PcmRecorder {
 
     this.onSilence = options?.onSilence ?? null
     this.onLevel = options?.onLevel ?? null
-    this.silenceMs = options?.silenceMs ?? 3000
-    this.heardSpeech = false
-    this.lastLoudAt = 0
-    this.startedAt = Date.now()
+    this.gate = new SilenceGate({ silenceMs: options?.silenceMs ?? 3000 })
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -68,21 +63,8 @@ export class PcmRecorder {
       let sum = 0
       for (let i = 0; i < input.length; i += 8) sum += input[i]! * input[i]!
       const rms = Math.sqrt(sum / (input.length / 8))
-      const now = Date.now()
       this.onLevel?.(rms)
-
-      // Ignore the first 400ms: opening the mic often spikes as "speech".
-      if (now - this.startedAt < 400) return
-
-      if (rms > 0.018) {
-        this.heardSpeech = true
-        this.lastLoudAt = now
-      }
-
-      const silentLongEnough =
-        this.heardSpeech && this.lastLoudAt > 0 && now - this.lastLoudAt >= this.silenceMs
-      const tooLong = now - this.startedAt >= this.maxMs
-      if ((silentLongEnough || tooLong) && this.onSilence) {
+      if (this.gate?.push(rms, Date.now()) && this.onSilence) {
         const done = this.onSilence
         this.onSilence = null
         done()
@@ -134,7 +116,7 @@ export class PcmRecorder {
     this.context = null
     this.chunks = []
     this.onSilence = null
-    this.heardSpeech = false
+    this.gate = null
   }
 }
 

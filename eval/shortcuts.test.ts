@@ -5,6 +5,7 @@ import {
   defaultShortcuts,
   findConflicts,
   isValidAccelerator,
+  macHotkey,
   resolveShortcuts,
   sameShortcut,
   shortcutLabel,
@@ -126,4 +127,15 @@ test('overrides replace only the shortcuts the user changed', () => {
   const set = resolveShortcuts('mac', { chat: 'Control+Alt+K' })
   assert.equal(set.chat, 'Control+Alt+K')
   assert.equal(set.quickAdd, defaultShortcuts('mac').quickAdd)
+})
+
+test('Mac shortcuts become Carbon hotkeys by physical key', () => {
+  assert.deepEqual(macHotkey('Control+Alt+Space'), { keyCode: 49, modifiers: 0x1000 | 0x800 })
+  assert.deepEqual(macHotkey('Command+Shift+K'), { keyCode: 40, modifiers: 0x100 | 0x200 })
+  assert.deepEqual(macHotkey('CmdOrCtrl+,'), { keyCode: 43, modifiers: 0x100 })
+  assert.deepEqual(macHotkey('F5'), { keyCode: 96, modifiers: 0 })
+  assert.deepEqual(macHotkey('Control+Alt+Up'), { keyCode: 126, modifiers: 0x1800 })
+  assert.equal(macHotkey('F24'), null)
+  assert.equal(macHotkey('Shift+A'), null)
+  for (const accelerator of Object.values(defaultShortcuts('mac'))) assert.ok(macHotkey(accelerator), accelerator)
 })

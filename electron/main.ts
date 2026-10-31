@@ -6,6 +6,7 @@ import { app, dialog, globalShortcut, ipcMain, nativeTheme, Notification, sessio
 import { IPC } from '@shared/ipc'
 import {
   findConflicts,
+  macHotkey,
   resolveShortcuts,
   SHORTCUT_NAMES,
   shortcutLabel,
@@ -18,7 +19,7 @@ import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
 import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
 import { hideDock, installAppMenu, os, permissionState, requestAccess } from './platform'
-import { startHelper, stopHelper } from './native/helper'
+import { helperReady, helperRequest, onHelperEvent, onHelperState, startHelper, stopHelper } from './native/helper'
 import { runHelperCheck } from './native/helperCheck'
 
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
@@ -94,12 +95,14 @@ import {
 } from './overlay'
 import {
   createQuickAddWindow,
+  getQuickAddWindow,
   hideQuickAdd,
   setQuickAddRecording,
   setQuickAddHeight,
   showQuickAdd,
   toggleQuickAdd
 } from './quickAdd'
+import { HoldGesture } from './holdGesture'
 import { showSettingsWindow } from './settings'
 import { createTray } from './tray'
 import {
@@ -148,12 +151,15 @@ import {
 } from './services/googleAuth'
 import { runSync, startScheduler, stopScheduler, type SyncReport } from './services/sync'
 import { disposeScreenContext, ScreenRefused, screenToTask } from './services/screenContext'
+import { disposeSpeech, setSpeechModel, transcribePcm } from './services/speech'
 import {
-  disposeSpeech,
-  setSpeechModel,
-  transcribePcm,
-  warmSpeechModel
-} from './services/speech'
+  cancelLiveSpeech,
+  initLiveSpeech,
+  installAppleSpeech,
+  speechEngine,
+  startLiveSpeech,
+  stopLiveSpeech
+} from './services/liveSpeech'
 import { loadConfig, saveConfig } from './services/config'
 import { writeEncryptedBackup } from './services/backup'
 import { loadChatHistory, saveChatHistory } from './services/chatHistory'
@@ -450,6 +456,12 @@ function registerIpc() {
     const samples = new Float32Array(buffer)
     return transcribePcm(samples)
   })
+
+  ipcMain.handle(IPC.SpeechEngine, () => speechEngine())
+  ipcMain.handle(IPC.SpeechInstall, () => installAppleSpeech())
+  ipcMain.handle(IPC.SpeechStart, () => startLiveSpeech(currentUserName()))
+  ipcMain.handle(IPC.SpeechStop, () => stopLiveSpeech())
+  onIpc(IPC.SpeechCancel, () => cancelLiveSpeech())
 
   ipcMain.handle(IPC.GetAccountStatus, () => ({
     google: isGoogleConnected(),
@@ -813,6 +825,59 @@ let registeredShortcuts: string[] = []
 function unregisterShortcuts() {
   for (const accelerator of registeredShortcuts) globalShortcut.unregister(accelerator)
   registeredShortcuts = []
+  holdGesture?.reset()
+  if (helperReady()) void helperRequest('hotkey.clear', { name: 'quickAdd' }).catch(() => {})
+}
+
+let holdGesture: HoldGesture | null = null
+
+/**
+ * On the Mac the helper owns the Quick Capture shortcut, because it sees the
+ * key go up as well as down: hold it to talk. Electron keeps it whenever the
+ * helper is missing or restarting, as a plain toggle.
+ */
+function initHoldToTalk() {
+  if (os !== 'mac') return
+  const send = (channel: string, ...args: unknown[]) => getQuickAddWindow()?.webContents.send(channel, ...args)
+  holdGesture = new HoldGesture({
+    isOpen: () => getQuickAddWindow()?.isVisible() ?? false,
+    open: () => showQuickAdd(),
+    toggleMic: () => send(IPC.QuickAddShortcutAgain),
+    holdStart: () => send(IPC.QuickAddHold, 'start'),
+    holdEnd: () => send(IPC.QuickAddHold, 'end')
+  })
+  onHelperEvent('hotkey', ({ name, phase }) => {
+    if (name !== 'quickAdd') return
+    if (phase === 'down') holdGesture?.down()
+    else holdGesture?.up()
+  })
+  // Ready: move the shortcut to the helper. Gone: take it back.
+  onHelperState((state) => {
+    if (state === 'ready' || state === 'starting' || state === 'unavailable') registerShortcuts()
+  })
+}
+
+/** Moves Quick Capture's shortcut to the helper; falls back to Electron if it refuses. */
+async function registerHoldToTalk(accelerator: string) {
+  const hotkey = macHotkey(accelerator)
+  try {
+    if (!hotkey) throw new Error(`${accelerator} has no Mac key code`)
+    await helperRequest('hotkey.set', { name: 'quickAdd', ...hotkey })
+    console.log('[shortcuts] quick add is hold-to-talk through the helper')
+    return
+  } catch (err) {
+    console.warn('[shortcuts] helper hotkey refused:', (err as Error).message)
+  }
+  const status = shortcutStatus.find((s) => s.action === 'quickAdd')
+  if (!status || status.accelerator !== accelerator || !shortcutHandlers || registeredShortcuts.includes(accelerator)) return
+  let registered = false
+  try {
+    registered = globalShortcut.register(accelerator, guard('shortcut:quickAdd', shortcutHandlers.quickAdd))
+  } catch (err) {
+    console.warn('[shortcuts] failed to register', accelerator, err)
+  }
+  if (registered) registeredShortcuts.push(accelerator)
+  else status.problem ??= 'Another app is using these keys'
 }
 
 /**
@@ -827,15 +892,21 @@ function registerShortcuts(handlers?: Record<ShortcutAction, () => void>) {
   unregisterShortcuts()
   const set = resolveShortcuts(os, loadConfig().shortcuts)
   const conflicts = findConflicts(set, os)
+  const holdToTalk = holdGesture !== null && helperReady()
   shortcutStatus = (Object.keys(set) as ShortcutAction[]).map((action) => {
     const accelerator = set[action]
     let registered = false
-    try {
-      registered = globalShortcut.register(accelerator, guard(`shortcut:${action}`, shortcutHandlers![action]))
-    } catch (err) {
-      console.warn('[shortcuts] failed to register', accelerator, err)
+    if (action === 'quickAdd' && holdToTalk) {
+      // Reported as registered; registerHoldToTalk corrects it if the helper refuses.
+      registered = true
+    } else {
+      try {
+        registered = globalShortcut.register(accelerator, guard(`shortcut:${action}`, shortcutHandlers![action]))
+      } catch (err) {
+        console.warn('[shortcuts] failed to register', accelerator, err)
+      }
+      if (registered) registeredShortcuts.push(accelerator)
     }
-    if (registered) registeredShortcuts.push(accelerator)
     return {
       action,
       name: SHORTCUT_NAMES[action],
@@ -844,6 +915,7 @@ function registerShortcuts(handlers?: Record<ShortcutAction, () => void>) {
       problem: conflicts[action] ?? (registered ? null : 'Another app is using these keys')
     }
   })
+  if (holdToTalk) void registerHoldToTalk(set.quickAdd)
   console.log('[shortcuts]', JSON.stringify(shortcutStatus.map((s) => [s.label, s.problem])))
 }
 
@@ -995,9 +1067,10 @@ if (process.argv.includes('--selftest')) {
     startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)
     if (!config.onboarded) showOnboardingWindow()
 
-    // First mic use would otherwise stall on a model download/load.
     setSpeechModel(config.whisperModel)
-    void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
+    // Warms Whisper unless Apple's live speech will be used instead.
+    initLiveSpeech()
+    initHoldToTalk()
 
     // Snoozed tasks are checked far more often than completed ones are swept:
     // a task that reappears 15 minutes late has missed the point of snoozing.

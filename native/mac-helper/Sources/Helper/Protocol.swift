@@ -53,14 +53,16 @@ final class Output {
 
 final class Server {
   static let shared = Server()
+  private let pending = DispatchGroup()
 
   func start() {
     Thread.detachNewThread {
       while let line = readLine(strippingNewline: true) {
         self.handle(line)
       }
-      // stdin closed: the app is gone or done with us. Replies to requests
-      // that already finished still go out; slow ones are dropped.
+      // stdin closed: the app is gone or done with us. Quick replies still go
+      // out; a long one, like a model download, is not worth waiting for.
+      _ = self.pending.wait(timeout: .now() + 3)
       Output.shared.drain()
       exit(0)
     }
@@ -86,12 +88,14 @@ final class Server {
     let params = message["params"] as? [String: Any] ?? [:]
     var replied = false
     let lock = NSLock()
+    pending.enter()
     handler(params) { result in
       lock.lock()
       defer { lock.unlock() }
       guard !replied else { return }
       replied = true
       Output.shared.reply(id, result)
+      self.pending.leave()
     }
   }
 }
@@ -143,6 +147,25 @@ enum Methods {
     },
     "system.busy": { _, reply in reply(.success(SystemState.busy())) },
     "contacts.me": { _, reply in reply(.success(MeCard.me())) },
+    "speech.status": { _, reply in LiveSpeech.status(reply) },
+    "speech.install": { _, reply in LiveSpeech.install(reply) },
+    "speech.start": { params, reply in LiveSpeech.start(params, reply) },
+    "speech.stop": { _, reply in LiveSpeech.stop(reply) },
+    "speech.cancel": { _, reply in LiveSpeech.cancel(reply) },
+    "hotkey.set": { params, reply in
+      guard let name = params["name"] as? String,
+        let keyCode = (params["keyCode"] as? NSNumber)?.uint32Value,
+        let modifiers = (params["modifiers"] as? NSNumber)?.uint32Value
+      else { return reply(.failure(HelperError("bad_request", "name, keyCode and modifiers are required"))) }
+      DispatchQueue.main.async { reply(Hotkeys.shared.set(name: name, keyCode: keyCode, modifiers: modifiers)) }
+    },
+    "hotkey.clear": { params, reply in
+      guard let name = params["name"] as? String else { return reply(.failure(HelperError("bad_request", "name is required"))) }
+      DispatchQueue.main.async {
+        Hotkeys.shared.clear(name: name)
+        reply(.success(["name": name]))
+      }
+    },
   ]
 
   static func hello() -> [String: Any] {
@@ -154,7 +177,7 @@ enum Methods {
       "responsibleApp": json(ResponsibleApp.bundleIdentifier),
       "responsiblePid": Int(ResponsibleApp.pid),
       "parentApp": json(ResponsibleApp.parentBundleIdentifier),
-      "features": ["perms", "context", "capture", "ocr", "system", "contacts"],
+      "features": ["perms", "context", "capture", "ocr", "system", "contacts", "speech", "hotkey"],
     ]
   }
 }

@@ -74,7 +74,7 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
   const contentRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
-    const [config, account, ragCount, health, sync, nextRules, nextSuggestions, learned, permissions, appInfo, nextShortcuts] =
+    const [config, account, ragCount, health, sync, nextRules, nextSuggestions, learned, permissions, appInfo, nextShortcuts, speech] =
       await Promise.all([
         window.ambient.getConfig(),
         window.ambient.accounts.status(),
@@ -86,9 +86,10 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
         window.ambient.learned.list(),
         window.ambient.getPermissions(),
         window.ambient.getAppInfo(),
-        window.ambient.getShortcuts()
+        window.ambient.getShortcuts(),
+        window.ambient.speech.engine()
       ])
-    setData({ config, account, ragCount, health, sync, learned, permissions, appInfo })
+    setData({ config, account, ragCount, health, sync, learned, permissions, appInfo, speech })
     setRules(nextRules)
     setSuggestions(nextSuggestions)
     setShortcuts(nextShortcuts)

@@ -91,7 +91,7 @@ export function toggleQuickAdd() {
   if (!win) return
 
   // Pressed again while open: the composer toggles the mic. Electron cannot
-  // see a held key, so this stands in for hold-to-talk until the Swift helper.
+  // see a key being let go; on the Mac the helper's hotkey adds hold-to-talk.
   if (win.isVisible()) {
     win.webContents.send(IPC.QuickAddShortcutAgain)
     return

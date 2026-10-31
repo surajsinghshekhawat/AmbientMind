@@ -1,7 +1,12 @@
 # Voice input
 
-Press **Ctrl+Shift+A** (**⌃⌥Space** on a Mac) to open QuickAdd, then click the mic. Speak a task,
-click the mic again to stop. AmbientMind transcribes locally and submits.
+Press **Ctrl+Shift+A** (**⌃⌥Space** on a Mac) to open QuickAdd, then click the mic or press the
+shortcut again. Speak a task; it stops on its own after a pause, or press the shortcut again.
+AmbientMind transcribes locally and submits.
+
+On a Mac with the helper running, you can also **hold** the shortcut: the mic starts as soon as the
+hold is recognised (300 ms), keeps listening through pauses, and stops when you let go. A short tap
+still opens QuickAdd, or toggles the mic if it is already open.
 
 ## Two routes from one utterance
 
@@ -13,24 +18,40 @@ click the mic again to stop. AmbientMind transcribes locally and submits.
 Intent detection lives in `shared/voiceIntent.ts` and applies to typed text
 too, so the same phrasing works without the mic.
 
-## Why Transformers.js and not whisper.cpp
+## Two engines
 
-Native whisper.cpp bindings need rebuilding for Electron's Node ABI. This
-project already hit that cost with `better-sqlite3`. `@xenova/transformers`
-runs `whisper-tiny.en` as ONNX (~75MB, cached under `%APPDATA%/ambientmind/whisper`)
-with no compile step. Cold start is a few seconds the first time in a session;
-the model is warmed in the background after launch.
+**Apple live speech (Mac, macOS 26).** The Swift helper runs SpeechAnalyzer
+with volatile results, so words appear in the field while you talk and the
+final text lands within a moment of stopping. Hints (your name, people and
+short task titles) are passed as contextual strings, so names are spelled the
+way your tasks spell them. The language model is a system asset that macOS
+keeps with Dictation's, outside the app, so it is downloaded only when you
+press **Download** in Settings → Capture.
 
-Tradeoff: tiny.en occasionally mishears a word ("buy" → "by"). That is
-acceptable for v1 push-to-talk; a larger English model can replace the ID in
-`electron/services/speech.ts` later without touching the UI.
+**Whisper (everywhere else, and the fallback).** Native whisper.cpp bindings
+need rebuilding for Electron's Node ABI. This project already hit that cost
+with `better-sqlite3`. `@xenova/transformers` runs Whisper as ONNX with no
+compile step. It is warmed in the background after launch, but only when it
+will be used: with Apple's model installed it is never loaded.
 
 ## Audio path
+
+Apple live speech:
+
+1. The helper captures the mic with AVAudioEngine, converts to the analyzer's
+   format and streams it to SpeechAnalyzer.
+2. It pushes `speech.partial` (shown in the field) and `speech.level` (the
+   meter, and pause detection in toggle mode) to Quick Capture through main.
+3. Stopping finalizes and returns the full text.
+
+Whisper:
 
 1. QuickAdd requests the mic (`getUserMedia`).
 2. `PcmRecorder` captures mono float32 and resamples to 16 kHz in the renderer.
 3. Main process runs Whisper and returns a transcript.
-4. Submit follows the intent table above.
+
+Either way, submit follows the intent table above. Pause detection is
+`shared/silence.ts`; the tap-versus-hold rule is `electron/holdGesture.ts`.
 
 The QuickAdd window does not dismiss on blur while recording, because granting
 the mic can briefly steal focus.

@@ -671,7 +671,7 @@ Exit check: typecheck, `./dev npm test` (177 logic + 30 db + 34 component
 tests) and the smoke test pass; gallery screenshots reviewed on dark, light
 and busy wallpapers.
 
-### Phase 4 — Swift helper (7–10 days) — first round done, branch `phase-4-helper`
+### Phase 4 — Swift helper (7–10 days) — two rounds done, branch `phase-4-helper`
 
 1. **Spike first (1 day):** a helper that reports permissions, launched by a
    dev-signed AmbientMind. Proves that prompts and the System Settings entry
@@ -728,20 +728,52 @@ What landed in the first round (branch `phase-4-helper`):
 - Usage strings for speech, calendars, reminders and contacts in the
   bundle, ready for the methods that need them.
 
+Exit check (first round): typecheck, `./dev npm test` (195 logic + 30 db +
+35 component tests), the smoke test (the helper starts as the app's child and
+leaves with it), `test:packaged` including the attribution check, and
+`./dev doctor` all pass.
+
+What landed in the second round:
+
+- `speech.status`, `speech.install`, `speech.start`, `speech.stop` and
+  `speech.cancel` (macOS 26): SpeechAnalyzer with volatile results, the
+  user's name, people and short task titles as contextual strings, and
+  pushed `speech.partial` and `speech.level` events. Starting refuses
+  cleanly when the model is missing, the mic is refused, or the usage
+  string is absent.
+- `hotkey.set` and `hotkey.clear`: a Carbon hotkey that reports press and
+  release with no permission. The helper now runs a `.prohibited`
+  `NSApplication` loop, which Carbon needs, and waits briefly for in-flight
+  replies when stdin closes.
+- Hold-to-talk: on the Mac, the Quick Capture shortcut is held by the helper
+  instead of `globalShortcut`. A tap opens Quick Capture or toggles the mic;
+  a hold (300 ms) starts listening and letting go finishes. If the helper
+  can't take the keys, `globalShortcut` takes over as before.
+- Quick Capture shows live words in the field while listening, with the
+  level meter; a pause ends toggle mode but not a hold. Any failure of the
+  live path falls back to Whisper.
+- Settings → Capture → Live words: a Download button for Apple's model (a
+  macOS asset stored with Dictation's, so never fetched without asking),
+  progress, and "On" once installed, when the Whisper picker becomes the
+  fallback. Whisper is only loaded when it will be used.
+
 Not done yet, and why:
 
-- SpeechAnalyzer streaming and hold-to-talk: the next round. The helper's
-  speech permission and usage string are already in place.
-- Moving Transformers.js into a utility process: goes with the speech work.
+- Apple's en-US speech model is not downloaded on this Mac, so live words
+  are proven by the protocol, the component tests and a clean refusal, not
+  by a real utterance. One press of Download in Settings changes that.
+- Hold-to-talk release needs a physical key test; the hotkey registers and
+  clears in the probe and the smoke test.
+- Moving Transformers.js into a utility process: less pressing now that the
+  Mac path doesn't load it; it stays for Windows.
 - Accessibility and Screen Recording both need an admin account to switch
   on here, so the Accessibility and window-capture paths are proven by the
   protocol tests and `--selftest`, not by a real capture on this Mac. Without
   them, capture falls back exactly as before.
 
-Exit check (first round): typecheck, `./dev npm test` (195 logic + 30 db +
-35 component tests), the smoke test (the helper starts as the app's child and
-leaves with it), `test:packaged` including the attribution check, and
-`./dev doctor` all pass.
+Exit check (second round): typecheck, `./dev npm test` (203 logic + 30 db +
+39 component tests), the smoke test (including the helper's speech status),
+`test:packaged`, and `./dev doctor` all pass.
 
 ### Phase 5 — Apple sources (4–6 days)
 

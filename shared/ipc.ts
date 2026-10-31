@@ -88,6 +88,18 @@ export const IPC = {
   QuickAddShortcutAgain: 'quickadd:shortcut-again',
   /** Renderer -> main: the composer's height, so the window fits it. */
   QuickAddHeight: 'quickadd:height',
+  /** Main -> quick-add renderer: the shortcut is held ('start') or let go ('end'). */
+  QuickAddHold: 'quickadd:hold',
   /** Renderer -> main: float32 PCM @ 16 kHz ArrayBuffer in, transcript out. */
-  TranscribeAudio: 'speech:transcribe'
+  TranscribeAudio: 'speech:transcribe',
+  /** Which voice engine is in use, and the state of Apple's speech model. */
+  SpeechEngine: 'speech:engine',
+  SpeechInstall: 'speech:install',
+  /** Live dictation through the helper: start, stop (returns the text), cancel. */
+  SpeechStart: 'speech:start',
+  SpeechStop: 'speech:stop',
+  SpeechCancel: 'speech:cancel',
+  /** Main -> quick-add renderer while listening: the words so far, and the input level. */
+  SpeechPartial: 'speech:partial',
+  SpeechLevel: 'speech:level'
 } as const

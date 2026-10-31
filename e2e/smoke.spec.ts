@@ -184,6 +184,8 @@ test('launches and opens every window', async () => {
       helperPid = helperChild(proc.pid!)
       const kinds = (await overlay.evaluate(() => window.ambient.getPermissions())).map((p) => p.kind)
       expect(kinds).toEqual(['microphone', 'screen', 'accessibility'])
+      // Main asks the helper which voice engine to use once it is up.
+      await expect.poll(async () => (await overlay.evaluate(() => window.ambient.speech.engine())).apple).not.toBeNull()
     }
 
     expect(pageErrors).toEqual([])

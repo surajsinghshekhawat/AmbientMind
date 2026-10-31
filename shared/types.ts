@@ -1,3 +1,4 @@
+import type { SpeechStatus } from './helperProtocol'
 import type { ShortcutSet } from './shortcuts'
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
@@ -168,6 +169,15 @@ export const ABOUT_ME_MAX_CHARS = 1200
  * All CPU-bound, so this trades latency against accuracy — not VRAM against
  * the 3B model. Tiny is visibly weak on accented English.
  */
+export interface SpeechEngineInfo {
+  /** Apple streams words as you talk; Whisper transcribes afterwards. */
+  engine: 'apple' | 'whisper'
+  /** Apple's speech model on this Mac; null off the Mac or without the helper. */
+  apple: SpeechStatus | null
+  /** 0–1 while Apple's model downloads. */
+  installing: number | null
+}
+
 export const WHISPER_MODELS: { id: string; label: string }[] = [
   { id: 'Xenova/whisper-tiny.en', label: 'Tiny — fastest, least accurate (~75 MB)' },
   { id: 'Xenova/whisper-base.en', label: 'Base — recommended (~145 MB)' },

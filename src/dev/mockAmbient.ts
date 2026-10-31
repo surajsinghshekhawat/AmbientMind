@@ -7,6 +7,7 @@ import {
   type Config,
   type HealthReport,
   type RecurrenceSuggestion,
+  type SpeechEngineInfo,
   type Task
 } from '@shared/types'
 import type { PermissionKind, PermissionState } from '@shared/permissions'
@@ -49,6 +50,9 @@ export interface MockState {
   learned: { title: string; deletes: number }[]
   shortcuts: ShortcutStatus[]
   permissions: PermissionState[]
+  speech: SpeechEngineInfo
+  /** What Apple's live speech returns on stop. */
+  liveTranscript: string
 }
 
 /**
@@ -77,6 +81,8 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       { kind: 'screen', status: 'granted', help: null, canOpenSettings: true },
       { kind: 'accessibility', status: 'granted', help: null, canOpenSettings: true }
     ],
+    speech: { engine: 'whisper', apple: null, installing: null },
+    liveTranscript: '',
     ...initial
   }
   const calls: { method: string; args: unknown[] }[] = []
@@ -91,6 +97,9 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
   const overlayExpanded = channel<boolean>()
   const quickAddOpened = channel<void>()
   const quickAddShortcut = channel<void>()
+  const quickAddHold = channel<'start' | 'end'>()
+  const speechPartial = channel<{ text: string; final: boolean }>()
+  const speechLevel = channel<number>()
 
   const visible = () => state.tasks.filter((task) => task.status !== 'deleted' && task.status !== 'archived')
   const setTasks = (next: Task[]) => {
@@ -272,7 +281,24 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       setRecording: (recording: boolean) => record('quickAdd.setRecording', recording),
       transcribe: async (_pcm: ArrayBuffer) => '',
       onOpened: (handler: () => void) => quickAddOpened.on(handler),
-      onShortcutAgain: (handler: () => void) => quickAddShortcut.on(handler)
+      onShortcutAgain: (handler: () => void) => quickAddShortcut.on(handler),
+      onHold: quickAddHold.on
+    },
+    speech: {
+      engine: async () => state.speech,
+      install: async () => {
+        record('speech.install')
+        state.speech = { engine: 'apple', apple: { available: true, installed: true, downloading: false, locale: 'en-US' }, installing: null }
+        return state.speech
+      },
+      start: async () => record('speech.start'),
+      stop: async () => {
+        record('speech.stop')
+        return state.liveTranscript
+      },
+      cancel: () => record('speech.cancel'),
+      onPartial: speechPartial.on,
+      onLevel: speechLevel.on
     }
   } satisfies AmbientApi
 
@@ -287,7 +313,10 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       screenStatus: screenStatus.emit,
       overlayExpanded: overlayExpanded.emit,
       quickAddOpened: () => quickAddOpened.emit(),
-      quickAddShortcut: () => quickAddShortcut.emit()
+      quickAddShortcut: () => quickAddShortcut.emit(),
+      quickAddHold: quickAddHold.emit,
+      speechPartial: speechPartial.emit,
+      speechLevel: speechLevel.emit
     }
   }
 }

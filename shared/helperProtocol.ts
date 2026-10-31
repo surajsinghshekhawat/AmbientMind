@@ -73,6 +73,19 @@ export interface MeCard {
   source: 'contacts' | 'account'
 }
 
+export type SpeechStatus =
+  | { available: false; reason: string }
+  | { available: true; installed: boolean; downloading: boolean; locale: string }
+
+/** Events the helper sends without being asked. */
+export interface HelperEvents {
+  'speech.partial': { text: string; final: boolean }
+  'speech.level': { rms: number }
+  'speech.error': { message: string }
+  'speech.install': { fraction: number }
+  hotkey: { name: string; phase: 'down' | 'up' }
+}
+
 export interface HelperMethods {
   hello: { params: Record<string, never>; result: HelloResult }
   'perms.status': {
@@ -89,6 +102,14 @@ export interface HelperMethods {
   'ocr.image': { params: { png: string }; result: OcrResult }
   'system.busy': { params: Record<string, never>; result: BusyState }
   'contacts.me': { params: Record<string, never>; result: MeCard }
+  'speech.status': { params: Record<string, never>; result: SpeechStatus }
+  /** Downloads the system speech model for this language; macOS manages it. */
+  'speech.install': { params: Record<string, never>; result: SpeechStatus }
+  'speech.start': { params: { hints?: string[] }; result: { locale: string } }
+  'speech.stop': { params: Record<string, never>; result: { text: string } }
+  'speech.cancel': { params: Record<string, never>; result: { cancelled: boolean } }
+  'hotkey.set': { params: { name: string; keyCode: number; modifiers: number }; result: { name: string } }
+  'hotkey.clear': { params: { name: string }; result: { name: string } }
 }
 
 export type HelperMethod = keyof HelperMethods
@@ -116,6 +137,13 @@ export type HelperErrorCode =
   | 'ocr_failed'
   | 'timeout'
   | 'unavailable'
+  | 'unsupported'
+  | 'not_installed'
+  | 'not_running'
+  | 'speech_failed'
+  | 'install_failed'
+  | 'in_use'
+  | 'register_failed'
   | (string & {})
 
 export class HelperError extends Error {

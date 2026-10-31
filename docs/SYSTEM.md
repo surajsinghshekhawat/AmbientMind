@@ -486,7 +486,9 @@ object built in `electron/preload.ts`.
 Channel groups: tasks (get/add/complete/delete/update/snooze, plus a pushed
 `TasksChanged`), overlay (expand state, panel height), config, accounts,
 sync, rules, suggestions, chat (send, stop, close), health, learned
-suppressions, corpus export, quick-add, speech transcription, shortcuts
+suppressions, corpus export, quick-add (including hold start/end), speech
+(Whisper transcription, plus Apple live speech: engine, install, start,
+stop, cancel and pushed partials and levels), shortcuts
 (suspended while Settings records one), permissions (status, open System
 Settings, and request where macOS still shows a prompt), and onboarding.
 
@@ -499,9 +501,9 @@ development.
 `native/mac-helper` is a small Swift executable for what Electron cannot do
 on the Mac: read the window in front through Accessibility, capture one
 window with ScreenCaptureKit, OCR with Vision, check and request every
-privacy permission, and report idle time, mic use and full-screen apps.
-Next it will stream speech with SpeechAnalyzer and read Calendar and
-Reminders.
+privacy permission, report idle time, mic use and full-screen apps, stream
+speech with SpeechAnalyzer, and hold a global hotkey that sees the key being
+let go. Next it will read Calendar and Reminders.
 
 - **Process.** Main starts it at launch (`electron/native/helper.ts`) and
   talks newline-delimited JSON over stdin/stdout (`shared/helperProtocol.ts`).
@@ -518,6 +520,16 @@ Reminders.
   Settings covers both. `test:packaged` checks this on every build with
   `--helper-check`. Run from a terminal, the terminal is responsible
   instead, which is why dev runs see the terminal's permissions.
+- **Events.** Besides replies, the helper pushes `speech.partial`,
+  `speech.level`, `speech.error`, `speech.install` and `hotkey` (down/up).
+  It runs an `NSApplication` loop with the `.prohibited` activation policy
+  (no Dock icon, menu or focus) because Carbon hotkey events only arrive
+  through one. On stdin EOF it waits up to 3 s for replies still in flight.
+- **Live speech.** `electron/services/liveSpeech.ts` picks the engine:
+  Apple's SpeechAnalyzer when the helper is up and the language's model is
+  installed, Whisper otherwise (and on Windows). The model is a macOS asset
+  stored with Dictation's, outside the app, so it is only downloaded from
+  the button in Settings → Capture. Whisper is then not loaded at all.
 - **Build.** `./dev npm run helper` (SwiftPM, caches in `.local/`);
   `dist:mac` builds it first. `ambientmind-helper --selftest` reports
   permissions and proves Vision OCR works.

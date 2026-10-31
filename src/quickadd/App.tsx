@@ -8,7 +8,14 @@ import { IconButton } from '@/ui/IconButton'
 import { Kbd } from '@/ui/Kbd'
 import { Orb } from '@/ui/Orb'
 import { StatusLine } from '@/ui/StatusLine'
+import { SilenceGate } from '@shared/silence'
+import type { SpeechEngineInfo } from '@shared/types'
 import { PcmRecorder } from './pcmRecorder'
+
+/** An IPC rejection carries Electron's wrapper text; the user needs only the reason. */
+function ipcMessage(err: unknown): string {
+  return ((err as Error)?.message ?? '').replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, '')
+}
 
 type Phase = 'typing' | 'listening' | 'transcribing' | 'saved'
 
@@ -40,9 +47,17 @@ interface Props {
   initialValue?: string
   initialPhase?: Phase
   initialMessage?: { text: string; error?: boolean }
+  initialPartial?: string
+  initialHolding?: boolean
 }
 
-export function App({ initialValue = '', initialPhase = 'typing', initialMessage }: Props = {}) {
+export function App({
+  initialValue = '',
+  initialPhase = 'typing',
+  initialMessage,
+  initialPartial = '',
+  initialHolding = false
+}: Props = {}) {
   const [value, setValue] = useState(initialValue)
   const [phase, setPhase] = useState<Phase>(initialPhase)
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(initialMessage ?? null)
@@ -50,19 +65,39 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
     initialPhase === 'listening' ? [0.2, 0.6, 0.9, 0.5, 0.3] : Array(BARS).fill(0)
   )
   const [shortcut, setShortcut] = useState<string | null>(null)
+  /** Words heard so far, while Apple's live speech is listening. */
+  const [partial, setPartial] = useState(initialPartial)
+  const [holding, setHolding] = useState(initialHolding)
   const inputRef = useRef<HTMLInputElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const recorderRef = useRef(new PcmRecorder())
   const finishingRef = useRef(false)
   const phaseRef = useRef<Phase>('typing')
   phaseRef.current = phase
+  const engineRef = useRef<SpeechEngineInfo['engine']>('whisper')
+  /** The session in progress is Apple's, and how to stop listening to it. */
+  const liveRef = useRef<(() => void) | null>(null)
+  const startingRef = useRef<Promise<void> | null>(null)
+  const holdingRef = useRef(false)
 
   const parsed = useMemo(() => (value.trim() ? parseCapture(value) : null), [value])
+
+  const checkEngine = useCallback(() => {
+    void window.ambient.speech.engine().then((info) => (engineRef.current = info.engine))
+  }, [])
 
   useEffect(() => {
     void window.ambient.getShortcuts().then((list) => {
       setShortcut(list.find((s) => s.action === 'quickAdd')?.label ?? null)
     })
+    checkEngine()
+  }, [checkEngine])
+
+  const endLive = useCallback((cancel: boolean) => {
+    if (!liveRef.current) return
+    liveRef.current()
+    liveRef.current = null
+    if (cancel) window.ambient.speech.cancel()
   }, [])
 
   useLayoutEffect(() => {
@@ -77,13 +112,18 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
 
   const reset = useCallback(() => {
     recorderRef.current.cancel()
+    endLive(true)
     window.ambient.quickAdd.setRecording(false)
     finishingRef.current = false
+    holdingRef.current = false
+    setHolding(false)
+    setPartial('')
     setValue('')
     setPhase('typing')
     setMessage(null)
+    checkEngine()
     requestAnimationFrame(() => inputRef.current?.focus())
-  }, [])
+  }, [checkEngine, endLive])
 
   const save = useCallback(
     (keepOpen: boolean) => {
@@ -99,14 +139,24 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
   )
 
   const finishListening = useCallback(async () => {
-    if (finishingRef.current) return
+    if (finishingRef.current || phaseRef.current !== 'listening') return
     finishingRef.current = true
+    holdingRef.current = false
+    setHolding(false)
     window.ambient.quickAdd.setRecording(false)
     setPhase('transcribing')
     try {
-      const pcm = await recorderRef.current.stop()
-      const copy = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength)
-      const transcript = (await window.ambient.quickAdd.transcribe(copy as ArrayBuffer)).trim()
+      let transcript: string
+      if (liveRef.current) {
+        endLive(false)
+        await startingRef.current?.catch(() => {})
+        transcript = (await window.ambient.speech.stop()).trim()
+      } else {
+        const pcm = await recorderRef.current.stop()
+        const copy = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength)
+        transcript = (await window.ambient.quickAdd.transcribe(copy as ArrayBuffer)).trim()
+      }
+      setPartial('')
       setPhase('typing')
       if (!transcript) {
         setMessage({ text: 'Didn’t catch that. Try again, or type it.' })
@@ -117,41 +167,98 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
       }
     } catch (err) {
       console.error(err)
+      setPartial('')
       setPhase('typing')
-      setMessage({ text: (err as Error).message || 'The microphone stopped.', error: true })
+      setMessage({ text: ipcMessage(err) || 'The microphone stopped.', error: true })
     } finally {
       finishingRef.current = false
       setLevels(Array(BARS).fill(0))
       requestAnimationFrame(() => inputRef.current?.focus())
     }
-  }, [])
+  }, [endLive])
 
-  const startListening = useCallback(async () => {
-    if (phaseRef.current !== 'typing') return
-    finishingRef.current = false
-    setMessage(null)
-    window.ambient.quickAdd.setRecording(true)
-    try {
-      await recorderRef.current.start({
-        silenceMs: 2500,
-        onSilence: () => void finishListening(),
-        onLevel: (rms) => setLevels((prev) => [...prev.slice(1), Math.min(1, rms * 9)])
-      })
-      setPhase('listening')
-    } catch (err) {
-      window.ambient.quickAdd.setRecording(false)
-      setPhase('typing')
-      setMessage({ text: (err as Error).message || 'The microphone is blocked.', error: true })
+  const pushLevel = useCallback((rms: number) => setLevels((prev) => [...prev.slice(1), Math.min(1, rms * 9)]), [])
+
+  /** Apple's live speech; false when it is not available or would not start. */
+  const startLive = useCallback(async (): Promise<boolean> => {
+    if (engineRef.current !== 'apple') return false
+    // Held, the key decides when to stop; silence only ends a tapped session.
+    const gate = new SilenceGate({ silenceMs: 2500 })
+    const offLevel = window.ambient.speech.onLevel((rms) => {
+      pushLevel(rms)
+      if (!holdingRef.current && gate.push(rms, Date.now())) void finishListening()
+    })
+    const offPartial = window.ambient.speech.onPartial(({ text }) => setPartial(text))
+    liveRef.current = () => {
+      offLevel()
+      offPartial()
     }
-  }, [finishListening])
+    try {
+      const started = window.ambient.speech.start()
+      startingRef.current = started
+      await started
+      return true
+    } catch (err) {
+      console.warn('[speech] live speech did not start; using Whisper:', err)
+      endLive(false)
+      return false
+    }
+  }, [endLive, finishListening, pushLevel])
+
+  const startListening = useCallback(
+    async (hold = false) => {
+      if (phaseRef.current !== 'typing') return
+      finishingRef.current = false
+      holdingRef.current = hold
+      setHolding(hold)
+      setMessage(null)
+      setPartial('')
+      window.ambient.quickAdd.setRecording(true)
+      // Listening from here on, so a release during start-up still stops it.
+      setPhase('listening')
+      phaseRef.current = 'listening'
+      try {
+        if (!(await startLive())) {
+          await recorderRef.current.start({
+            silenceMs: 2500,
+            onSilence: () => {
+              if (!holdingRef.current) void finishListening()
+            },
+            onLevel: pushLevel
+          })
+        }
+      } catch (err) {
+        window.ambient.quickAdd.setRecording(false)
+        holdingRef.current = false
+        setHolding(false)
+        setPhase('typing')
+        setMessage({ text: ipcMessage(err) || 'The microphone is blocked.', error: true })
+      }
+    },
+    [finishListening, pushLevel, startLive]
+  )
 
   const toggleMic = useCallback(() => {
     if (phaseRef.current === 'listening') void finishListening()
     else void startListening()
   }, [finishListening, startListening])
 
+  const onHold = useCallback(
+    (state: 'start' | 'end') => {
+      if (state === 'end') return void finishListening()
+      if (phaseRef.current === 'listening') {
+        holdingRef.current = true
+        setHolding(true)
+      } else {
+        void startListening(true)
+      }
+    },
+    [finishListening, startListening]
+  )
+
   useEffect(() => window.ambient.quickAdd.onOpened(reset), [reset])
   useEffect(() => window.ambient.quickAdd.onShortcutAgain(toggleMic), [toggleMic])
+  useEffect(() => window.ambient.quickAdd.onHold(onHold), [onHold])
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
@@ -160,6 +267,7 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
     if (event.key === 'Escape') {
       event.preventDefault()
       recorderRef.current.cancel()
+      endLive(true)
       window.ambient.quickAdd.setRecording(false)
       window.ambient.quickAdd.cancel()
       return
@@ -176,11 +284,15 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
   }
 
   const listening = phase === 'listening'
+  const live = (listening || phase === 'transcribing') && partial !== ''
+  const shown = live ? [value.trim(), partial].filter(Boolean).join(' ') : value
   const status =
     phase === 'listening'
-      ? shortcut
-        ? `Listening… press ${shortcut} again to stop`
-        : 'Listening…'
+      ? holding
+        ? 'Listening… let go to stop'
+        : shortcut
+          ? `Listening… press ${shortcut} again to stop`
+          : 'Listening…'
       : phase === 'transcribing'
         ? 'Writing it down…'
         : null
@@ -218,7 +330,7 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
           ) : (
             <input
               ref={inputRef}
-              value={value}
+              value={shown}
               onChange={(event) => {
                 setValue(event.target.value)
                 if (message) setMessage(null)
@@ -226,7 +338,7 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
               placeholder={listening ? '' : 'What needs doing?'}
               aria-label="What needs doing?"
               spellCheck={false}
-              readOnly={phase === 'transcribing'}
+              readOnly={phase === 'transcribing' || live}
               className="h-full min-w-0 flex-1 bg-transparent text-title text-ink-1 outline-none placeholder:text-ink-4"
             />
           )}
