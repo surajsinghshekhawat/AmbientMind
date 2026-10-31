@@ -50,8 +50,9 @@ the full list when clicked.
 - **Local by default.** Extraction, embeddings, speech-to-text and OCR all run
   on this machine. Mail and calendar come from Google because that is where the
   data already is, but message bodies are never sent to a cloud language model.
-- **Ambient, not demanding.** Click-through overlay, no taskbar presence, tray
-  resident. It must not steal focus from whatever is being typed.
+- **Ambient, not demanding.** A small orb that never takes focus until you
+  open it, no taskbar presence, tray resident. It must not steal focus from
+  whatever is being typed.
 - **Never lie.** An empty list should say *why* it is empty. A wrong action is
   worse than no action. Anything the app learns should be inspectable and
   reversible.
@@ -60,8 +61,8 @@ the full list when clicked.
 
 The original brief asked for the list to sit *above the wallpaper and below
 applications*, and also to be clickable. On Windows those two things cannot
-both be true — see §8.1. The implemented compromise is always-on-top plus
-click-through.
+both be true — see §8.1. The implemented compromise is an always-on-top
+window that is only ever as big as the orb or the open panel.
 
 ---
 
@@ -445,22 +446,22 @@ sqlite-vec      localhost      Gmail,          safeStorage/DPAPI,
 
 | Surface | Trigger | Behaviour |
 | --- | --- | --- |
-| **Overlay** | Always present | Starts as a ~70 px circle in the configured corner. Click expands to the full-height list. Transparent, always-on-top, click-through except over real controls. |
-| **QuickAdd** | `Ctrl+Shift+A` (Mac `⌃⌥Space`) | Palette for typed or spoken capture. Mic opens with the window; three seconds of silence after speech ends recording and submits. |
-| **Settings** | `Ctrl+Shift+,` (Mac `⌃⌥,` or `⌘,`), tray, or the gear | Google connection, models, profile, recurring rules, health, learned suppressions, corpus export. |
-| **Chat** | `Ctrl+Shift+C` (Mac `⌃⌥C`), tray, or the overlay header | Conversational panel that can both answer about and modify the list. |
+| **Overlay** | Always present | A 64 px glass orb (`ThinkingOrb` inside) in the configured corner that never takes focus. Click expands it into a 380 px panel sized to its content, which takes focus so the keyboard works; Esc collapses it. |
+| **QuickAdd** | `Ctrl+Shift+A` (Mac `⌃⌥Space`) | A composer card: type, or press the shortcut again (or ⌘L, or the mic) to talk. Live chips show what was understood. Enter saves, ⌘Enter saves and stays open, Esc cancels. |
+| **Settings** | `Ctrl+Shift+,` (Mac `⌃⌥,`), tray, or the gear | A sidebar window: General, Sources, AI & Models, Capture, Shortcuts (with a recorder), Recurring, Learned, Privacy & Data, Permissions, About. Follows the system theme unless set to Light or Dark. |
+| **Chat** | `Ctrl+Shift+C` (Mac `⌃⌥C`), tray, or the overlay header | A frameless glass card that answers about the list and changes it, showing each change as a step. Stop cancels a running answer. |
+| **Onboarding** | First launch, or Settings → About | Welcome, privacy, sources, permissions, model check and shortcuts. Finishing sets `onboarded` in the config. |
 | **Tray** | Always | Show/hide, sync now, chat, settings, quit. There is no main window, so closing the overlay must never quit the process. |
 
-### 4.2 The click-through mechanism
+### 4.2 Overlay sizing and focus
 
-The overlay calls `setIgnoreMouseEvents(true, { forward: true })`, which makes
-the window transparent to the mouse while still receiving move events. The
-renderer hit-tests `data-ambient-interactive` on every mousemove and asks main
-to enable capture only while the cursor is genuinely over a control. That is
-why empty transparent space does not swallow clicks on the desktop behind it.
-
-The collapsed orb is the exception: it always accepts clicks, since a
-click-through orb cannot be opened.
+The overlay window is always exactly the size of what it shows, so there is no
+transparent area to swallow clicks meant for the desktop. Collapsed, it is the
+64 px orb and is not focusable, so clicking it never takes focus from the app
+you are in. Expanded, it is 380 px wide and as tall as the panel: the renderer
+measures the panel and sends `SetPanelHeight`, and main grows the window away
+from its corner, capped at the work area. The expanded window is focusable and
+focused, so keyboard shortcuts and inline edits work.
 
 ### 4.3 Windows 11 transparency
 
@@ -483,9 +484,10 @@ and renderer cannot drift apart. Renderers have `nodeIntegration: false` and
 object built in `electron/preload.ts`.
 
 Channel groups: tasks (get/add/complete/delete/update/snooze, plus a pushed
-`TasksChanged`), overlay (mouse capture, expand state), config, accounts,
-sync, rules, suggestions, chat, health, learned suppressions, corpus export,
-quick-add, and speech transcription.
+`TasksChanged`), overlay (expand state, panel height), config, accounts,
+sync, rules, suggestions, chat (send, stop, close), health, learned
+suppressions, corpus export, quick-add, speech transcription, shortcuts
+(suspended while Settings records one), and onboarding.
 
 A production-only Content Security Policy is applied as a response header
 rather than a meta tag, so the dev server's HMR websocket is not blocked during
@@ -811,8 +813,9 @@ npm run sync:now
 
 "Above wallpaper, below apps" requires the WorkerW/Progman hack on Windows, and
 that window **cannot receive normal input**. An interactive list that vanishes
-under every maximised browser is equally not ambient. Always-on-top plus
-click-through is the only pair that stays both visible and clickable.
+under every maximised browser is equally not ambient. An always-on-top window
+sized exactly to the orb or the open panel stays both visible and clickable,
+and covers nothing else.
 
 *Drawback.* It is a HUD floating over applications, not wallpaper.
 
@@ -1362,12 +1365,15 @@ npm run corpus:export -- --days=30 --limit=120
 
 ### 13.3 Shortcuts
 
-Defaults live in `shared/shortcuts.ts`. Settings lists each one and says when
-it conflicts or another app holds the keys.
+Defaults live in `shared/shortcuts.ts`. Settings → Shortcuts records a new
+one from the physical keys (so ⌥S is S, not ß), requires ⌃, ⌥ or ⌘ (or a
+function key), and stores only the changed ones in `config.shortcuts`. Main
+re-registers them at once and says when one conflicts or another app holds
+the keys.
 
 | Windows | Mac | Action |
 | --- | --- | --- |
-| `Ctrl+Shift+A` | `⌃⌥Space` | QuickAdd; mic starts; 3 s of silence submits |
+| `Ctrl+Shift+A` | `⌃⌥Space` | QuickAdd; press again to talk |
 | `Ctrl+Shift+S` | `⌃⌥S` | Capture the screen as a task |
 | `Ctrl+Shift+C` | `⌃⌥C` | Ask about your tasks |
 | `Ctrl+Shift+,` | `⌃⌥,` | Settings |

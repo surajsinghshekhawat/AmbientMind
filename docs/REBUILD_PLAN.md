@@ -603,7 +603,7 @@ grant and is untested. The Windows packaging block was updated but
 not built here, since cross-building would replace the Mac native modules in
 `node_modules`.
 
-### Phase 3 — Design system and new UI (7–10 days)
+### Phase 3 — Design system and new UI (7–10 days) — done, branch `phase-3-ui`
 
 - Tokens, primitives and motion in `src/ui/`; light and dark; Reduce Motion
   and Reduce Transparency.
@@ -617,6 +617,59 @@ not built here, since cross-building would replace the Mac native modules in
 Exit: every surface in §5 exists; keyboard-only use works end to end; the
 audit's UI bugs 1 and 8–14 are gone; screenshots on light and dark wallpapers
 pass review.
+
+What landed (branch `phase-3-ui`):
+
+- `src/ui/`: OKLCH tokens for dark and light (`tokens.css`), Reduce Motion and
+  Reduce Transparency, and primitives: Button, IconButton (fixed tones, since
+  `cn()` does not merge classes), Kbd, Check, StatusLine, Toast with undo,
+  Orb, and a Markdown renderer that builds elements and never injects HTML.
+- Orb: `ThinkingOrb` in a 64 px glass disc. Activity sets the motion,
+  urgency sets a thin arc that pulses when overdue, the badge counts only
+  today and overdue, and an amber dot means something needs attention.
+- Panel: the window is exactly as big as the orb or the panel, focusable only
+  when open. Sections Now, Suggested, Upcoming and Later; rows expand in place
+  with the evidence quote, an Open in Gmail link, and deadline and priority
+  pickers. Full keyboard control, undo toasts, Done today and Snoozed views,
+  and search.
+- Quick Capture in the composer shape: typing works at once, the mic is
+  opt-in (press the shortcut again, ⌘L, or the button), live chips show the
+  parsed date, priority, people and recurrence, Enter morphs to a check,
+  ⌘Enter keeps it open.
+- Chat on a frameless glass card: Markdown answers, the changes as a step
+  list, Stop (aborts the request in main), Clear, Retry on failure.
+- Settings: a 208 px sidebar window with ten sections, Light, Dark or Auto,
+  grouped rows, a shortcut recorder (physical keys, conflicts shown, current
+  shortcuts suspended while recording, re-registered live), Pause AI,
+  encrypted backup, and a "Saved" toast per burst of changes.
+- Onboarding: welcome, privacy, sources, permissions (the mic is asked from
+  here), model check and shortcuts. It opens until finished and can be
+  reopened from Settings → About.
+- Connect Google returns as soon as the account is linked; the first sync
+  runs in the background (audit bug 13).
+- `./dev npm run gallery` shows every surface in every state on dark, light
+  and busy wallpapers; `./dev npm run gallery:shots [ids]` writes 2× PNGs to
+  `.local/shots`. The smoke test walks onboarding, opens the panel, chat and
+  Settings in the real app, and screenshots each.
+
+Not done, and why:
+
+- Native vibrancy. Screenshots of the desktop need Screen Recording, which
+  needs an admin account here, so the glass is a 95 % tint that passes on
+  busy wallpaper instead.
+- Hold-to-talk. Electron global shortcuts see key-down only.
+- Orb drag-to-snap and a hover peek (the peek is the tooltip for now).
+- Streaming chat and confirm cards (Phase 6), "Never from this sender"
+  (needs a sender rule store), Apple Calendar and Reminders (Phase 5), Apple
+  Intelligence (Phase 6). Their places in the UI say "Coming soon".
+- Parallel orb variants in worktrees; one direction was built and reviewed
+  from screenshots instead.
+- Google still needs a hand-placed OAuth client file (audit bug 12, partly);
+  onboarding and Settings now say where it goes.
+
+Exit check: typecheck, `./dev npm test` (177 logic + 30 db + 34 component
+tests) and the smoke test pass; gallery screenshots reviewed on dark, light
+and busy wallpapers.
 
 ### Phase 4 — Swift helper (7–10 days)
 

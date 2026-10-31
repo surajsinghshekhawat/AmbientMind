@@ -458,7 +458,8 @@ function registerIpc() {
   ipcMain.handle(IPC.ConnectGoogle, async () => {
     const result = await connectGoogle()
     trayHandle?.refresh()
-    await triggerSync()
+    // The first sync can take minutes; the orb shows it, the caller shouldn't wait.
+    void triggerSync()
     return result
   })
 
