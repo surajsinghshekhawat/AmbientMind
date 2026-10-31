@@ -50,7 +50,18 @@ export interface GoogleCredentials {
   clientSecret: string
 }
 
-export class GoogleAuthError extends Error {}
+export class GoogleAuthError extends Error {
+  constructor(
+    message: string,
+    /** OAuth error code from the token endpoint, e.g. `invalid_grant`. */
+    readonly code?: string
+  ) {
+    super(message)
+  }
+}
+
+export const GOOGLE_RECONNECT_MESSAGE =
+  'Google sign-in expired or was revoked. Reconnect Google in Settings.'
 
 /**
  * Desktop OAuth clients are not confidential: the "secret" ships with the app
@@ -196,7 +207,10 @@ async function exchange(body: Record<string, string>): Promise<StoredTokens> {
   }
 
   if (!response.ok || !data.access_token) {
-    throw new GoogleAuthError(data.error_description ?? data.error ?? 'Token exchange failed')
+    throw new GoogleAuthError(
+      data.error_description ?? data.error ?? 'Token exchange failed',
+      data.error
+    )
   }
 
   return {
@@ -321,12 +335,24 @@ export async function getAccessToken(): Promise<string> {
     const credentials = loadCredentials()
     if (!credentials) throw new GoogleAuthError('Google OAuth client configuration is missing')
 
-    const refreshed = await exchange({
-      client_id: credentials.clientId,
-      client_secret: credentials.clientSecret,
-      refresh_token: tokens.refreshToken,
-      grant_type: 'refresh_token'
-    })
+    let refreshed: StoredTokens
+    try {
+      refreshed = await exchange({
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        refresh_token: tokens.refreshToken,
+        grant_type: 'refresh_token'
+      })
+    } catch (err) {
+      // The grant is dead (revoked, expired, password changed) and no retry
+      // can revive it. Keeping it made the app look connected while every
+      // sync failed; dropping it lets every surface show "disconnected".
+      if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+        deleteSecret(TOKEN_KEY)
+        throw new GoogleAuthError(GOOGLE_RECONNECT_MESSAGE, err.code)
+      }
+      throw err
+    }
     setJson(TOKEN_KEY, { ...refreshed, ...(tokens.email ? { email: tokens.email } : {}) })
     return refreshed.accessToken
   })().finally(() => {

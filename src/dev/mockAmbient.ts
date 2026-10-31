@@ -63,6 +63,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
   const tasksChanged = channel<Task[]>()
   const configChanged = channel<Config>()
   const syncStatus = channel<SyncStatus>()
+  const screenStatus = channel<SyncStatus>()
   const overlayExpanded = channel<boolean>()
   const quickAddOpened = channel<void>()
 
@@ -103,6 +104,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     onConfigChanged: configChanged.on,
     onTasksChanged: tasksChanged.on,
     onSyncStatus: syncStatus.on,
+    onScreenStatus: screenStatus.on,
 
     accounts: {
       status: async () => ({
@@ -219,6 +221,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       tasksChanged: (tasks: Task[]) => setTasks(tasks),
       configChanged: configChanged.emit,
       syncStatus: syncStatus.emit,
+      screenStatus: screenStatus.emit,
       overlayExpanded: overlayExpanded.emit,
       quickAddOpened: () => quickAddOpened.emit()
     }

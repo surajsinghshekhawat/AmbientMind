@@ -254,10 +254,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
   }
   if (!isGoogleConnected()) {
     report.errors.push('Google account is not connected')
-    return report
-  }
-  if (!(await isAvailable())) {
-    report.errors.push('Ollama is not running; skipping this pass')
+    recordMailOutcome(report)
     return report
   }
 
@@ -275,10 +272,18 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
     }
 
     const existing = listActive()
-    const candidates = [
-      ...(await syncCalendar(report)),
-      ...(await syncGmail(report, existing, resolved))
-    ]
+    // Calendar import is deterministic and needs no model, so it runs even
+    // when Ollama is down; only mail waits for it.
+    const candidates = await syncCalendar(report)
+    if (await isAvailable()) {
+      try {
+        candidates.push(...(await syncGmail(report, existing, resolved)))
+      } catch (err) {
+        report.errors.push(`gmail: ${(err as Error).message}`)
+      }
+    } else {
+      report.errors.push('Ollama is not running; mail was not read this pass')
+    }
 
     const { accepted, rejected } = rejectDuplicates(candidates, existing)
     report.deduped = rejected.length
@@ -290,11 +295,23 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
     const wanted = accepted.filter((task) => !suppressionFor(task.title).suppressed)
     report.suppressed = accepted.length - wanted.length
     report.added = addTasksIgnoringDuplicates(wanted).length
-
-    setSyncState('gmail', null, report.errors.length > 0 ? report.errors[0]! : null)
-    return report
+  } catch (err) {
+    // Callers show a spinner until this resolves; a throw would leave it
+    // spinning and the failure unrecorded.
+    report.errors.push(`sync: ${(err as Error).message}`)
   } finally {
     running = false
+  }
+  recordMailOutcome(report)
+  return report
+}
+
+/** Calendar records its own outcome; everything else is the mail pass's. */
+function recordMailOutcome(report: SyncReport) {
+  try {
+    setSyncState('gmail', null, report.errors.find((e) => !e.startsWith('calendar:')) ?? null)
+  } catch (err) {
+    console.warn('[sync] could not record outcome:', (err as Error).message)
   }
 }
 

@@ -62,6 +62,14 @@ const api = {
     }
   },
 
+  onScreenStatus: (handler: (status: { state: 'running' | 'idle' }) => void): (() => void) => {
+    const listener = (_event: unknown, status: { state: 'running' | 'idle' }) => handler(status)
+    ipcRenderer.on(IPC.ScreenStatus, listener)
+    return () => {
+      ipcRenderer.off(IPC.ScreenStatus, listener)
+    }
+  },
+
   accounts: {
     status: (): Promise<{
       google: boolean

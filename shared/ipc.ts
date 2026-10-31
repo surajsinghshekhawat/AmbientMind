@@ -27,6 +27,8 @@ export const IPC = {
   RunSyncNow: 'sync:run-now',
   /** Main -> renderer, so the overlay can show a quiet sync indicator. */
   SyncStatus: 'sync:status',
+  /** Main -> renderer. Separate from sync so neither can end the other's indicator. */
+  ScreenStatus: 'screen:status',
 
   /** Patterns the app noticed; shown for confirmation, never auto-applied. */
   GetSuggestions: 'rules:suggestions',

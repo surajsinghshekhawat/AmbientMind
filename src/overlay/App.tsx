@@ -19,6 +19,7 @@ export function App() {
   const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [reading, setReading] = useState(false)
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
   // Recomputed from the same tasks the list renders, so the advice can never
@@ -45,6 +46,7 @@ export function App() {
   }, [])
 
   useEffect(() => window.ambient.onSyncStatus((s) => setSyncing(s.state === 'running')), [])
+  useEffect(() => window.ambient.onScreenStatus((s) => setReading(s.state === 'running')), [])
 
   const refreshHealth = useCallback(() => {
     void window.ambient.getHealth().then(setHealth)
@@ -143,9 +145,9 @@ export function App() {
         <div className="flex items-center gap-2 px-3">
           <header className="min-w-0 flex-1 text-[10px] font-medium tracking-[0.18em] text-white/35 uppercase">
             AmbientMind
-            {syncing && (
+            {(syncing || reading) && (
               <span className="ml-2 font-normal tracking-normal text-urgency-approaching normal-case">
-                · syncing
+                · {reading ? 'reading screen' : 'syncing'}
               </span>
             )}
           </header>

@@ -238,8 +238,9 @@ function onScheduledSync(report: SyncReport) {
     added: report.added,
     errors: report.errors
   }
-  if (report.added > 0) broadcastTasks()
-  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle', report })
+  // Calendar reconciliation can move or remove tasks without adding any.
+  broadcastTasks()
+  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle' })
   trayHandle?.refresh()
 }
 
@@ -575,7 +576,7 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
     return
   }
   const overlay = getOverlayWindow()
-  overlay?.webContents.send(IPC.SyncStatus, { state: 'running' })
+  overlay?.webContents.send(IPC.ScreenStatus, { state: 'running' })
 
   try {
     const config = loadConfig()
@@ -613,14 +614,30 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
       body: `Screen capture failed: ${(err as Error).message}`
     }).show()
   } finally {
-    overlay?.webContents.send(IPC.SyncStatus, { state: 'idle' })
+    overlay?.webContents.send(IPC.ScreenStatus, { state: 'idle' })
   }
 }
 
 /** Only an explicit "Sync now" forces; Connect and wake read new mail only. */
 async function triggerSync(force = false): Promise<SyncReport> {
   getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'running' })
-  const report = await runSync(syncOptions(loadConfig(), { force }))
+  let report: SyncReport
+  try {
+    report = await runSync(syncOptions(loadConfig(), { force }))
+  } catch (err) {
+    report = {
+      ranAt: new Date().toISOString(),
+      scanned: 0,
+      skipped: 0,
+      extracted: 0,
+      added: 0,
+      deduped: 0,
+      suppressed: 0,
+      errors: [`sync: ${(err as Error).message}`]
+    }
+  } finally {
+    getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle' })
+  }
   lastReport = {
     ranAt: report.ranAt,
     scanned: report.scanned,
@@ -628,7 +645,6 @@ async function triggerSync(force = false): Promise<SyncReport> {
     errors: report.errors
   }
   broadcastTasks()
-  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle', report })
   trayHandle?.refresh()
 
   const summary = report.errors[0]
