@@ -32,6 +32,9 @@ function trayIcon() {
 export interface TrayActions {
   onSyncNow: () => Promise<unknown>
   onOpenSettings: () => void
+  /** Goes through the saved config, which is what applies the login item. */
+  launchAtLogin: () => boolean
+  setLaunchAtLogin: (on: boolean) => void
 }
 
 export function createTray(actions: TrayActions) {
@@ -113,8 +116,8 @@ export function createTray(actions: TrayActions) {
         {
           label: 'Start at login',
           type: 'checkbox',
-          checked: app.getLoginItemSettings().openAtLogin,
-          click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked })
+          checked: actions.launchAtLogin(),
+          click: (item) => actions.setLaunchAtLogin(item.checked)
         },
         { type: 'separator' },
         { label: 'Quit AmbientMind', click: () => app.quit() }

@@ -50,7 +50,11 @@ export interface Config {
   embeddingModel: string
   /** Transformers.js model id for speech-to-text. */
   whisperModel: string
-  /** Start with Windows. An assistant you have to remember to launch is one you stop using. */
+  /**
+   * Start at sign-in. Off until the user turns it on: a login item is a
+   * system change, not something to discover after the fact. The only
+   * source of truth; the OS setting is written from it, never read back.
+   */
   launchAtLogin: boolean
   /** Mirror recurring rules onto a Google Calendar this app creates. Opt-in: it writes to your account. */
   calendarWriteBack: boolean
@@ -131,7 +135,7 @@ export const DEFAULT_CONFIG: Config = {
   ollamaModel: 'qwen2.5:3b',
   embeddingModel: 'nomic-embed-text',
   whisperModel: 'Xenova/whisper-base.en',
-  launchAtLogin: true,
+  launchAtLogin: false,
   calendarWriteBack: false,
   displayName: '',
   aboutMe: '',

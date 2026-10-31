@@ -1,7 +1,28 @@
 import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { contentSecurityPolicy } from './electron/security'
+
+/**
+ * Built pages load from file://, where Electron never sees response headers,
+ * so the production policy has to live in the page itself. The dev server
+ * gets the dev policy as a header from main.ts instead.
+ */
+function cspMeta(): Plugin {
+  return {
+    name: 'ambientmind-csp-meta',
+    apply: 'build',
+    transformIndexHtml: () => [
+      {
+        tag: 'meta',
+        attrs: { 'http-equiv': 'Content-Security-Policy', content: contentSecurityPolicy() },
+        injectTo: 'head-prepend'
+      }
+    ]
+  }
+}
 
 const alias = {
   '@shared': resolve(__dirname, 'shared'),
@@ -28,7 +49,7 @@ export default defineConfig({
   renderer: {
     root: 'src',
     resolve: { alias },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), cspMeta()],
     build: {
       outDir: 'out/renderer',
       rollupOptions: {

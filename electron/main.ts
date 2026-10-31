@@ -13,6 +13,7 @@ import {
 
 import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
+import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
 
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
@@ -230,7 +231,7 @@ function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
   broadcast(IPC.ConfigChanged, config)
   setSpeechModel(config.whisperModel)
-  applyLoginItem(config)
+  if (!previous || previous.launchAtLogin !== config.launchAtLogin) applyLoginItem(config)
 
   // Switching write-back on has to backfill: rules made before today are
   // exactly the ones the user wants on their phone.
@@ -671,16 +672,34 @@ async function triggerSync(force = false): Promise<SyncReport> {
   return report
 }
 
-function applyProductionCsp() {
-  // Applied as a header rather than a meta tag so the dev server's HMR
-  // websocket and inline styles are not blocked during development.
-  if (!app.isPackaged) return
+const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+
+/**
+ * Built pages carry their policy as a meta tag (see electron.vite.config.ts),
+ * because file:// responses have no headers to rewrite. The dev server's
+ * pages get the dev policy here, so CSP problems surface while developing.
+ */
+function applyDevCsp() {
+  if (!devServerUrl) return
+  const policy = contentSecurityPolicy(devServerUrl)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (!isAppUrl(details.url, devServerUrl)) return callback({})
     callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self'; style-src 'self' 'unsafe-inline'"]
-      }
+      responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [policy] }
+    })
+  })
+}
+
+/** Our windows only ever show our pages; links open in the browser. */
+function guardNavigation() {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-navigate', (event, url) => {
+      if (!isAppUrl(url, devServerUrl)) event.preventDefault()
+    })
+    contents.on('will-attach-webview', (event) => event.preventDefault())
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+      return { action: 'deny' }
     })
   })
 }
@@ -759,15 +778,29 @@ if (process.argv.includes('--sync-now')) {
   app.dock?.hide()
 
   void app.whenReady().then(() => {
-    applyProductionCsp()
+    applyDevCsp()
+    guardNavigation()
 
     // Mic access is requested from the QuickAdd renderer; without this grant
     // Electron denies getUserMedia even when the OS dialog would allow it.
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(permission === 'media' || permission === 'mediaKeySystem')
+    // Nothing else is granted, and nothing at all to a page that is not ours.
+    session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+      const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+      callback(
+        allowPermission(permission, {
+          ...(mediaTypes ? { mediaTypes } : {}),
+          url: details.requestingUrl ?? wc.getURL(),
+          ...(devServerUrl ? { devServerUrl } : {})
+        })
+      )
     })
-    session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-      return permission === 'media' || permission === 'mediaKeySystem'
+    session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+      const mediaType = 'mediaType' in details ? details.mediaType : undefined
+      return allowPermission(permission, {
+        ...(mediaType ? { mediaTypes: [mediaType] } : {}),
+        url: wc?.getURL() || requestingOrigin,
+        ...(devServerUrl ? { devServerUrl } : {})
+      })
     })
 
     openTaskStore()
@@ -791,7 +824,12 @@ if (process.argv.includes('--sync-now')) {
     createQuickAddWindow()
     trayHandle = createTray({
       onSyncNow: () => triggerSync(true),
-      onOpenSettings: () => showSettingsWindow()
+      onOpenSettings: () => showSettingsWindow(),
+      launchAtLogin: () => loadConfig().launchAtLogin,
+      setLaunchAtLogin: (on) => {
+        const previous = loadConfig()
+        applyLiveConfig(saveConfig({ launchAtLogin: on }), previous)
+      }
     })
 
     const registered = {

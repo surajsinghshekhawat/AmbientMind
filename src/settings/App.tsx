@@ -384,7 +384,7 @@ export function App() {
             checked={config.launchAtLogin}
             onChange={(e) => void patch({ launchAtLogin: e.target.checked })}
           />
-          Start AmbientMind when I sign in to Windows
+          Start AmbientMind when I sign in
         </label>
 
         <label className="flex flex-col gap-1 text-sm">

@@ -77,7 +77,7 @@ export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWin
       preload: join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true
     }
   })
 

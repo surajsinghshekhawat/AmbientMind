@@ -38,6 +38,11 @@ test('text is trimmed on save, and the wrong type cannot reset the whole config'
   assert.equal(config.overlayCorner, 'top-left')
 })
 
+test('launch at login is off until the user turns it on', () => {
+  assert.equal(DEFAULT_CONFIG.launchAtLogin, false)
+  assert.equal(sanitizeConfig({}).launchAtLogin, false)
+})
+
 test('booleans must be booleans', () => {
   const config = sanitizeConfig({ calendarWriteBack: 'yes' as never, launchAtLogin: 1 as never })
   assert.equal(config.calendarWriteBack, DEFAULT_CONFIG.calendarWriteBack)

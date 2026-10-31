@@ -34,7 +34,12 @@ test('launches and opens every window', async () => {
     }
   })
   const pageErrors: string[] = []
-  const watch = (page: Page) => page.on('pageerror', (err) => pageErrors.push(err.message))
+  const watch = (page: Page) => {
+    page.on('pageerror', (err) => pageErrors.push(err.message))
+    page.on('console', (message) => {
+      if (/Content Security Policy/i.test(message.text())) pageErrors.push(message.text())
+    })
+  }
   app.windows().forEach(watch)
   app.on('window', watch)
 
@@ -50,7 +55,16 @@ test('launches and opens every window', async () => {
 
     for (const page of app.windows()) {
       await expect(page.locator('#root > *').first()).toBeAttached()
+      await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute(
+        'content',
+        /script-src 'self';/
+      )
     }
+    const renderers = await app.evaluate(({ app }) =>
+      app.getAppMetrics().filter((metric) => metric.type === 'Tab').map((metric) => metric.sandboxed)
+    )
+    expect(renderers.length).toBeGreaterThanOrEqual(4)
+    expect(renderers.every(Boolean)).toBe(true)
     expect(pageErrors).toEqual([])
   } finally {
     // The overlay refuses to close, which cancels a normal quit (Phase 2 fix).

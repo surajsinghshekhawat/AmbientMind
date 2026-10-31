@@ -32,7 +32,7 @@ export function createQuickAddWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true
     }
   })
 
