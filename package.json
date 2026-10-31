@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "dev:seed": "electron-vite dev -- --seed",
+    "gallery": "vite --config gallery.config.ts",
     "build": "tsc --noEmit && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
@@ -18,13 +19,18 @@
     "dist": "node scripts/require-isolation.cjs && npm run preflight && npm run build && electron-builder --win",
     "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
     "smoke:vec": "electron ./scripts/smoke-vec.cjs && electron ./scripts/smoke-vecstore.cjs",
-    "test": "node --import tsx --test \"eval/**/*.test.ts\"",
+    "test": "npm run test:logic && npm run test:ui",
+    "test:logic": "node --import tsx --test \"eval/**/*.test.ts\"",
+    "test:ui": "vitest run",
     "eval": "tsx eval/evaluate.ts",
     "eval:prepare": "tsx eval/prepare-enron.ts",
     "postinstall": "node scripts/require-isolation.cjs && electron-builder install-app-deps"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.1.11",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.8",
@@ -33,10 +39,12 @@
     "electron": "^37.2.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
+    "happy-dom": "^21.0.4",
     "tailwindcss": "^4.1.11",
     "tsx": "^4.23.13",
     "typescript": "^5.8.3",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
