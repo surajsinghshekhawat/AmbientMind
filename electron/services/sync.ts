@@ -1,7 +1,7 @@
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import type { Task } from '@shared/types'
 import { rejectDuplicates } from './dedup'
-import { fetchUpcoming } from './integrations/gcalendar'
+import { fetchPrepTasks } from './integrations/gcalendar'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
 import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
 import {
@@ -15,13 +15,13 @@ import {
 import {
   addTasksIgnoringDuplicates,
   forgetRecentGmail,
-  getSyncState,
   getTaskStore,
   isProcessed,
   listActive,
   listRetryableFailures,
   markFailed,
   markProcessed,
+  reconcileCalendarTasks,
   setSyncState,
   type NewTask
 } from './taskStore'
@@ -212,15 +212,19 @@ async function rememberExtraction(
   }
 }
 
+/** Updates and removes existing prep tasks; returns only meetings not yet on the list. */
 async function syncCalendar(report: SyncReport): Promise<NewTask[]> {
-  const { cursor } = getSyncState('gcalendar')
   try {
-    const { tasks, nextSyncToken } = await fetchUpcoming(cursor)
-    setSyncState('gcalendar', nextSyncToken)
-    report.scanned += tasks.length
-    return tasks
+    const prep = await fetchPrepTasks()
+    const { fresh, updated, removed, archived } = reconcileCalendarTasks(prep)
+    if (updated + removed + archived > 0) {
+      console.log('[sync] calendar reconciled', { updated, removed, archived })
+    }
+    setSyncState('gcalendar', null)
+    report.scanned += prep.length
+    return fresh
   } catch (err) {
-    setSyncState('gcalendar', cursor, (err as Error).message)
+    setSyncState('gcalendar', null, (err as Error).message)
     report.errors.push(`calendar: ${(err as Error).message}`)
     return []
   }
@@ -261,8 +265,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
   try {
     if (options.force) {
       const forgotten = forgetRecentGmail(48)
-      setSyncState('gcalendar', null)
-      console.log(`[sync] force: reopened ${forgotten} gmail ids, calendar full resync`)
+      console.log(`[sync] force: reopened ${forgotten} gmail ids`)
     }
 
     const resolved = {

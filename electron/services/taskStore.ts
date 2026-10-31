@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import * as sqliteVec from 'sqlite-vec'
+import { PREP_LEAD_HOURS } from '@shared/calendarPrep'
 import { KEEP_TOMBSTONE_DAYS } from '@shared/retention'
 import type { Task, TaskPriority, TaskSource } from '@shared/types'
 import { migrate } from './migrations'
@@ -172,10 +173,80 @@ export function updateTask(id: string, patch: TaskPatch): void {
   }
   if (assignments.length === 0) return
 
-  params.push(id)
+  // Marks the row as the user's, so background refreshes stop rewriting it.
+  assignments.push('user_edited_at = ?')
+  params.push(new Date().toISOString(), id)
   handle()
     .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = ? AND status != 'deleted'`)
     .run(...params)
+}
+
+export interface CalendarReconcile {
+  /** Meetings with no task yet; they still go through dedup and suppression. */
+  fresh: NewTask[]
+  updated: number
+  removed: number
+  archived: number
+}
+
+/**
+ * Brings calendar prep tasks in line with the current lookahead window.
+ * `prep` must be the complete set for the window: an open prep task whose
+ * meeting is not in it was cancelled, declined or moved away, and goes.
+ * Completed and deleted rows are history and are never touched.
+ */
+export function reconcileCalendarTasks(prep: NewTask[], now = new Date()): CalendarReconcile {
+  const db = handle()
+  const result: CalendarReconcile = { fresh: [], updated: 0, removed: 0, archived: 0 }
+
+  db.transaction(() => {
+    const seen = new Set<string>()
+    const find = db.prepare<[string], { id: string; status: Task['status']; user_edited_at: string | null }>(
+      `SELECT id, status, user_edited_at FROM tasks WHERE source = 'gcalendar' AND source_id = ?`
+    )
+    const refresh = db.prepare(
+      `UPDATE tasks SET deadline = @deadline, people = @people, raw_context = @raw_context,
+              title = CASE WHEN user_edited_at IS NULL THEN @title ELSE title END
+        WHERE id = @id`
+    )
+
+    for (const task of prep) {
+      if (!task.sourceId) continue
+      seen.add(task.sourceId)
+      const row = find.get(task.sourceId)
+      if (!row) {
+        result.fresh.push(task)
+        continue
+      }
+      if (row.status !== 'pending' && row.status !== 'snoozed') continue
+      result.updated += refresh.run({
+        id: row.id,
+        title: task.title.trim(),
+        deadline: task.deadline ?? null,
+        people: JSON.stringify(task.people ?? []),
+        raw_context: task.rawContext ?? null
+      }).changes
+    }
+
+    const startedBefore = new Date(now.getTime() - PREP_LEAD_HOURS * 3_600_000).toISOString()
+    const open = db
+      .prepare<[], { id: string; source_id: string; deadline: string | null }>(
+        `SELECT id, source_id, deadline FROM tasks
+          WHERE source = 'gcalendar' AND status IN ('pending', 'snoozed')`
+      )
+      .all()
+    for (const row of open) {
+      if (row.deadline && row.deadline < startedBefore) {
+        db.prepare(`UPDATE tasks SET status = 'archived', snoozed_until = NULL WHERE id = ?`).run(row.id)
+        result.archived++
+      } else if (!seen.has(row.source_id)) {
+        db.prepare(`DELETE FROM tasks WHERE id = ?`).run(row.id)
+        result.removed++
+      }
+    }
+  })()
+
+  return result
 }
 
 export function setStatus(id: string, status: Task['status']): void {
