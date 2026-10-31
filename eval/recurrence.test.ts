@@ -72,6 +72,27 @@ test('a stated clock time beats the named one', () => {
   assert.equal(parsed.title.toLowerCase(), 'tuition')
 })
 
+test('a named time on its own is a one-off, not a daily rule', () => {
+  assert.equal(parseRecurrence('call Sam tomorrow morning'), null)
+  assert.equal(parseRecurrence('finish the deck this evening'), null)
+  assert.equal(parseRecurrence('take the bins out at night'), null)
+  assert.equal(parseRecurrence('review the PR tonight at 9pm'), null)
+})
+
+test('a plural named time is a cue', () => {
+  const parsed = parseRecurrence('walk the dog evenings')
+  assert.ok(parsed)
+  assert.deepEqual(parsed.weekdays, [0, 1, 2, 3, 4, 5, 6])
+  assert.equal(parsed.time, '19:00')
+  assert.equal(parsed.title.toLowerCase(), 'walk the dog')
+})
+
+test('"every" only counts when it qualifies a day or time', () => {
+  assert.equal(parseRecurrence('check every file before friday at 5pm'), null)
+  assert.equal(parseRecurrence('reply to each email on monday at 10am'), null)
+  assert.deepEqual(parseRecurrence('stretch each morning')?.weekdays, [0, 1, 2, 3, 4, 5, 6])
+})
+
 test('text with no time is not a recurrence', () => {
   assert.equal(parseRecurrence('tuition every tuesday and thursday'), null)
   assert.equal(parseRecurrence('buy milk'), null)
