@@ -1,5 +1,6 @@
 // Verifies better-sqlite3 loads against Electron's ABI, not just Node's.
 const { app } = require('electron')
+require('./isolation.cjs').useProjectUserData(app)
 
 app.whenReady().then(() => {
   try {

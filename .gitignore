@@ -1,5 +1,9 @@
 node_modules/
 out/
+
+# Project-contained toolchain, caches, dev app data, models and scratch files.
+# Nothing for this project is allowed to live outside the repo folder.
+.local/
 dist/
 release/
 .vite/

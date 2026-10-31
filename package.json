@@ -14,13 +14,13 @@
     "corpus:export": "electron . --export-corpus",
     "sync:now": "electron . --sync-now",
     "preflight": "node scripts/preflight-dist.cjs",
-    "dist": "npm run preflight && npm run build && electron-builder --win",
+    "dist": "node scripts/require-isolation.cjs && npm run preflight && npm run build && electron-builder --win",
     "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
     "smoke:vec": "electron ./scripts/smoke-vec.cjs && electron ./scripts/smoke-vecstore.cjs",
     "test": "node --import tsx --test \"eval/**/*.test.ts\"",
     "eval": "tsx eval/evaluate.ts",
     "eval:prepare": "tsx eval/prepare-enron.ts",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "node scripts/require-isolation.cjs && electron-builder install-app-deps"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
@@ -44,5 +44,16 @@
     "react-dom": "^19.1.0",
     "sqlite-vec": "^0.1.9",
     "tesseract.js": "^7.0.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "electron@37.10.3": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "protobufjs@6.11.6": true,
+    "sharp@0.32.6": true,
+    "tesseract.js": false
   }
 }

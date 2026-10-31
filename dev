@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# Every command for this project runs through here. Toolchain, caches, app
+# data, models and temp files are confined to .local/ inside the repo; nothing
+# is written to the real home folder or ~/Library.
+#
+#   ./dev setup                 pinned Node (.node-version) + npm ci
+#   ./dev npm|npx|node <args>   e.g. ./dev npm run dev
+#   ./dev run <cmd> [args]      any command inside the isolated environment
+#   ./dev shell                 interactive shell inside it
+#   ./dev packaged [args]       launch the built .app with isolated data
+#   ./dev ollama start|stop|status|<ollama args>
+#   ./dev doctor                check nothing has leaked outside the repo
+#   ./dev clean-system [--yes]  remove traces macOS keeps for apps that ran
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL="$ROOT/.local"
+REAL_HOME="${AMBIENTMIND_REAL_HOME:-$HOME}"
+NODE_VERSION="$(tr -d '[:space:]' < "$ROOT/.node-version")"
+OLLAMA_PORT="${AMBIENTMIND_OLLAMA_PORT:-11435}"
+
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) NODE_PLATFORM=darwin-arm64 ;;
+  Darwin-x86_64) NODE_PLATFORM=darwin-x64 ;;
+  Linux-x86_64) NODE_PLATFORM=linux-x64 ;;
+  Linux-aarch64) NODE_PLATFORM=linux-arm64 ;;
+  *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+esac
+NODE_DIR="$LOCAL/node/node-v$NODE_VERSION-$NODE_PLATFORM"
+
+# Relative to the real home folder. Anything here means something escaped.
+OUTSIDE_PATHS=(
+  "Library/Application Support/ambientmind"
+  "Library/Application Support/Electron"
+  "Library/Caches/electron"
+  "Library/Caches/electron-builder"
+  "Library/Caches/com.ambientmind.app"
+  "Library/Caches/com.github.Electron"
+  "Library/HTTPStorages/com.ambientmind.app"
+  "Library/HTTPStorages/com.github.Electron"
+  "Library/Logs/AmbientMind"
+  "Library/Preferences/com.ambientmind.app.plist"
+  "Library/Preferences/com.ambientmind.dev.plist"
+  "Library/Preferences/com.github.Electron.plist"
+  "Library/Saved Application State/com.ambientmind.app.savedState"
+  "Library/Saved Application State/com.github.Electron.savedState"
+  ".electron-gyp"
+  ".electron-rebuild-cache"
+  ".npm/_libvips"
+  ".npm/_prebuilds"
+)
+KEYCHAIN_SERVICES=("ambientmind Safe Storage" "AmbientMind Safe Storage")
+BUNDLE_IDS=(com.ambientmind.app com.ambientmind.dev com.github.Electron)
+
+isolate() {
+  mkdir -p "$LOCAL"/{home,tmp,data,logs,run,ollama/models} \
+    "$LOCAL"/cache/{npm,electron,electron-builder,xdg,swiftpm,clang}
+  export AMBIENTMIND_ISOLATED=1 AMBIENTMIND_ROOT="$ROOT" AMBIENTMIND_REAL_HOME="$REAL_HOME"
+  export AMBIENTMIND_DATA_DIR="$LOCAL/data"
+  # Catch-all for tools with no cache setting (node-gyp, @electron/rebuild,
+  # SwiftPM, CoreFoundation preferences): their "home" is inside the repo.
+  export HOME="$LOCAL/home" CFFIXED_USER_HOME="$LOCAL/home"
+  export TMPDIR="$LOCAL/tmp/"
+  export XDG_CACHE_HOME="$LOCAL/cache/xdg" XDG_CONFIG_HOME="$LOCAL/home/.config"
+  export XDG_DATA_HOME="$LOCAL/home/.local/share" XDG_STATE_HOME="$LOCAL/home/.local/state"
+  export PATH="$NODE_DIR/bin:$ROOT/node_modules/.bin:$PATH"
+  export npm_config_cache="$LOCAL/cache/npm" NPM_CONFIG_CACHE="$LOCAL/cache/npm"
+  export npm_config_update_notifier=false
+  # An inherited devdir would point node-gyp's headers outside the repo, and
+  # terminals inside Cursor inherit ELECTRON_RUN_AS_NODE from the editor.
+  unset npm_config_devdir NPM_CONFIG_DEVDIR ELECTRON_RUN_AS_NODE
+  export electron_config_cache="$LOCAL/cache/electron" ELECTRON_CACHE="$LOCAL/cache/electron"
+  export ELECTRON_BUILDER_CACHE="$LOCAL/cache/electron-builder"
+  export CLANG_MODULE_CACHE_PATH="$LOCAL/cache/clang"
+  export OLLAMA_HOST="127.0.0.1:$OLLAMA_PORT" OLLAMA_URL="http://127.0.0.1:$OLLAMA_PORT"
+  export OLLAMA_MODELS="$LOCAL/ollama/models"
+}
+
+# Every macOS app that runs gets a preferences file and saved window state
+# under the real ~/Library, regardless of HOME, so remove them on exit.
+# Privacy permissions are kept so mic/screen access needn't be re-granted;
+# clean-system resets those.
+sweep_os_traces() {
+  [ "$(uname -s)" = Darwin ] || return 0
+  local id
+  for id in "${BUNDLE_IDS[@]}"; do
+    if [ -e "$REAL_HOME/Library/Preferences/$id.plist" ]; then
+      env -u CFFIXED_USER_HOME HOME="$REAL_HOME" defaults delete "$id" >/dev/null 2>&1 || true
+      rm -f "$REAL_HOME/Library/Preferences/$id.plist"
+    fi
+    rm -rf "$REAL_HOME/Library/Saved Application State/$id.savedState"
+  done
+}
+
+sweep_on_exit() {
+  trap sweep_os_traces EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
+ensure_node() {
+  [ -x "$NODE_DIR/bin/node" ] && return
+  local base="https://nodejs.org/dist/v$NODE_VERSION"
+  local file="node-v$NODE_VERSION-$NODE_PLATFORM.tar.gz"
+  local dl="$LOCAL/tmp/node-download"
+  rm -rf "$dl" && mkdir -p "$dl" "$LOCAL/node"
+  echo "Downloading Node $NODE_VERSION into .local/node"
+  curl -fsSL "$base/$file" -o "$dl/$file"
+  curl -fsSL "$base/SHASUMS256.txt" -o "$dl/SHASUMS256.txt"
+  (cd "$dl" && grep " $file\$" SHASUMS256.txt | shasum -a 256 -c - >/dev/null)
+  tar -xzf "$dl/$file" -C "$LOCAL/node"
+  rm -rf "$dl"
+}
+
+require_node() {
+  [ -x "$NODE_DIR/bin/node" ] || { echo "Run ./dev setup first." >&2; exit 1; }
+}
+
+ollama_bin() {
+  if command -v ollama >/dev/null 2>&1; then
+    command -v ollama
+  elif [ -x /Applications/Ollama.app/Contents/Resources/ollama ]; then
+    echo /Applications/Ollama.app/Contents/Resources/ollama
+  else
+    echo "Ollama is not installed." >&2
+    exit 1
+  fi
+}
+
+ollama_up() { curl -fsS "$OLLAMA_URL/api/version" >/dev/null 2>&1; }
+
+cmd_ollama() {
+  local bin
+  bin="$(ollama_bin)"
+  case "${1:-status}" in
+    start)
+      if ollama_up; then echo "Project Ollama already running on $OLLAMA_HOST"; return; fi
+      nohup "$bin" serve >>"$LOCAL/logs/ollama.log" 2>&1 &
+      echo $! >"$LOCAL/run/ollama.pid"
+      for _ in $(seq 1 50); do ollama_up && break; sleep 0.2; done
+      if ollama_up; then
+        echo "Project Ollama running on $OLLAMA_HOST (models in .local/ollama/models)"
+      else
+        echo "Ollama failed to start; see .local/logs/ollama.log" >&2
+        exit 1
+      fi
+      ;;
+    stop)
+      if [ -f "$LOCAL/run/ollama.pid" ]; then
+        kill "$(cat "$LOCAL/run/ollama.pid")" 2>/dev/null || true
+        rm -f "$LOCAL/run/ollama.pid"
+        echo "Stopped project Ollama"
+      else
+        echo "Project Ollama is not running"
+      fi
+      ;;
+    status)
+      if ollama_up; then echo "Project Ollama running on $OLLAMA_HOST"; else echo "Project Ollama not running"; fi
+      ;;
+    *)
+      # The CLI launches the global Ollama app when it can't reach a server.
+      ollama_up || { echo "Start it first: ./dev ollama start" >&2; exit 1; }
+      exec "$bin" "$@"
+      ;;
+  esac
+}
+
+found_outside() {
+  local p s
+  for p in "${OUTSIDE_PATHS[@]}"; do
+    [ -e "$REAL_HOME/$p" ] && echo "path	$REAL_HOME/$p"
+  done
+  if [ "$(uname -s)" = Darwin ]; then
+    for s in "${KEYCHAIN_SERVICES[@]}"; do
+      security find-generic-password -s "$s" >/dev/null 2>&1 && echo "keychain	$s"
+    done
+  fi
+  return 0
+}
+
+cmd_doctor() {
+  local bad=0 node_path cache
+  node_path="$(isolate && command -v node)"
+  cache="$(isolate && cd "$ROOT" && npm config get cache 2>/dev/null || true)"
+  case "$node_path" in
+    "$ROOT"/*) echo "  ok    node is the pinned copy in .local/node" ;;
+    *) echo "  FAIL  node resolves to $node_path; run ./dev setup"; bad=1 ;;
+  esac
+  case "$cache" in
+    "$ROOT"/*) echo "  ok    npm cache is inside the repo" ;;
+    *) echo "  FAIL  npm cache is $cache"; bad=1 ;;
+  esac
+  local leaks
+  leaks="$(found_outside)"
+  if [ -n "$leaks" ]; then
+    echo "$leaks" | while IFS=$'\t' read -r kind what; do echo "  LEAK  $kind: $what"; done
+    bad=1
+  else
+    echo "  ok    nothing from this project outside the repo"
+  fi
+  if [ $bad = 1 ]; then
+    echo "Fix with ./dev setup or ./dev clean-system."
+    return 1
+  fi
+}
+
+cmd_clean_system() {
+  local leaks
+  leaks="$(found_outside)"
+  if [ "${1:-}" != --yes ]; then
+    if [ -n "$leaks" ]; then
+      echo "Would remove:"
+      echo "$leaks" | sed 's/^/  /'
+    else
+      echo "No files or keychain items to remove."
+    fi
+    [ "$(uname -s)" = Darwin ] && echo "Would reset privacy permissions (microphone, screen, etc.) for: ${BUNDLE_IDS[*]}"
+    echo "Re-run with --yes to do it."
+    return
+  fi
+  if [ -n "$leaks" ]; then
+    echo "$leaks" | while IFS=$'\t' read -r kind what; do
+      case "$kind" in
+        path)
+          case "$what" in
+            *.plist) defaults delete "$(basename "$what" .plist)" >/dev/null 2>&1 || true ;;
+          esac
+          rm -rf "$what"
+          ;;
+        keychain) security delete-generic-password -s "$what" >/dev/null 2>&1 || true ;;
+      esac
+      echo "  removed $kind: $what"
+    done
+  fi
+  if [ "$(uname -s)" = Darwin ]; then
+    local id
+    for id in "${BUNDLE_IDS[@]}"; do tccutil reset All "$id" >/dev/null 2>&1 || true; done
+    echo "  reset privacy permissions for: ${BUNDLE_IDS[*]}"
+  fi
+}
+
+cmd_packaged() {
+  local app
+  app="$(ls -d "$ROOT"/release/mac*/AmbientMind.app 2>/dev/null | head -1 || true)"
+  [ -n "$app" ] || { echo "No macOS build in release/." >&2; exit 1; }
+  "$app/Contents/MacOS/AmbientMind" "$@"
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  setup)
+    isolate
+    ensure_node
+    cd "$ROOT"
+    npm ci "$@"
+    ;;
+  npm|npx|node)
+    require_node
+    isolate
+    sweep_on_exit
+    cd "$ROOT"
+    "$cmd" "$@"
+    ;;
+  run)
+    require_node
+    isolate
+    sweep_on_exit
+    "$@"
+    ;;
+  shell)
+    require_node
+    isolate
+    sweep_on_exit
+    PS1='(ambientmind) \w \$ ' bash --noprofile --norc -i
+    ;;
+  packaged)
+    isolate
+    sweep_on_exit
+    cmd_packaged "$@"
+    ;;
+  ollama)
+    isolate
+    cmd_ollama "$@"
+    ;;
+  doctor) cmd_doctor ;;
+  clean-system) cmd_clean_system "$@" ;;
+  help|-h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "Unknown command: $cmd (try ./dev help)" >&2; exit 1 ;;
+esac

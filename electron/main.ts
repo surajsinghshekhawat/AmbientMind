@@ -1,3 +1,4 @@
+import { isIsolated } from './isolation'
 import { userInfo } from 'node:os'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,8 +16,7 @@ app.commandLine.appendSwitch('enable-transparent-visuals')
 app.commandLine.appendSwitch('disable-features', 'EnableTransparentHwndEnlargement')
 
 function crashLogPath() {
-  const base = process.env.APPDATA ? join(process.env.APPDATA, 'ambientmind') : process.cwd()
-  return join(base, 'crash.log')
+  return join(app.getPath('userData'), 'crash.log')
 }
 
 function recordCrash(kind: string, err: unknown) {
@@ -185,10 +185,10 @@ function syncOptions(config: Config = loadConfig(), extra: { force?: boolean } =
 /**
  * Only meaningful once packaged. In development the executable is Electron
  * itself, so registering would add a startup entry that launches a bare
- * Electron rather than this app.
+ * Electron rather than this app. Isolated runs never touch login items.
  */
 function applyLoginItem(config: Config) {
-  if (!app.isPackaged) return
+  if (!app.isPackaged || isIsolated) return
   app.setLoginItemSettings({
     openAtLogin: config.launchAtLogin,
     // The overlay collapses to the orb and the tray carries the rest, so

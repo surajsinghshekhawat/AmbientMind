@@ -1,6 +1,7 @@
 // Exercises the real migration SQL and the exact KNN join used by
 // vectorStore.ts, against a throwaway on-disk database.
 const { app } = require('electron')
+require('./isolation.cjs').useProjectUserData(app)
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')

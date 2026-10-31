@@ -3,7 +3,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 app.setName('ambientmind')
-app.setPath('userData', path.join(app.getPath('appData'), 'ambientmind'))
+require('./isolation.cjs').useProjectUserData(app)
 
 app.whenReady().then(() => {
   try {

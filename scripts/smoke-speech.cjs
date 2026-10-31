@@ -10,7 +10,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 app.setName('ambientmind')
-app.setPath('userData', path.join(app.getPath('appData'), 'ambientmind'))
+require('./isolation.cjs').useProjectUserData(app)
 
 function readWavPcm16(file) {
   const buf = fs.readFileSync(file)

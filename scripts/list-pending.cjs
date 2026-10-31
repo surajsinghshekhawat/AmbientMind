@@ -1,7 +1,7 @@
 const { app } = require('electron')
 const path = require('node:path')
 app.setName('ambientmind')
-app.setPath('userData', path.join(app.getPath('appData'), 'ambientmind'))
+require('./isolation.cjs').useProjectUserData(app)
 
 app.whenReady().then(() => {
   try {
