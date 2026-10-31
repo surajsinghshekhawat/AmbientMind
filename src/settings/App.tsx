@@ -10,6 +10,7 @@ import {
 } from '@shared/types'
 import type { RecurrenceRule } from '@shared/recurrence'
 import { CAPTURE_SCREEN_SHORTCUT, CHAT_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
+import { DraftInput, DraftTextarea } from './DraftField'
 import { Recurring } from './Recurring'
 
 const CORNERS: { id: OverlayCorner; label: string }[] = [
@@ -284,12 +285,12 @@ export function App() {
         </p>
         <label className="flex flex-col gap-1 text-sm">
           Tasks shown
-          <input
+          <DraftInput
             type="number"
             min={3}
             max={20}
             value={config.maxTasksVisible}
-            onChange={(e) => void patch({ maxTasksVisible: Number(e.target.value) })}
+            onCommit={(value) => patch({ maxTasksVisible: Number(value) })}
             className={inputClass}
           />
         </label>
@@ -319,21 +320,21 @@ export function App() {
         </h2>
         <label className="flex flex-col gap-1 text-sm">
           What your mail calls you
-          <input
+          <DraftInput
             value={config.displayName}
             placeholder="Suraj"
-            onChange={(e) => void patch({ displayName: e.target.value })}
+            onCommit={(value) => patch({ displayName: value })}
             className={inputClass}
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Context for the model
-          <textarea
+          <DraftTextarea
             rows={5}
             value={config.aboutMe}
             maxLength={ABOUT_ME_MAX_CHARS}
             placeholder={'College until 4pm on weekdays.\nTuition is non-negotiable.\nI handle the fees, not my brother.'}
-            onChange={(e) => void patch({ aboutMe: e.target.value })}
+            onCommit={(value) => patch({ aboutMe: value })}
             className={`${inputClass} resize-y leading-relaxed`}
           />
         </label>
@@ -357,9 +358,9 @@ export function App() {
         </h2>
         <label className="flex flex-col gap-1 text-sm">
           Ollama model
-          <input
+          <DraftInput
             value={config.ollamaModel}
-            onChange={(e) => void patch({ ollamaModel: e.target.value })}
+            onCommit={(value) => patch({ ollamaModel: value })}
             className={inputClass}
           />
         </label>

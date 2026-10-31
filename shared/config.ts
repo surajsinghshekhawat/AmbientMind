@@ -1,0 +1,50 @@
+import { normalizePauseAiUntil } from './pauseAi'
+import { ABOUT_ME_MAX_CHARS, DEFAULT_CONFIG, type Config, type OverlayCorner } from './types'
+
+const CORNERS: OverlayCorner[] = ['top-right', 'top-left', 'bottom-right', 'bottom-left']
+const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
+
+/** Any non-finite input (NaN, Infinity, a string, null) means "use the default". */
+function num(value: unknown, fallback: number, min: number, max: number, round = false): number {
+  const n = typeof value === 'number' ? value : Number.NaN
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, round ? Math.round(n) : n))
+}
+
+function text(value: unknown, fallback: string, max = Infinity): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : fallback
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+/**
+ * Applied on every save and on load, so a hand-edited or corrupt file can
+ * never put a NaN or a wrong type into the running app. Text is trimmed here,
+ * on save, and never while the user is still typing.
+ */
+export function sanitizeConfig(raw: Partial<Config>): Config {
+  const d = DEFAULT_CONFIG
+  return {
+    overlayCorner: CORNERS.includes(raw.overlayCorner as OverlayCorner)
+      ? (raw.overlayCorner as OverlayCorner)
+      : d.overlayCorner,
+    overlayOpacity: num(raw.overlayOpacity, d.overlayOpacity, 0.4, 1),
+    overlayWidth: num(raw.overlayWidth, d.overlayWidth, 280, 560, true),
+    workHoursStart: num(raw.workHoursStart, d.workHoursStart, 0, 23, true),
+    workHoursEnd: num(raw.workHoursEnd, d.workHoursEnd, 1, 24, true),
+    syncIntervalMinutes: INTERVALS.includes(raw.syncIntervalMinutes as Config['syncIntervalMinutes'])
+      ? (raw.syncIntervalMinutes as Config['syncIntervalMinutes'])
+      : d.syncIntervalMinutes,
+    maxTasksVisible: num(raw.maxTasksVisible, d.maxTasksVisible, 3, 20, true),
+    ollamaModel: text(raw.ollamaModel, d.ollamaModel) || d.ollamaModel,
+    embeddingModel: text(raw.embeddingModel, d.embeddingModel) || d.embeddingModel,
+    whisperModel: text(raw.whisperModel, d.whisperModel) || d.whisperModel,
+    launchAtLogin: bool(raw.launchAtLogin, d.launchAtLogin),
+    calendarWriteBack: bool(raw.calendarWriteBack, d.calendarWriteBack),
+    displayName: text(raw.displayName, '', 80),
+    aboutMe: text(raw.aboutMe, '', ABOUT_ME_MAX_CHARS),
+    pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil)
+  }
+}
