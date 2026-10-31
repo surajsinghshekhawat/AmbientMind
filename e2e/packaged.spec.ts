@@ -15,7 +15,17 @@ test('the installed build is a menu-bar app that quits cleanly', async () => {
   try {
     const isOverlay = (page: Page) => page.url().includes('/overlay/index.html')
     const overlay = app.windows().find(isOverlay) ?? (await app.waitForEvent('window', { predicate: isOverlay }))
-    await expect(overlay.getByRole('button', { name: /^Show tasks, \d+ due today$/ })).toBeVisible()
+    await expect(overlay.getByRole('button', { name: /^AmbientMind: / })).toBeVisible()
+    // The bundled Swift helper starts as the app's child.
+    await expect
+      .poll(() => {
+        try {
+          return execFileSync('pgrep', ['-P', String(proc.pid), '-x', 'ambientmind-helper'], { encoding: 'utf8' }).trim()
+        } catch {
+          return ''
+        }
+      })
+      .not.toBe('')
 
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
     expect(await app.evaluate(({ app }) => app.dock?.isVisible())).toBe(false)

@@ -8,12 +8,35 @@ text, and discarded; only the resulting task is stored.
 
 ## How it works
 
-1. `desktopCapturer` grabs the primary display at native resolution.
+On the Mac, the Swift helper (`native/mac-helper`) reads the window you were
+looking at, in this order:
+
+1. **Accessibility.** The window's title, document or page address, your
+   selection and its visible text, read the way VoiceOver reads them. Exact
+   words, no pixels. Used when it yields at least 200 characters. Needs
+   Accessibility permission.
+2. **That one window, by OCR.** ScreenCaptureKit captures only the window in
+   front and Vision reads it. Needs Screen Recording; never prompts for it.
+3. **The whole display.** The original path below, with Vision instead of
+   Tesseract when the helper is running.
+
+Password managers (1Password, Bitwarden, Keychain Access, Passwords,
+LastPass, Dashlane, KeePassXC, Enpass) are never read: the helper refuses
+them before touching their windows, and there is no screenshot fallback.
+The list is `EXCLUDED_BUNDLE_IDS` in `shared/screenRead.ts`.
+
+On Windows, and on the Mac when the helper is missing:
+
+1. `desktopCapturer` grabs the display under the cursor at native resolution.
 2. Tesseract reads the text off it.
-3. Lines that are too short, or more punctuation than letters, are dropped —
-   toolbars and icon rows otherwise dominate the input.
+
+Then, everywhere:
+
+3. OCR lines that are too short, or more punctuation than letters, are
+   dropped — toolbars and icon rows otherwise dominate the input.
 4. `qwen2.5:3b` turns the remaining text into one task: title, one-sentence
-   summary, deadline, priority, and the people involved.
+   summary, deadline, priority, and the people involved. The prompt is told
+   whether the text is exact (Accessibility) or OCR.
 5. The deadline string is normalised in code (see below) and the task is saved.
 
 ## Why OCR and not a vision model
@@ -51,8 +74,11 @@ raw date header. Both variants are kept in `eval/results/` as the record.
 
 ## Known limits
 
-- The whole screen is captured, so a second window with a lot of text can win
-  over the one you were reading. Maximise what you want captured.
+- Without Accessibility or Screen Recording on the Mac, and always on
+  Windows, the whole screen is captured, so a second window with a lot of
+  text can win over the one you were reading. Maximise what you want captured.
+- Apps that draw their own text (some games, remote desktops, canvas-heavy
+  web apps) expose little to Accessibility; window OCR covers them.
 - The model sometimes invents a deadline the screen never stated. Check the
   date on anything that matters.
 - Content inside an image, video, or a heavily styled page reads poorly. OCR

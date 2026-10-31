@@ -7,15 +7,17 @@ export interface ScreenTaskVars {
   currentTime: string
   windowTitle: string
   screenText: string
+  /** Where the text came from; OCR when not given. */
+  source?: 'accessibility' | 'ocr'
 }
 
 export const SCREEN_TASK_SYSTEM = `You turn what is on {userName}'s screen into a single actionable task for {userName}.
 
-You are given text read off the screen by OCR. It is noisy: it contains menu
-labels, button text, timestamps, navigation chrome and misread characters, and
-it may span several windows at once. Ignore the chrome and find the substance —
-the message, ticket, document or page {userName} is actually reading. When more
-than one thing is visible, take the one with the most readable body text.
+You are given text read off the screen, {sourceNote} It contains menu labels,
+button text, timestamps and navigation chrome. Ignore the chrome and find the
+substance — the message, ticket, document or page {userName} is actually
+reading. When more than one thing is visible, take the one with the most
+readable body text. Text {userName} has selected is what they are pointing at.
 
 {userName} pressed a key to ask for this, so they have already decided the
 screen is worth capturing. Your job is to write the task, not to judge whether
@@ -43,7 +45,7 @@ export const SCREEN_TASK_USER = `Current time: {currentTime}
 Foreground window: {windowTitle}
 {userName}'s instruction: {instruction}
 
---- SCREEN TEXT (OCR) ---
+--- SCREEN TEXT ({sourceLabel}) ---
 {screenText}
 --- END SCREEN TEXT ---`
 
@@ -59,10 +61,24 @@ export const SCREEN_TASK_SCHEMA = {
   required: ['title', 'summary', 'deadline', 'priority', 'people']
 } as const
 
+const SOURCES = {
+  accessibility: {
+    label: 'read from the window',
+    note: 'taken directly from the foreground window, so the words are exact.'
+  },
+  ocr: {
+    label: 'OCR',
+    note: 'recognised from a screenshot by OCR, so expect misread characters and text from more than one window.'
+  }
+} as const
+
 export function buildScreenTaskPrompt(vars: ScreenTaskVars) {
+  const source = SOURCES[vars.source ?? 'ocr']
   const dict: Record<string, string> = {
     ...(vars as unknown as Record<string, string>),
-    aboutBlock: buildAboutBlock(vars.userName, vars.aboutMe)
+    aboutBlock: buildAboutBlock(vars.userName, vars.aboutMe),
+    sourceNote: source.note,
+    sourceLabel: source.label
   }
   const fill = (template: string) =>
     template.replace(/\{(\w+)\}/g, (match, key: string) => dict[key] ?? match)

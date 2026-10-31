@@ -8,7 +8,7 @@ import { cn } from '@/ui/cn'
 import { Kbd } from '@/ui/Kbd'
 import { Orb } from '@/ui/Orb'
 import { Group, Pill, Row } from '../settings/controls'
-import { permissionPill, type AccountStatus } from '../settings/pages'
+import { PERMISSION_NAMES, PERMISSION_USE, PermissionAction, permissionPill, type AccountStatus } from '../settings/pages'
 import { clientOs } from '../settings/Shortcuts'
 
 export const STEPS = ['welcome', 'privacy', 'sources', 'permissions', 'model', 'shortcuts'] as const
@@ -111,6 +111,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
 
   const microphone = permissions.find((p) => p.kind === 'microphone')
   const screen = permissions.find((p) => p.kind === 'screen')
+  const accessibility = permissions.find((p) => p.kind === 'accessibility')
 
   const body = (() => {
     switch (step) {
@@ -188,7 +189,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
       case 'permissions':
         return (
           <>
-            <Hero title="Two optional permissions">Only for the features that need them. Skip either and the rest still works.</Hero>
+            <Hero title="Optional permissions">Only for the features that need them. Skip any of them and the rest still works.</Hero>
             <Group>
               {microphone && (
                 <Row label="Microphone" description={microphone.help ?? 'To add tasks by talking. Audio is turned into text here and never kept.'}>
@@ -216,6 +217,12 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
                       Open System Settings
                     </Button>
                   )}
+                </Row>
+              )}
+              {accessibility && (
+                <Row label={PERMISSION_NAMES.accessibility} description={accessibility.help ?? PERMISSION_USE.accessibility}>
+                  {permissionPill(accessibility)}
+                  <PermissionAction permission={accessibility} onChange={checkPermissions} />
                 </Row>
               )}
             </Group>

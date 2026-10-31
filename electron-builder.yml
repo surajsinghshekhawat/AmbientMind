@@ -53,12 +53,31 @@ mac:
   # Signing happens in afterPack with rcodesign, which needs no keychain.
   identity: null
   electronLanguages: [en]
+  # The Swift helper (native/mac-helper, built by `npm run helper`) sits
+  # beside the app binary, so it is signed with the app and macOS attributes
+  # its permission checks to AmbientMind.
+  extraFiles:
+    - from: .local/build/mac-helper/release/ambientmind-helper
+      to: MacOS/ambientmind-helper
   extendInfo:
     # A menu-bar app: no Dock icon until Settings or Chat opens.
     LSUIElement: true
+    # The helper asks under the app's name, so these strings live here.
     NSMicrophoneUsageDescription: >-
       AmbientMind listens only while you use voice capture, to turn what you
       say into a task. Audio is transcribed on this Mac and never stored.
+    NSSpeechRecognitionUsageDescription: >-
+      AmbientMind turns what you say into text on this Mac, so voice capture
+      can understand you. Nothing is sent anywhere.
+    NSCalendarsFullAccessUsageDescription: >-
+      AmbientMind reads your calendar to show what is coming up and to warn
+      you when a task clashes with an event.
+    NSRemindersFullAccessUsageDescription: >-
+      AmbientMind keeps your tasks and Reminders in step, so finishing one
+      finishes the other.
+    NSContactsUsageDescription: >-
+      AmbientMind reads your own contact card so it knows which name and
+      email address are yours.
   # A files list with no positive pattern falls back to **/*, which would
   # pack the whole repo, .local included.
   files:

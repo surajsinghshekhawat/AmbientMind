@@ -87,4 +87,21 @@ describe('Settings', () => {
     expect(mock.calls.some((c) => c.method === 'openPermissionSettings' && c.args[0] === 'screen')).toBe(true)
     expect(screen.getByRole('button', { name: /Permissions/ }).querySelector('[aria-label="Needs attention"]')).toBeTruthy()
   })
+
+  it('Accessibility is off, not a problem, until allowed', async () => {
+    const mock = installMockAmbient({
+      permissions: [
+        { kind: 'microphone', status: 'granted', help: null, canOpenSettings: true },
+        { kind: 'screen', status: 'granted', help: null, canOpenSettings: true },
+        { kind: 'accessibility', status: 'not-determined', help: null, canOpenSettings: true }
+      ]
+    })
+    await open('permissions')
+    expect(screen.getByText('Off')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Permissions/ }).querySelector('[aria-label="Needs attention"]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+    await flush()
+    expect(mock.calls.some((c) => c.method === 'requestPermission' && c.args[0] === 'accessibility')).toBe(true)
+    expect(screen.getAllByText('Allowed')).toHaveLength(3)
+  })
 })

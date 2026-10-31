@@ -6,7 +6,7 @@
  * /Applications: nothing for this project goes outside the repo.
  */
 const { execFileSync, spawnSync } = require('node:child_process')
-const { mkdirSync, readdirSync, rmSync, statSync } = require('node:fs')
+const { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } = require('node:fs')
 const { join } = require('node:path')
 
 if (process.platform !== 'darwin') {
@@ -51,6 +51,28 @@ const selftest = spawnSync(join(app, 'Contents', 'MacOS', 'AmbientMind'), ['--se
 const report = JSON.parse(selftest.stdout.slice(selftest.stdout.indexOf('{')))
 for (const check of report.checks) console.log(`[packaged] ${check.ok ? 'ok  ' : 'FAIL'} ${check.name}`)
 if (!report.ok) process.exit(1)
+
+// Launched through LaunchServices, as a user would, so macOS decides who is
+// responsible for the helper the same way it will in real use. Run straight
+// from this script, the terminal would be responsible for everything.
+const helper = join(app, 'Contents', 'MacOS', 'ambientmind-helper')
+execFileSync('codesign', ['--verify', '--strict', helper])
+const checkDir = join(ROOT, '.local', 'e2e-helper-check')
+rmSync(checkDir, { recursive: true, force: true })
+mkdirSync(checkDir, { recursive: true })
+spawnSync('open', ['-n', '-W', '-a', app, '--env', `AMBIENTMIND_DATA_DIR=${checkDir}`, '--args', '--helper-check'])
+const checkFile = join(checkDir, 'helper-check.json')
+if (!existsSync(checkFile)) {
+  console.error('[packaged] FAIL helper check wrote no report')
+  process.exit(1)
+}
+const check = JSON.parse(readFileSync(checkFile, 'utf8'))
+console.log(`[packaged] ${check.ok ? 'ok  ' : 'FAIL'} helper ${check.helper?.version ?? '?'} answers for ${check.helper?.responsibleApp ?? 'nobody'}`)
+for (const permission of check.permissions) {
+  console.log(`[packaged]      ${permission.kind}: app ${permission.app}, helper ${permission.helper}`)
+}
+for (const problem of check.problems) console.error(`[packaged]      ${problem}`)
+if (!check.ok) process.exit(1)
 
 const result = spawnSync('playwright', ['test', 'e2e/packaged.spec.ts'], {
   cwd: ROOT,

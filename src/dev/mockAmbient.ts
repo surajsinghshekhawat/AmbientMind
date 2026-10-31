@@ -9,7 +9,7 @@ import {
   type RecurrenceSuggestion,
   type Task
 } from '@shared/types'
-import type { MediaKind, PermissionState } from '@shared/permissions'
+import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
   findConflicts,
   resolveShortcuts,
@@ -74,7 +74,8 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     ],
     permissions: [
       { kind: 'microphone', status: 'granted', help: null, canOpenSettings: true },
-      { kind: 'screen', status: 'granted', help: null, canOpenSettings: true }
+      { kind: 'screen', status: 'granted', help: null, canOpenSettings: true },
+      { kind: 'accessibility', status: 'granted', help: null, canOpenSettings: true }
     ],
     ...initial
   }
@@ -245,8 +246,14 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     getShortcuts: async () => state.shortcuts,
     suspendShortcuts: (suspended: boolean) => record('suspendShortcuts', suspended),
     getPermissions: async () => state.permissions,
-    openPermissionSettings: async (kind: MediaKind) => {
+    openPermissionSettings: async (kind: PermissionKind) => {
       record('openPermissionSettings', kind)
+    },
+    requestPermission: async (kind: PermissionKind) => {
+      record('requestPermission', kind)
+      const granted: PermissionState = { kind, status: 'granted', help: null, canOpenSettings: true }
+      state.permissions = state.permissions.map((p) => (p.kind === kind ? granted : p))
+      return granted
     },
     getRagCount: async () => 0,
     openSettings: () => record('openSettings'),

@@ -48,6 +48,11 @@ OUTSIDE_PATHS=(
   ".electron-rebuild-cache"
   ".npm/_libvips"
   ".npm/_prebuilds"
+  # SwiftPM and clang defaults, which the helper build redirects into .local.
+  "Library/Caches/org.swift.swiftpm"
+  "Library/org.swift.swiftpm"
+  ".swiftpm"
+  "Library/Caches/clang"
 )
 KEYCHAIN_SERVICES=("ambientmind Safe Storage" "AmbientMind Safe Storage")
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

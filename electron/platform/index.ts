@@ -11,7 +11,7 @@ import {
   permissionHelp,
   privacySettingsUrl,
   type AccessStatus,
-  type MediaKind,
+  type PermissionKind,
   type PermissionState
 } from '@shared/permissions'
 import { DockPresence } from './dockPresence'
@@ -134,15 +134,35 @@ export function installAppMenu(actions: { openSettings: () => void }) {
 /** The tray menu opens on right-click on the Mac; left-click toggles the panel. */
 export const trayMenuOnRightClick = isMac
 
-export function mediaAccess(kind: MediaKind): AccessStatus {
+export function accessStatus(kind: PermissionKind): AccessStatus {
+  if (kind === 'accessibility') {
+    if (!isMac) return 'unknown'
+    // macOS keeps no "denied" for Accessibility: off means not allowed yet.
+    // The helper is our child, so this answer is its answer too.
+    return systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'not-determined'
+  }
   // Only macOS gates screen capture; Linux has no system-level answer.
   if (kind === 'screen' && !isMac) return os === 'win' ? 'granted' : 'unknown'
   if (os === 'linux') return 'unknown'
   return systemPreferences.getMediaAccessStatus(kind)
 }
 
-export function permissionState(kind: MediaKind): PermissionState {
-  const status = mediaAccess(kind)
+/**
+ * Shows the system prompt where macOS has one. Accessibility's prompt offers
+ * to open System Settings; a refused microphone or Screen Recording never
+ * prompts again, so those go to System Settings directly.
+ */
+export async function requestAccess(kind: PermissionKind): Promise<AccessStatus> {
+  if (!isMac) return accessStatus(kind)
+  if (kind === 'accessibility') systemPreferences.isTrustedAccessibilityClient(true)
+  if (kind === 'microphone' && accessStatus(kind) === 'not-determined') {
+    await systemPreferences.askForMediaAccess('microphone')
+  }
+  return accessStatus(kind)
+}
+
+export function permissionState(kind: PermissionKind): PermissionState {
+  const status = accessStatus(kind)
   return {
     kind,
     status,

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { overlayBounds } from '../shared/overlayGeometry'
 import { DockPresence } from '../electron/platform/dockPresence'
-import { permissionHelp, privacySettingsUrl } from '../shared/permissions'
+import { permissionHelp, permissionKinds, privacySettingsUrl } from '../shared/permissions'
 
 const secondDisplay = { x: 1512, y: 25, width: 1920, height: 1055 }
 
@@ -112,6 +112,10 @@ test('privacy settings links point at the right pane', () => {
   assert.match(privacySettingsUrl('microphone', 'mac') ?? '', /Privacy_Microphone$/)
   assert.equal(privacySettingsUrl('microphone', 'win'), 'ms-settings:privacy-microphone')
   assert.equal(privacySettingsUrl('screen', 'win'), null)
+  assert.match(privacySettingsUrl('accessibility', 'mac') ?? '', /Privacy_Accessibility$/)
+  assert.equal(privacySettingsUrl('accessibility', 'win'), null)
+  assert.deepEqual(permissionKinds('mac'), ['microphone', 'screen', 'accessibility'])
+  assert.deepEqual(permissionKinds('win'), ['microphone', 'screen'])
 })
 
 test('permission help names the setting only when something is wrong', () => {
@@ -120,6 +124,8 @@ test('permission help names the setting only when something is wrong', () => {
   assert.equal(permissionHelp('microphone', 'not-determined', 'mac'), null)
   assert.match(permissionHelp('screen', 'denied', 'mac') ?? '', /Screen & System Audio Recording/)
   assert.match(permissionHelp('microphone', 'denied', 'mac') ?? '', /Privacy & Security → Microphone/)
+  assert.match(permissionHelp('accessibility', 'denied', 'mac') ?? '', /Privacy & Security → Accessibility/)
+  assert.equal(permissionHelp('accessibility', 'not-determined', 'mac'), null)
   assert.match(permissionHelp('microphone', 'restricted', 'mac') ?? '', /managed|administrator/i)
   assert.match(permissionHelp('microphone', 'denied', 'win') ?? '', /Privacy & security → Microphone/)
 })

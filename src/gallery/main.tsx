@@ -19,7 +19,8 @@ installMockAmbient({
       status: 'denied',
       help: 'Turn on AmbientMind in Privacy & Security → Screen Recording, then reopen it.',
       canOpenSettings: true
-    }
+    },
+    { kind: 'accessibility', status: 'not-determined', help: null, canOpenSettings: true }
   ]
 })
 

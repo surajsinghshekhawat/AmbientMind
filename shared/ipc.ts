@@ -64,6 +64,7 @@ export const IPC = {
   /** Microphone and screen recording status, with what to do when refused. */
   GetPermissions: 'permissions:get',
   OpenPermissionSettings: 'permissions:open-settings',
+  RequestPermission: 'permissions:request',
 
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',

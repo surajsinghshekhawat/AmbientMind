@@ -487,11 +487,40 @@ Channel groups: tasks (get/add/complete/delete/update/snooze, plus a pushed
 `TasksChanged`), overlay (expand state, panel height), config, accounts,
 sync, rules, suggestions, chat (send, stop, close), health, learned
 suppressions, corpus export, quick-add, speech transcription, shortcuts
-(suspended while Settings records one), and onboarding.
+(suspended while Settings records one), permissions (status, open System
+Settings, and request where macOS still shows a prompt), and onboarding.
 
 A production-only Content Security Policy is applied as a response header
 rather than a meta tag, so the dev server's HMR websocket is not blocked during
 development.
+
+### 4.5 The Mac helper
+
+`native/mac-helper` is a small Swift executable for what Electron cannot do
+on the Mac: read the window in front through Accessibility, capture one
+window with ScreenCaptureKit, OCR with Vision, check and request every
+privacy permission, and report idle time, mic use and full-screen apps.
+Next it will stream speech with SpeechAnalyzer and read Calendar and
+Reminders.
+
+- **Process.** Main starts it at launch (`electron/native/helper.ts`) and
+  talks newline-delimited JSON over stdin/stdout (`shared/helperProtocol.ts`).
+  It exits when stdin closes or its parent dies, so it cannot outlive the
+  app.
+- **Resilience.** `electron/native/helperClient.ts` handshakes with `hello`,
+  times out every request, and restarts a crashed helper with backoff (1 s
+  doubling to 30 s). A missing binary or another protocol version makes it
+  `unavailable`, and every caller has a fallback, so the app works the same
+  without it.
+- **Attribution.** Packaged, it lives in `Contents/MacOS` and is signed with
+  the app. Launched through LaunchServices, macOS holds AmbientMind
+  responsible for it, so prompts name AmbientMind and one grant in System
+  Settings covers both. `test:packaged` checks this on every build with
+  `--helper-check`. Run from a terminal, the terminal is responsible
+  instead, which is why dev runs see the terminal's permissions.
+- **Build.** `./dev npm run helper` (SwiftPM, caches in `.local/`);
+  `dist:mac` builds it first. `ambientmind-helper --selftest` reports
+  permissions and proves Vision OCR works.
 
 ---
 
@@ -680,10 +709,14 @@ a task with those words as its title.
 
 ### 6.5 Screen capture
 
-`Ctrl+Shift+S` (Mac `⌃⌥S`) or a spoken screen intent. Captures the display **the cursor is
-on** — on a two-monitor desk, capturing the primary screen silently produces a
-task about whatever was idle on the other one. OCR, denoise, then a one-task
-extraction. Deadlines like `"Thursday"` are normalised in
+`Ctrl+Shift+S` (Mac `⌃⌥S`) or a spoken screen intent. On the Mac the helper
+reads the window you were looking at: its Accessibility text when there is
+enough, otherwise that one window by ScreenCaptureKit and Vision. Password
+managers are refused outright. Failing both, and always on Windows, it
+captures the display **the cursor is on** — on a two-monitor desk, capturing
+the primary screen silently produces a task about whatever was idle on the
+other one. OCR, denoise, then a one-task extraction; the prompt is told
+whether its text is exact or OCR. Details in `docs/screen-capture.md`. Deadlines like `"Thursday"` are normalised in
 `shared/deadline.ts` (weekday → next occurrence at 17:00), because the schema
 can require a string but cannot require a *real datetime*.
 
@@ -1391,6 +1424,8 @@ than the app's scratch space. See §10.3 for the two hazards.
 
 ```
 electron/             main, overlay, tray, quickAdd, settings, chat, preload
+electron/native/      Swift helper process, client and attribution check
+native/mac-helper/    the Swift helper (SwiftPM)
 electron/services/    taskStore, ruleStore, suggestionStore, decisionStore,
                       sync, calendarSync, ollama, chat, health, googleAuth,
                       vectorStore, speech, screenContext, corpusExport,

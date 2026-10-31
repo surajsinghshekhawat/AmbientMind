@@ -1,6 +1,6 @@
 import { isIsolated } from './isolation'
 import { userInfo } from 'node:os'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog, globalShortcut, ipcMain, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC } from '@shared/ipc'
@@ -12,12 +12,14 @@ import {
   type ShortcutAction,
   type ShortcutStatus
 } from '@shared/shortcuts'
-import { privacySettingsUrl, type MediaKind } from '@shared/permissions'
+import { permissionKinds, privacySettingsUrl, type PermissionKind } from '@shared/permissions'
 
 import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
 import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
-import { hideDock, installAppMenu, os, permissionState } from './platform'
+import { hideDock, installAppMenu, os, permissionState, requestAccess } from './platform'
+import { startHelper, stopHelper } from './native/helper'
+import { runHelperCheck } from './native/helperCheck'
 
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
@@ -145,7 +147,7 @@ import {
   loadCredentials
 } from './services/googleAuth'
 import { runSync, startScheduler, stopScheduler, type SyncReport } from './services/sync'
-import { disposeScreenContext, screenToTask } from './services/screenContext'
+import { disposeScreenContext, ScreenRefused, screenToTask } from './services/screenContext'
 import {
   disposeSpeech,
   setSpeechModel,
@@ -562,11 +564,18 @@ function registerIpc() {
   // While Settings records a shortcut, the current ones must not fire.
   onIpc(IPC.SuspendShortcuts, (_event, suspended: boolean) => (suspended ? unregisterShortcuts() : registerShortcuts()))
 
-  ipcMain.handle(IPC.GetPermissions, () => [permissionState('microphone'), permissionState('screen')])
+  ipcMain.handle(IPC.GetPermissions, () => permissionKinds(os).map(permissionState))
 
-  ipcMain.handle(IPC.OpenPermissionSettings, async (_event, kind: MediaKind) => {
+  ipcMain.handle(IPC.OpenPermissionSettings, async (_event, kind: PermissionKind) => {
+    if (!permissionKinds(os).includes(kind)) return
     const url = privacySettingsUrl(kind, os)
     if (url) await shell.openExternal(url)
+  })
+
+  ipcMain.handle(IPC.RequestPermission, async (_event, kind: PermissionKind) => {
+    if (!permissionKinds(os).includes(kind)) throw new Error(`Unknown permission ${String(kind)}`)
+    await requestAccess(kind)
+    return permissionState(kind)
   })
 
   ipcMain.handle(IPC.GetAppInfo, () => ({
@@ -705,6 +714,10 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
 
     new Notification({ title: result.title, body: result.summary || 'Added from screen' }).show()
   } catch (err) {
+    if (err instanceof ScreenRefused) {
+      new Notification({ title: 'AmbientMind', body: err.message }).show()
+      return
+    }
     console.error('[screen] failed:', err)
     // macOS reports "denied" until the first request too, so the capture is
     // always attempted (that is what registers the app) and only explained
@@ -848,6 +861,15 @@ if (process.argv.includes('--selftest')) {
     closeTaskStore()
     app.exit(result.ok ? 0 : 1)
   })
+} else if (process.argv.includes('--helper-check')) {
+  // Writes its report to the data folder too: launched with `open`, stdout goes nowhere.
+  void app.whenReady().then(async () => {
+    const result = await runHelperCheck()
+    const report = JSON.stringify(result, null, 2)
+    console.log(report)
+    writeFileSync(join(app.getPath('userData'), 'helper-check.json'), report)
+    app.exit(result.ok ? 0 : 1)
+  })
 } else if (process.argv.includes('--sync-now')) {
   // Headless sync, for scripting and for checking a change against real mail
   // without waiting for the scheduler's next tick. Opens the store, so the
@@ -932,6 +954,8 @@ if (process.argv.includes('--selftest')) {
       })
     })
 
+    // Optional: every caller falls back when it is missing or still starting.
+    startHelper()
     openTaskStore()
     if (!app.isPackaged && process.argv.includes('--seed')) seedIfEmpty()
     archiveStaleCompleted()
@@ -1025,6 +1049,7 @@ if (process.argv.includes('--selftest')) {
     globalShortcut.unregisterAll()
     stopScheduler()
     void disposeScreenContext()
+    void stopHelper()
     disposeSpeech()
     closeTaskStore()
   })

@@ -40,6 +40,8 @@ const CERT = join(SIGNING, 'ambientmind-dev.crt')
 const KEY = join(SIGNING, 'ambientmind-dev.key')
 const REQUIREMENT = join(SIGNING, 'designated.req')
 const ENTITLEMENTS = join(ROOT, 'build', 'entitlements.mac.plist')
+const HELPER_ENTITLEMENTS = join(ROOT, 'build', 'entitlements.helper.plist')
+const SWIFT_HELPER = 'Contents/MacOS/ambientmind-helper'
 
 const RCODESIGN_VERSION = '0.29.0'
 const RCODESIGN_URL = `https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/${RCODESIGN_VERSION}/apple-codesign-${RCODESIGN_VERSION}-macos-universal.tar.gz`
@@ -130,10 +132,14 @@ function signApp(appPath) {
   console.log('[sign] verified with codesign --verify --deep --strict')
 }
 
-/** Helpers run V8 and capture audio too, so they get the same runtime and entitlements. */
+/**
+ * Electron's helpers run V8 and capture audio too, so they get the same
+ * runtime and entitlements. The Swift helper gets the runtime and only what
+ * it uses.
+ */
 function helperSettings(appPath) {
   const frameworks = join(appPath, 'Contents', 'Frameworks')
-  return readdirSync(frameworks)
+  const electronHelpers = readdirSync(frameworks)
     .filter((name) => name.endsWith('.app'))
     .flatMap((name) => {
       const scope = `Contents/Frameworks/${name}`
@@ -142,6 +148,13 @@ function helperSettings(appPath) {
         '--entitlements-xml-file', `${scope}:${ENTITLEMENTS}`
       ]
     })
+  const swiftHelper = existsSync(join(appPath, SWIFT_HELPER))
+    ? [
+        '--code-signature-flags', `${SWIFT_HELPER}:runtime`,
+        '--entitlements-xml-file', `${SWIFT_HELPER}:${HELPER_ENTITLEMENTS}`
+      ]
+    : []
+  return [...electronHelpers, ...swiftHelper]
 }
 
 /** electron-builder afterPack hook. */

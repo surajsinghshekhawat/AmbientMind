@@ -671,7 +671,7 @@ Exit check: typecheck, `./dev npm test` (177 logic + 30 db + 34 component
 tests) and the smoke test pass; gallery screenshots reviewed on dark, light
 and busy wallpapers.
 
-### Phase 4 — Swift helper (7–10 days)
+### Phase 4 — Swift helper (7–10 days) — first round done, branch `phase-4-helper`
 
 1. **Spike first (1 day):** a helper that reports permissions, launched by a
    dev-signed AmbientMind. Proves that prompts and the System Settings entry
@@ -689,6 +689,59 @@ and busy wallpapers.
 
 Exit: "capture what's on screen" reads the window you were looking at, not the
 whole display; voice shows live words and lands within a second of release.
+
+What landed in the first round (branch `phase-4-helper`):
+
+- `native/mac-helper`: a SwiftPM executable (Swift 6 toolchain, macOS 14+),
+  built by `./dev npm run helper` with every SwiftPM and clang cache in
+  `.local/`. It speaks newline-delimited JSON on stdin/stdout, exits when
+  stdin closes or its parent dies, and has a `--selftest` that renders a
+  phrase and reads it back with Vision.
+- Methods: `hello`, `perms.status` and `perms.request` (microphone, speech,
+  Accessibility, Screen Recording, calendar, reminders, contacts; a request
+  is refused if the app's Info.plist lacks the usage string, since macOS
+  would kill the helper instead of asking), `context.focused` (the window in
+  front: title, document or page address, selection and visible text through
+  Accessibility, with the app history so Quick Capture taking focus doesn't
+  hide it), `capture.windowOCR` and `capture.displayOCR` (ScreenCaptureKit
+  plus Vision; never prompts), `ocr.image`, `system.busy` (idle time, mic in
+  use, full-screen app) and `contacts.me`.
+- The spike's answer: the helper sits in `Contents/MacOS`, signed with the
+  app under the hardened runtime and only `audio-input`. Launched through
+  LaunchServices, macOS holds `com.ambientmind.app` responsible for it
+  (`responsibility_get_pid_responsible_for_pid`, reported in `hello`), and
+  the app and helper agree on every permission. `test:packaged` launches the
+  installed app with `open --args --helper-check` and fails otherwise. No
+  XPC service or login item needed.
+- `electron/native/helperClient.ts`: request ids, timeouts, events, a hello
+  handshake that refuses another protocol version, and restart with backoff
+  (1 s doubling to 30 s, reset after a minute up). A missing binary or a
+  protocol mismatch is `unavailable` at once and never retried. Tested
+  against a fake helper (`eval/fixtures/fake-helper.cjs`) and the real one.
+- Screen capture on the Mac: Accessibility text when there is enough of it,
+  then that one window by ScreenCaptureKit and Vision, then the old
+  whole-display path, with Vision instead of Tesseract when the helper is
+  up. Password managers are refused outright, with no screenshot fallback.
+  The prompt is told whether its text is exact or OCR. Windows is unchanged.
+- Accessibility in Settings → Permissions, Settings → Capture and
+  onboarding, with an Allow button that shows the macOS prompt.
+- Usage strings for speech, calendars, reminders and contacts in the
+  bundle, ready for the methods that need them.
+
+Not done yet, and why:
+
+- SpeechAnalyzer streaming and hold-to-talk: the next round. The helper's
+  speech permission and usage string are already in place.
+- Moving Transformers.js into a utility process: goes with the speech work.
+- Accessibility and Screen Recording both need an admin account to switch
+  on here, so the Accessibility and window-capture paths are proven by the
+  protocol tests and `--selftest`, not by a real capture on this Mac. Without
+  them, capture falls back exactly as before.
+
+Exit check (first round): typecheck, `./dev npm test` (195 logic + 30 db +
+35 component tests), the smoke test (the helper starts as the app's child and
+leaves with it), `test:packaged` including the attribution check, and
+`./dev doctor` all pass.
 
 ### Phase 5 — Apple sources (4–6 days)
 
@@ -808,7 +861,7 @@ Project rules to add:
 
 | Risk | Plan |
 | --- | --- |
-| Helper permissions might be attributed to the helper, not AmbientMind | Phase 4 starts with a one-day spike; XPC service or bundled login item as fallback. |
+| Helper permissions might be attributed to the helper, not AmbientMind | Resolved in Phase 4: launched through LaunchServices, macOS holds AmbientMind responsible; `test:packaged` checks it on every build. |
 | Electron cannot yet make a non-activating panel that takes keystrokes (open issue) | Quick Capture activates briefly, and the helper reactivates the previous app on close. |
 | sqlite-vec may need `disable-library-validation` under hardened runtime | Resolved in Phase 2: a self-signed certificate has no Team ID, so the entitlement is set and every native module loads in the signed build. Revisit with a Developer ID. |
 | Foundation Models needs Apple Intelligence enabled and has a 4K context | Router falls back to Ollama; one message per call. |

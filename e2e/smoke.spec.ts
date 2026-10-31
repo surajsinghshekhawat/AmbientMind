@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -22,6 +23,25 @@ async function openWindows(app: ElectronApplication): Promise<string[]> {
 async function windowNamed(app: ElectronApplication, name: string): Promise<Page> {
   const isMatch = (page: Page) => page.url().includes(`/${name}/index.html`)
   return app.windows().find(isMatch) ?? app.waitForEvent('window', { predicate: isMatch })
+}
+
+function helperChild(parent: number): number | null {
+  try {
+    const pid = Number(execFileSync('pgrep', ['-P', String(parent), '-x', 'ambientmind-helper'], { encoding: 'utf8' }).trim())
+    return pid || null
+  } catch {
+    // pgrep exits 1 when nothing matches.
+    return null
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Each run starts as a first run for onboarding, but keeps the downloaded speech model. */
@@ -157,12 +177,22 @@ test('launches and opens every window', async () => {
       await expect.poll(dockVisible).toBe(false)
     }
 
+    let helperPid: number | null = null
+    if (process.platform === 'darwin') {
+      // The Swift helper runs as the app's child and leaves with it.
+      await expect.poll(() => helperChild(proc.pid!)).not.toBeNull()
+      helperPid = helperChild(proc.pid!)
+      const kinds = (await overlay.evaluate(() => window.ambient.getPermissions())).map((p) => p.kind)
+      expect(kinds).toEqual(['microphone', 'screen', 'accessibility'])
+    }
+
     expect(pageErrors).toEqual([])
 
     const closed = app.waitForEvent('close', { timeout: 15_000 })
     await app.evaluate(({ app }) => setTimeout(() => app.quit(), 0))
     await closed
     expect(proc.exitCode).toBe(0)
+    if (helperPid) await expect.poll(() => alive(helperPid!)).toBe(false)
   } finally {
     if (proc.exitCode === null) proc.kill('SIGKILL')
   }

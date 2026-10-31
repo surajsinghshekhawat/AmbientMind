@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describePause, isAiPaused, pauseAiForHours } from '@shared/pauseAi'
-import type { MediaKind, PermissionState } from '@shared/permissions'
+import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
   ABOUT_ME_MAX_CHARS,
   WHISPER_MODELS,
@@ -311,9 +311,16 @@ export function AiModels({ data: { config, health, ragCount, account }, actions:
   )
 }
 
-const PERMISSION_NAMES: Record<MediaKind, string> = {
+export const PERMISSION_NAMES: Record<PermissionKind, string> = {
   microphone: 'Microphone',
-  screen: 'Screen Recording'
+  screen: 'Screen Recording',
+  accessibility: 'Accessibility'
+}
+
+export const PERMISSION_USE: Record<PermissionKind, string> = {
+  microphone: 'To talk to Quick Capture. Audio is transcribed on this Mac and never saved.',
+  screen: 'Only when you ask it to read your screen. Nothing is recorded or kept.',
+  accessibility: 'Reads the text of the window in front when you capture it, with no screenshot. Password managers are never read.'
 }
 
 export function permissionPill(permission: PermissionState) {
@@ -325,32 +332,51 @@ export function permissionPill(permission: PermissionState) {
     case 'restricted':
       return <Pill tone="bad">Blocked</Pill>
     case 'not-determined':
-      return <Pill tone="quiet">Asks on first use</Pill>
+      // macOS never asks for Accessibility on its own; it is simply off until allowed.
+      return <Pill tone="quiet">{permission.kind === 'accessibility' ? 'Off' : 'Asks on first use'}</Pill>
     default:
       return <Pill tone="quiet">Not needed</Pill>
   }
 }
 
-function PermissionRow({ permission, description }: { permission: PermissionState; description: string }) {
+/**
+ * Allow where macOS still shows a prompt; System Settings once it has been
+ * refused, since macOS never asks twice.
+ */
+export function PermissionAction({ permission, onChange }: { permission: PermissionState; onChange: () => void }) {
+  if (permission.status === 'granted' || !permission.canOpenSettings) return null
+  if (permission.status === 'not-determined' && permission.kind !== 'screen') {
+    return (
+      <Button
+        size="sm"
+        onClick={async () => {
+          await window.ambient.requestPermission(permission.kind)
+          onChange()
+        }}
+      >
+        Allow
+      </Button>
+    )
+  }
   return (
-    <Row label={PERMISSION_NAMES[permission.kind]} description={permission.help ?? description}>
+    <Button size="sm" onClick={() => void window.ambient.openPermissionSettings(permission.kind)}>
+      Open System Settings
+    </Button>
+  )
+}
+
+function PermissionRow({ permission, onChange }: { permission: PermissionState; onChange: () => void }) {
+  return (
+    <Row label={PERMISSION_NAMES[permission.kind]} description={permission.help ?? PERMISSION_USE[permission.kind]}>
       {permissionPill(permission)}
-      {permission.canOpenSettings && permission.status !== 'granted' && (
-        <Button size="sm" onClick={() => void window.ambient.openPermissionSettings(permission.kind)}>
-          Open System Settings
-        </Button>
-      )}
+      <PermissionAction permission={permission} onChange={onChange} />
     </Row>
   )
 }
 
-const PERMISSION_USE: Record<MediaKind, string> = {
-  microphone: 'To talk to Quick Capture. Audio is transcribed on this Mac and never saved.',
-  screen: 'Only when you ask it to read your screen. Nothing is recorded or kept.'
-}
-
-export function Capture({ data: { config, permissions }, actions: { patch } }: PageProps) {
+export function Capture({ data: { config, permissions }, actions: { patch, refresh } }: PageProps) {
   const screen = permissions.find((p) => p.kind === 'screen')
+  const accessibility = permissions.find((p) => p.kind === 'accessibility')
   return (
     <Page title="Capture" description="Add tasks by typing, talking or pointing at your screen.">
       <Group title="Voice" footer="Speech is turned into text on the CPU, so a larger model costs seconds, not memory. A new model downloads once, in the background.">
@@ -365,8 +391,16 @@ export function Capture({ data: { config, permissions }, actions: { patch } }: P
         </Row>
       </Group>
       {screen && (
-        <Group title="Screen" footer="Say “add what’s on my screen” in Quick Capture, or use the capture shortcut.">
-          <PermissionRow permission={screen} description={PERMISSION_USE.screen} />
+        <Group
+          title="Screen"
+          footer={
+            accessibility
+              ? 'Say “add what’s on my screen” in Quick Capture, or use the capture shortcut. With Accessibility it reads the window’s text directly; Screen Recording covers apps that don’t expose any.'
+              : 'Say “add what’s on my screen” in Quick Capture, or use the capture shortcut.'
+          }
+        >
+          {accessibility && <PermissionRow permission={accessibility} onChange={() => void refresh()} />}
+          <PermissionRow permission={screen} onChange={() => void refresh()} />
         </Group>
       )}
     </Page>
@@ -466,12 +500,12 @@ export function Privacy({ data: { config }, actions: { patch, run, busy } }: Pag
   )
 }
 
-export function Permissions({ data: { permissions } }: PageProps) {
+export function Permissions({ data: { permissions }, actions: { refresh } }: PageProps) {
   return (
     <Page title="Permissions" description="Asked for only when a feature needs it. Changes in System Settings show up here when you come back.">
       <Group>
         {permissions.map((permission) => (
-          <PermissionRow key={permission.kind} permission={permission} description={PERMISSION_USE[permission.kind]} />
+          <PermissionRow key={permission.kind} permission={permission} onChange={() => void refresh()} />
         ))}
       </Group>
     </Page>
