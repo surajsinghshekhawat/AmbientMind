@@ -57,6 +57,26 @@ if (!report.ok) process.exit(1)
 // from this script, the terminal would be responsible for everything.
 const helper = join(app, 'Contents', 'MacOS', 'ambientmind-helper')
 execFileSync('codesign', ['--verify', '--strict', helper])
+
+// Without these the hardened runtime makes macOS refuse silently: no prompt,
+// no row in System Settings.
+const NEEDED = [
+  'com.apple.security.device.audio-input',
+  'com.apple.security.personal-information.calendars',
+  'com.apple.security.personal-information.addressbook'
+]
+for (const target of [app, helper]) {
+  const xml = execFileSync('codesign', ['-d', '--entitlements', '-', '--xml', target], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore']
+  })
+  const missing = NEEDED.filter((key) => !xml.includes(`<key>${key}</key>`))
+  if (missing.length > 0) {
+    console.error(`[packaged] FAIL ${target} lacks ${missing.join(', ')}`)
+    process.exit(1)
+  }
+}
+console.log('[packaged] app and helper carry the privacy entitlements')
 const checkDir = join(ROOT, '.local', 'e2e-helper-check')
 rmSync(checkDir, { recursive: true, force: true })
 mkdirSync(checkDir, { recursive: true })
