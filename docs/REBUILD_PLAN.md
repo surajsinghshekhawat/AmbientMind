@@ -535,7 +535,7 @@ Exit check passed: build, typecheck, `./dev npm test` (135 logic + 27 db + 11
 component tests), the smoke test, `smoke:sqlite`, `smoke:vec`,
 `check:migration`, and `./dev doctor`.
 
-### Phase 2 — Mac foundation (3–4 days)
+### Phase 2 — Mac foundation (3–4 days) — done, branch `phase-2-mac`
 
 - Upgrade Electron to the current supported release and electron-builder to
   match; rebuild native modules; rerun all tests and smoke checks.
@@ -558,6 +558,50 @@ component tests), the smoke test, `smoke:sqlite`, `smoke:vec`,
 
 Exit: a dev-signed DMG installs, runs without a Dock icon, quits cleanly, keeps
 its permissions across a rebuild, and is under 250 MB.
+
+What landed:
+
+- Electron 45.2.1 (Node 24.22) and electron-builder 26.18. Electron 45
+  downloads its binary on first use, not at install.
+- `electron/platform/` holds every macOS/Windows difference. On the Mac the
+  overlay is a floating panel, hidden from Mission Control, on every Space
+  without becoming a Dock app, with no `setShape`, and it opens on the display
+  under the cursor. Settings and Chat are normal windows there and bring a
+  Dock icon while open; Electron ignores a hide within a second of a show, so
+  that hide is deferred.
+- Quit: the overlay stays closable and refuses only outside a quit. The smoke
+  test now quits for real and expects exit code 0.
+- Shortcuts in `shared/shortcuts.ts`: ⌃⌥Space, ⌃⌥S, ⌃⌥C, ⌃⌥, on the Mac;
+  Ctrl+Shift on Windows. Settings shows glyph labels and says when a shortcut
+  conflicts or another app holds it. Rebinding is Phase 3.
+- Settings → Permissions shows microphone and Screen Recording with a link to
+  the right System Settings pane; a refused capture says how to fix it.
+- Crash log in `app.getPath('logs')`. Tray: left-click toggles the panel,
+  right-click opens the menu.
+- Signing without a keychain: `scripts/mac-sign.cjs` uses
+  [rcodesign](https://github.com/indygreg/apple-platform-rs) and a self-signed
+  certificate in `.local/signing/` (created once by `npm run sign:setup`). The
+  designated requirement is pinned to that certificate, so a rebuild satisfies
+  the requirement macOS stored with a grant. Hardened runtime and
+  entitlements (JIT, library validation off for the self-signed native
+  modules, audio input) on the app and its helpers.
+- Size: app 530 → 353 MB (242 MB of it is Electron), DMG 154 MB.
+- `AmbientMind --selftest` loads sqlite, sqlite-vec, the speech runtime and
+  the OCR core. `./dev npm run test:packaged` installs the DMG into
+  `.local/install`, checks the signature, runs the self-test, and checks that
+  the installed app is a `UIElement` with no Dock icon that quits with code 0.
+- `./dev clean-system` also unregisters the repo's app bundles from
+  LaunchServices.
+
+Exit check: build, typecheck, `./dev npm test` (152 logic + 27 db + 11
+component tests), the smoke test, `test:packaged`, `smoke:sqlite`,
+`smoke:vec`, `check:migration`, and `./dev doctor` all pass. A second build
+has a different code hash and the same designated requirement, and
+`codesign -R` confirms it satisfies the first build's. A real grant surviving a
+rebuild still needs one manual check: allow the microphone once, rebuild, and
+confirm macOS does not ask again. The Windows packaging block was updated but
+not built here, since cross-building would replace the Mac native modules in
+`node_modules`.
 
 ### Phase 3 — Design system and new UI (7–10 days)
 
@@ -713,7 +757,7 @@ Project rules to add:
 | --- | --- |
 | Helper permissions might be attributed to the helper, not AmbientMind | Phase 4 starts with a one-day spike; XPC service or bundled login item as fallback. |
 | Electron cannot yet make a non-activating panel that takes keystrokes (open issue) | Quick Capture activates briefly, and the helper reactivates the previous app on close. |
-| sqlite-vec may need `disable-library-validation` under hardened runtime | Test in Phase 2 packaging; sign the dylib with the app's identity. |
+| sqlite-vec may need `disable-library-validation` under hardened runtime | Resolved in Phase 2: a self-signed certificate has no Team ID, so the entitlement is set and every native module loads in the signed build. Revisit with a Developer ID. |
 | Foundation Models needs Apple Intelligence enabled and has a 4K context | Router falls back to Ollama; one message per call. |
 | Ollama's MLX backend has ignored JSON `format` in some releases | Use GGUF tags, validate with zod. |
 | Screen Recording re-prompts monthly since macOS 15 | Say so in onboarding; prefer Accessibility text so capture is rarely needed. |
