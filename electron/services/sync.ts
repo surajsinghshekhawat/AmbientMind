@@ -215,12 +215,13 @@ async function rememberExtraction(
 /** Updates and removes existing prep tasks; returns only meetings not yet on the list. */
 async function syncCalendar(report: SyncReport): Promise<NewTask[]> {
   try {
-    const prep = await fetchPrepTasks()
-    const { fresh, updated, removed, archived } = reconcileCalendarTasks(prep)
+    const { tasks: prep, uids } = await fetchPrepTasks()
+    const { fresh, updated, removed, archived } = reconcileCalendarTasks('gcalendar', prep)
     if (updated + removed + archived > 0) {
       console.log('[sync] calendar reconciled', { updated, removed, archived })
     }
-    setSyncState('gcalendar', null)
+    // Kept as the cursor so the Apple Calendar pass can skip Google's events.
+    setSyncState('gcalendar', JSON.stringify(uids))
     report.scanned += prep.length
     return fresh
   } catch (err) {

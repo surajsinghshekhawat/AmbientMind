@@ -11,6 +11,7 @@ import decisions from '../../db/migrations/009_decisions.sql?raw'
 import exampleFeedback from '../../db/migrations/010_example_feedback.sql?raw'
 import taskLifecycle from '../../db/migrations/011_task_lifecycle.sql?raw'
 import exampleDedupe from '../../db/migrations/012_example_dedupe.sql?raw'
+import appleSources from '../../db/migrations/013_apple_sources.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
@@ -29,7 +30,8 @@ const MIGRATIONS: string[] = [
   decisions,
   exampleFeedback,
   taskLifecycle,
-  exampleDedupe
+  exampleDedupe,
+  appleSources
 ]
 
 export function migrate(db: Database.Database) {

@@ -2,6 +2,7 @@ import type { AmbientApi } from '../../electron/preload'
 import type { RecurrenceRule } from '@shared/recurrence'
 import {
   DEFAULT_CONFIG,
+  type AppleSourcesStatus,
   type ChatReply,
   type ChatTurn,
   type Config,
@@ -51,6 +52,9 @@ export interface MockState {
   shortcuts: ShortcutStatus[]
   permissions: PermissionState[]
   speech: SpeechEngineInfo
+  appleSources: AppleSourcesStatus
+  /** Set to make switching an Apple source on fail with this message. */
+  appleSourceError: string | null
   /** What Apple's live speech returns on stop. */
   liveTranscript: string
 }
@@ -82,6 +86,12 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       { kind: 'accessibility', status: 'granted', help: null, canOpenSettings: true }
     ],
     speech: { engine: 'whisper', apple: null, installing: null },
+    appleSources: {
+      available: false,
+      calendar: { enabled: false, access: 'unknown', lastRun: null, lastError: null, upcoming: 0 },
+      reminders: { enabled: false, access: 'unknown', lastRun: null, lastError: null, list: null, linked: 0 }
+    },
+    appleSourceError: null,
     liveTranscript: '',
     ...initial
   }
@@ -283,6 +293,20 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       onOpened: (handler: () => void) => quickAddOpened.on(handler),
       onShortcutAgain: (handler: () => void) => quickAddShortcut.on(handler),
       onHold: quickAddHold.on
+    },
+    appleSources: {
+      status: async () => state.appleSources,
+      set: async (source: 'calendar' | 'reminders', on: boolean) => {
+        record('appleSources.set', source, on)
+        if (on && state.appleSourceError) throw new Error(state.appleSourceError)
+        const current = state.appleSources[source]
+        state.appleSources = {
+          ...state.appleSources,
+          [source]: { ...current, enabled: on, access: on ? 'granted' : current.access, lastRun: on ? new Date().toISOString() : current.lastRun }
+        }
+        if (source === 'reminders' && on) state.appleSources.reminders.list = 'AmbientMind · iCloud'
+        return state.appleSources
+      }
     },
     speech: {
       engine: async () => state.speech,

@@ -229,14 +229,18 @@ export interface CalendarReconcile {
  * meeting is not in it was cancelled, declined or moved away, and goes.
  * Completed and deleted rows are history and are never touched.
  */
-export function reconcileCalendarTasks(prep: NewTask[], now = new Date()): CalendarReconcile {
+export function reconcileCalendarTasks(
+  source: 'gcalendar' | 'acalendar',
+  prep: NewTask[],
+  now = new Date()
+): CalendarReconcile {
   const db = handle()
   const result: CalendarReconcile = { fresh: [], updated: 0, removed: 0, archived: 0 }
 
   db.transaction(() => {
     const seen = new Set<string>()
     const find = db.prepare<[string], { id: string; status: Task['status']; user_edited_at: string | null }>(
-      `SELECT id, status, user_edited_at FROM tasks WHERE source = 'gcalendar' AND source_id = ?`
+      `SELECT id, status, user_edited_at FROM tasks WHERE source = '${source}' AND source_id = ?`
     )
     const refresh = db.prepare(
       `UPDATE tasks SET deadline = @deadline, people = @people, raw_context = @raw_context,
@@ -266,7 +270,7 @@ export function reconcileCalendarTasks(prep: NewTask[], now = new Date()): Calen
     const open = db
       .prepare<[], { id: string; source_id: string; deadline: string | null }>(
         `SELECT id, source_id, deadline FROM tasks
-          WHERE source = 'gcalendar' AND status IN ('pending', 'snoozed')`
+          WHERE source = '${source}' AND status IN ('pending', 'snoozed')`
       )
       .all()
     for (const row of open) {

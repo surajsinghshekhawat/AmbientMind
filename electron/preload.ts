@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  AppleSourcesStatus,
   ChatReply,
   ChatTurn,
   Config,
@@ -191,6 +192,13 @@ const api = {
         ipcRenderer.off(IPC.QuickAddHold, listener)
       }
     }
+  },
+
+  appleSources: {
+    status: (): Promise<AppleSourcesStatus> => ipcRenderer.invoke(IPC.AppleSources),
+    /** Turning one on asks macOS for access first, and rejects with why if it is refused. */
+    set: (source: 'calendar' | 'reminders', on: boolean): Promise<AppleSourcesStatus> =>
+      ipcRenderer.invoke(IPC.SetAppleSource, source, on)
   },
 
   speech: {

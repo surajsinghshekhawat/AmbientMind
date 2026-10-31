@@ -56,6 +56,8 @@ export function sanitizeConfig(raw: Partial<Config>): Config {
     whisperModel: text(raw.whisperModel, d.whisperModel) || d.whisperModel,
     launchAtLogin: bool(raw.launchAtLogin, d.launchAtLogin),
     calendarWriteBack: bool(raw.calendarWriteBack, d.calendarWriteBack),
+    appleCalendar: bool(raw.appleCalendar, d.appleCalendar),
+    remindersSync: bool(raw.remindersSync, d.remindersSync),
     displayName: text(raw.displayName, '', 80),
     aboutMe: text(raw.aboutMe, '', ABOUT_ME_MAX_CHARS),
     pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil),

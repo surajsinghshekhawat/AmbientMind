@@ -1,3 +1,5 @@
+import type { AppleEvent } from './helperProtocol'
+
 /** How far ahead of a meeting the preparation task is due. */
 export const PREP_LEAD_HOURS = 1
 
@@ -9,6 +11,8 @@ export const PREP_LOOKAHEAD_HOURS = 48
 
 export interface CalendarEvent {
   id: string
+  /** Shared by every copy of the event, in any account or app. */
+  iCalUID?: string
   summary?: string
   description?: string
   status?: string
@@ -31,7 +35,7 @@ export interface PrepTask {
   title: string
   deadline: string
   priority: 'high'
-  source: 'gcalendar'
+  source: 'gcalendar' | 'acalendar'
   sourceId: string
   people: string[]
   rawContext: string | null
@@ -54,7 +58,11 @@ function otherPeople(event: CalendarEvent) {
  * Deterministic on purpose: spending a model call to turn "Call with Sarah at
  * 3pm" into a prep task would be slower and less reliable than this rule.
  */
-export function prepTaskFor(event: CalendarEvent, now: Date): PrepTask | null {
+export function prepTaskFor(
+  event: CalendarEvent,
+  now: Date,
+  source: PrepTask['source'] = 'gcalendar'
+): PrepTask | null {
   if (event.status === 'cancelled') return null
   if (event.eventType && NOT_MEETINGS.has(event.eventType)) return null
   if (event.recurringEventId) return null
@@ -78,7 +86,7 @@ export function prepTaskFor(event: CalendarEvent, now: Date): PrepTask | null {
     title: `Prepare for ${title}`,
     deadline: new Date(start - PREP_LEAD_HOURS * 3_600_000).toISOString(),
     priority: 'high',
-    source: 'gcalendar',
+    source,
     sourceId: event.id,
     people: others
       .map((a) => a.displayName ?? a.email ?? '')
@@ -87,4 +95,39 @@ export function prepTaskFor(event: CalendarEvent, now: Date): PrepTask | null {
     rawContext: event.description ?? null,
     confidence: 1
   }
+}
+
+/** EventKit's view of an event, in the shape the prep rule reads. */
+export function fromAppleEvent(event: AppleEvent): CalendarEvent {
+  const day = (iso: string) => iso.slice(0, 10)
+  return {
+    id: event.id,
+    iCalUID: event.id,
+    summary: event.title,
+    ...(event.notes ? { description: event.notes } : {}),
+    ...(event.cancelled ? { status: 'cancelled' } : {}),
+    start: event.allDay ? { date: day(event.start) } : { dateTime: event.start },
+    end: event.allDay ? { date: day(event.end) } : { dateTime: event.end },
+    attendees: event.attendees.map((person) => ({
+      ...(person.email ? { email: person.email } : {}),
+      ...(person.name ? { displayName: person.name } : {}),
+      self: person.me,
+      resource: person.resource,
+      ...(person.declined ? { responseStatus: 'declined' } : {})
+    })),
+    ...(event.recurring ? { recurringEventId: event.id } : {})
+  }
+}
+
+/**
+ * Meetings Google already reported, so the same meeting seen through a Google
+ * account in macOS Calendar does not become a second task. The iCalendar UID
+ * is the identity; the title at the same minute catches accounts that rewrite
+ * it.
+ */
+export function withoutGoogleCopies(prep: PrepTask[], google: { uids: string[]; tasks: { title: string; deadline: string | null }[] }): PrepTask[] {
+  const uids = new Set(google.uids)
+  const minute = (iso: string | null) => (iso ? Math.floor(Date.parse(iso) / 60_000) : NaN)
+  const seen = new Set(google.tasks.map((task) => `${task.title.toLowerCase()}|${minute(task.deadline)}`))
+  return prep.filter((task) => !uids.has(task.sourceId) && !seen.has(`${task.title.toLowerCase()}|${minute(task.deadline)}`))
 }

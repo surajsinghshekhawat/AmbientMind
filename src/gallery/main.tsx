@@ -22,7 +22,12 @@ installMockAmbient({
     },
     { kind: 'accessibility', status: 'not-determined', help: null, canOpenSettings: true }
   ],
-  speech: { engine: 'whisper', apple: { available: true, installed: false, downloading: false, locale: 'en-US' }, installing: null }
+  speech: { engine: 'whisper', apple: { available: true, installed: false, downloading: false, locale: 'en-US' }, installing: null },
+  appleSources: {
+    available: true,
+    calendar: { enabled: true, access: 'granted', lastRun: new Date(Date.now() - 2 * 60_000).toISOString(), lastError: null, upcoming: 2 },
+    reminders: { enabled: false, access: 'not-determined', lastRun: null, lastError: null, list: null, linked: 0 }
+  }
 })
 
 createRoot(document.getElementById('root')!).render(

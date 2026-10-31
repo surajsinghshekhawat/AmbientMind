@@ -10,7 +10,7 @@
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
 /** A deadline stated as a day means the end of that working day, not midnight. */
-const END_OF_DAY_HOUR = 17
+export const END_OF_DAY_HOUR = 17
 
 function atEndOfDay(date: Date): Date {
   const out = new Date(date)

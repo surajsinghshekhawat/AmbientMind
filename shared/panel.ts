@@ -41,8 +41,8 @@ export function panelSections(tasks: Task[], now: number, query = ''): PanelSect
       shown.filter((task) => task.status === 'suggested'),
       now
     ),
-    upcoming: rest.filter((task) => task.source === 'gcalendar'),
-    later: rest.filter((task) => task.source !== 'gcalendar'),
+    upcoming: rest.filter((task) => isMeeting(task.source)),
+    later: rest.filter((task) => !isMeeting(task.source)),
     doneToday: shown
       .filter((task) => task.status === 'done' && task.completedAt && Date.parse(task.completedAt) >= dayStart)
       .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? '')),
@@ -72,9 +72,15 @@ export function confidenceLabel(confidence: number): 'High' | 'Medium' | 'Low' {
   return 'Low'
 }
 
+export function isMeeting(source: TaskSource): boolean {
+  return source === 'gcalendar' || source === 'acalendar'
+}
+
 export const SOURCE_LABEL: Record<TaskSource, string> = {
   gmail: 'Gmail',
   gcalendar: 'Calendar',
+  acalendar: 'Calendar',
+  reminders: 'Reminders',
   outlook: 'Outlook',
   teams: 'Teams',
   voice: 'Voice',

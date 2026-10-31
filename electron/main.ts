@@ -161,6 +161,14 @@ import {
   stopLiveSpeech
 } from './services/liveSpeech'
 import { loadConfig, saveConfig } from './services/config'
+import {
+  appleSourcesStatus,
+  initAppleSources,
+  noteLocalTaskChange,
+  setAppleSource,
+  syncAppleCalendar,
+  type AppleSource
+} from './services/appleSources'
 import { writeEncryptedBackup } from './services/backup'
 import { loadChatHistory, saveChatHistory } from './services/chatHistory'
 import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
@@ -199,6 +207,7 @@ function onIpc<A extends unknown[]>(
 
 function broadcastTasks() {
   broadcast(IPC.TasksChanged, listActive())
+  noteLocalTaskChange()
 }
 
 /**
@@ -298,6 +307,8 @@ function onScheduledSync(report: SyncReport) {
   }
   // Calendar reconciliation can move or remove tasks without adding any.
   broadcastTasks()
+  // Google's events are now known, so Apple Calendar can drop its copies.
+  void syncAppleCalendar()
   broadcast(IPC.SyncStatus, { state: 'idle' })
   trayHandle?.refresh()
 }
@@ -577,6 +588,16 @@ function registerIpc() {
   onIpc(IPC.SuspendShortcuts, (_event, suspended: boolean) => (suspended ? unregisterShortcuts() : registerShortcuts()))
 
   ipcMain.handle(IPC.GetPermissions, () => permissionKinds(os).map(permissionState))
+
+  ipcMain.handle(IPC.AppleSources, () => appleSourcesStatus())
+  ipcMain.handle(IPC.SetAppleSource, async (_event, source: AppleSource, on: boolean) => {
+    if (source !== 'calendar' && source !== 'reminders') throw new Error(`Unknown source ${String(source)}`)
+    await setAppleSource(source, on === true, (patch) => {
+      const previous = loadConfig()
+      applyLiveConfig(saveConfig(patch), previous)
+    })
+    return appleSourcesStatus()
+  })
 
   ipcMain.handle(IPC.OpenPermissionSettings, async (_event, kind: PermissionKind) => {
     if (!permissionKinds(os).includes(kind)) return
@@ -1071,6 +1092,12 @@ if (process.argv.includes('--selftest')) {
     // Warms Whisper unless Apple's live speech will be used instead.
     initLiveSpeech()
     initHoldToTalk()
+    initAppleSources({
+      onTasksChanged: () => {
+        broadcastTasks()
+        trayHandle?.refresh()
+      }
+    })
 
     // Snoozed tasks are checked far more often than completed ones are swept:
     // a task that reappears 15 minutes late has missed the point of snoozing.

@@ -53,7 +53,7 @@ enum Permissions {
     "contacts": "NSContactsUsageDescription",
   ]
 
-  private static let eventStore = EKEventStore()
+  private static var eventStore: EKEventStore { Store.shared }
 
   /// Same words as Electron's getMediaAccessStatus. Accessibility and Screen
   /// Recording cannot tell "never asked" from "refused", so both say denied.

@@ -114,6 +114,9 @@ enum ParentWatch {
   }
 }
 
+/// EventKit objects are not thread-safe; every call goes through one queue.
+let eventKitQueue = DispatchQueue(label: "ambientmind.helper.eventkit")
+
 enum Methods {
   static let table: [String: Handler] = [
     "hello": { _, reply in reply(.success(hello())) },
@@ -152,6 +155,11 @@ enum Methods {
     "speech.start": { params, reply in LiveSpeech.start(params, reply) },
     "speech.stop": { _, reply in LiveSpeech.stop(reply) },
     "speech.cancel": { _, reply in LiveSpeech.cancel(reply) },
+    "calendar.events": { params, reply in eventKitQueue.async { reply(Calendars.events(params)) } },
+    "reminders.ensureList": { params, reply in eventKitQueue.async { reply(Reminders.ensureList(params)) } },
+    "reminders.list": { params, reply in eventKitQueue.async { Reminders.items(params, reply) } },
+    "reminders.upsert": { params, reply in eventKitQueue.async { reply(Reminders.upsert(params)) } },
+    "reminders.delete": { params, reply in eventKitQueue.async { reply(Reminders.delete(params)) } },
     "hotkey.set": { params, reply in
       guard let name = params["name"] as? String,
         let keyCode = (params["keyCode"] as? NSNumber)?.uint32Value,
@@ -177,7 +185,7 @@ enum Methods {
       "responsibleApp": json(ResponsibleApp.bundleIdentifier),
       "responsiblePid": Int(ResponsibleApp.pid),
       "parentApp": json(ResponsibleApp.parentBundleIdentifier),
-      "features": ["perms", "context", "capture", "ocr", "system", "contacts", "speech", "hotkey"],
+      "features": ["perms", "context", "capture", "ocr", "system", "contacts", "speech", "hotkey", "eventkit"],
     ]
   }
 }

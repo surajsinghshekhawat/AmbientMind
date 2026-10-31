@@ -525,6 +525,11 @@ let go. Next it will read Calendar and Reminders.
   It runs an `NSApplication` loop with the `.prohibited` activation policy
   (no Dock icon, menu or focus) because Carbon hotkey events only arrive
   through one. On stdin EOF it waits up to 3 s for replies still in flight.
+- **EventKit.** `calendar.events`, `reminders.ensureList`, `reminders.list`,
+  `reminders.upsert` (only the fields sent are written; `expectedModifiedAt`
+  refuses a stale write with `conflict`) and `reminders.delete`, all on one
+  serial queue, plus a debounced `eventstore.changed` event. See §6.2a and
+  §6.3a.
 - **Live speech.** `electron/services/liveSpeech.ts` picks the engine:
   Apple's SpeechAnalyzer when the helper is up and the language's model is
   installed, Whisper otherwise (and on Windows). The model is a macOS asset
@@ -569,6 +574,9 @@ them from a path would fail.
 | 8 | `008_rule_calendar.sql` | `recurrence_rules.gcal_event_id` |
 | 9 | `009_decisions.sql` | `decisions` |
 | 10 | `010_example_feedback.sql` | `examples.source_id`, `examples.embed_version`, retention index |
+| 11 | `011_task_lifecycle.sql` | Rebuild of `tasks`: tombstones (`deleted_at`), `suggested` status, `user_edited_at`, `source_url`, `evidence` |
+| 12 | `012_example_dedupe.sql` | Unique `examples (source, source_id)` |
+| 13 | `013_apple_sources.sql` | Rebuild of `tasks` so `source` admits `acalendar` and `reminders`; `updated_at` kept by triggers; `task_links` |
 
 Migration 005 is the interesting one. SQLite cannot alter a `CHECK`
 constraint, so adding `'rule'` to the allowed task sources required copying the
@@ -582,8 +590,12 @@ caught a real problem (§9.1), which is the argument for keeping it.
 **`tasks`** — the only object the overlay understands.
 
 - `title`, `deadline` (ISO-8601 or null), `priority` (low/medium/high/urgent)
-- `source` — `gmail` | `gcalendar` | `manual` | `voice` | `rule`, with
+- `source` — `gmail` | `gcalendar` | `acalendar` (Apple Calendar) |
+  `reminders` (made in Apple Reminders) | `manual` | `voice` | `rule`, with
   `outlook`/`teams` reserved
+- `updated_at` — set by triggers on any change to title, deadline, priority
+  or status, so no writer can forget it; Reminders sync uses it to let the
+  later edit win
 - `sourceId` — unique per source. A partial unique index stops the same Gmail
   message inserting the same title twice, and makes materialising a rule
   occurrence (`ruleId:YYYY-MM-DD`) idempotent.
@@ -602,8 +614,15 @@ Storing it would mean a task's colour could go stale relative to the clock.
 **attempts** counter. The attempts column is what makes a failure retryable
 rather than permanent (§9.1).
 
-**`sync_state`** — per-source cursor, last run and last error. Calendar stores
-its incremental `syncToken` here.
+**`sync_state`** — per-source cursor, last run and last error. Google
+Calendar's cursor holds the iCalendar UIDs of the events it last listed (so
+Apple Calendar can skip Google's copies); Reminders' holds the list it owns.
+
+**`task_links`** — a task's copy in Reminders: the reminder id, its
+modification stamp at the last sync, and what both sides' synced fields
+(title, deadline, priority, done) looked like then. No foreign key, because a
+calendar prep task is removed outright when its meeting goes, and the link has
+to outlive it so the reminder goes too.
 
 **`recurrence_rules`** — title, weekdays as a JSON array (0 = Sunday), local
 `HH:MM`, priority, lead minutes, enabled flag, origin (`explicit` |
@@ -632,6 +651,8 @@ timestamp. Outlives the task itself.
 | `whisperModel` | `Xenova/whisper-base.en` | Speech-to-text size |
 | `launchAtLogin` | `true` | Start with Windows |
 | `calendarWriteBack` | `false` | Mirror rules to Google Calendar (opt-in) |
+| `appleCalendar` | `false` | Prep tasks from Apple Calendar (Mac, opt-in, asks for Calendar access) |
+| `remindersSync` | `false` | Two-way sync with an "AmbientMind" list in Reminders (Mac, opt-in) |
 | `displayName` | `''` | What your mail calls you; beats the OS guess |
 | `aboutMe` | `''` | Free-text profile, max 1200 characters |
 
@@ -643,6 +664,8 @@ timestamp. Outlives the task itself.
 | Archive | 15 min | Archive stale completed tasks, refresh habit suggestions |
 | Sync | 15 min (configurable) | Gmail and Calendar, first run delayed 60 s after launch |
 | Resume | on wake | Everything above, immediately |
+| Apple sources | 5 min, and on every EventKit change | Apple Calendar prep tasks and Reminders sync, when switched on |
+| Reminders push | 1.5 s after a local change | The changed tasks reach Reminders |
 
 The 60-second delay after launch is deliberate: login is the worst possible
 moment to pull a 2 GB model into memory, because the user is still waiting for
@@ -689,6 +712,19 @@ incremental via `syncToken`, and an HTTP 410 — Google's documented signal that
 the token is too old — triggers a full resync rather than surfacing as an
 error.
 
+### 6.2a Apple Calendar (read, Mac)
+
+The helper's `calendar.events` lists the next 48 hours from every calendar in
+macOS Internet Accounts. Each event is mapped onto the Google event shape and
+goes through the same rule (`prepTaskFor`): one-off, timed meetings with
+other people that you haven't declined become "Prepare for …" an hour before.
+They are reconciled like Google's, as source `acalendar`, so a moved or
+cancelled meeting moves or removes its task. When Google is connected too,
+events whose iCalendar UID Google already listed, or with the same title at
+the same minute as a Google prep task, are skipped: the same meeting seen
+through both must not become two tasks. Turning the source off removes its
+open prep tasks.
+
 ### 6.3 Calendar (write)
 
 Recurring rules are mirrored to Google Calendar so they appear on a phone
@@ -708,6 +744,41 @@ without any mobile app. The details that matter:
 - Pausing a rule **deletes** its event; an event deleted on the phone is
   recreated rather than lost.
 - Off by default, and calendar pushes are never awaited by the UI.
+
+### 6.3a Reminders (two-way, Mac)
+
+AmbientMind owns one list, "AmbientMind", in the account where new reminders
+go by default (iCloud when signed in, so iPhone and Watch see it). The pure
+planner in `shared/remindersSync.ts` compares each linked pair with the
+snapshot stored at the last sync:
+
+- A field changed on one side is copied to the other. The same field changed
+  on both goes to the later edit (`tasks.updated_at` against the reminder's
+  modification date).
+- Open tasks without a reminder are created there, with the task's evidence
+  and link as notes. Incomplete reminders without a task become tasks
+  (source `reminders`); completed history is not imported.
+- Deleted here: the reminder is removed, unless it was edited after the
+  delete, in which case the task comes back. Deleted there: the open task is
+  tombstoned; a finished one just lets go.
+- Every write names the version it was planned against
+  (`expectedModifiedAt`); the helper refuses a stale write, and the next pass
+  starts from the new state instead of overwriting it.
+- If more than half the links (and at least five) vanish at once, it looks
+  like a deleted list or a signed-out account, so nothing is deleted here and
+  the tasks are offered to Reminders again. A list deleted outright is made
+  again the same way.
+
+Priorities map to Reminders' three marks (urgent and high → high, low → low,
+medium → none); a date-only reminder is due at 17:00 that day, the same as a
+typed "Friday". Recurring reminders get no special case: completing one on
+the iPhone should arrive either as a changed due date or as a new reminder,
+and both are ordinary changes. Not yet tried against a real device.
+
+Passes run on EventKit's change notification (iPhone edits arrive through
+iCloud), 1.5 s after any change here, and every five minutes as a backstop.
+Both Apple sources are opt-in from Settings → Sources, which asks macOS for
+access first.
 
 ### 6.4 Voice and QuickAdd
 

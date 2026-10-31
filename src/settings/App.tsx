@@ -74,7 +74,7 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
   const contentRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
-    const [config, account, ragCount, health, sync, nextRules, nextSuggestions, learned, permissions, appInfo, nextShortcuts, speech] =
+    const [config, account, ragCount, health, sync, nextRules, nextSuggestions, learned, permissions, appInfo, nextShortcuts, speech, apple] =
       await Promise.all([
         window.ambient.getConfig(),
         window.ambient.accounts.status(),
@@ -87,9 +87,10 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
         window.ambient.getPermissions(),
         window.ambient.getAppInfo(),
         window.ambient.getShortcuts(),
-        window.ambient.speech.engine()
+        window.ambient.speech.engine(),
+        window.ambient.appleSources.status()
       ])
-    setData({ config, account, ragCount, health, sync, learned, permissions, appInfo, speech })
+    setData({ config, account, ragCount, health, sync, learned, permissions, appInfo, speech, apple })
     setRules(nextRules)
     setSuggestions(nextSuggestions)
     setShortcuts(nextShortcuts)
@@ -99,7 +100,10 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
     void refresh()
     const offConfig = window.ambient.onConfigChanged((config) => setData((current) => (current ? { ...current, config } : current)))
     // Permissions change in System Settings, so check again on return.
-    const onFocus = () => void window.ambient.getPermissions().then((permissions) => setData((current) => (current ? { ...current, permissions } : current)))
+    const onFocus = () =>
+      void Promise.all([window.ambient.getPermissions(), window.ambient.appleSources.status()]).then(([permissions, apple]) =>
+        setData((current) => (current ? { ...current, permissions, apple } : current))
+      )
     window.addEventListener('focus', onFocus)
     return () => {
       offConfig()
@@ -157,7 +161,8 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
     refresh,
     run,
     busy,
-    setLearned: (learned) => setData((current) => (current ? { ...current, learned } : current))
+    setLearned: (learned) => setData((current) => (current ? { ...current, learned } : current)),
+    setApple: (apple) => setData((current) => (current ? { ...current, apple } : current))
   }
 
   const attention: Partial<Record<SectionId, boolean>> = {

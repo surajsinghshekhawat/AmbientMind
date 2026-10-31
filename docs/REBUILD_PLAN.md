@@ -777,7 +777,7 @@ Exit check (second round): typecheck, `./dev npm test` (203 logic + 30 db +
 39 component tests), the smoke test (including the helper's speech status),
 `test:packaged`, and `./dev doctor` all pass.
 
-### Phase 5 — Apple sources (4–6 days)
+### Phase 5 — Apple sources (4–6 days) — built, awaiting a device check
 
 - Apple Calendar through EventKit for every account in macOS Internet
   Accounts. When Google Calendar is also connected, dedupe by event identity.
@@ -789,6 +789,44 @@ Exit check (second round): typecheck, `./dev npm test` (203 logic + 30 db +
 
 Exit: complete a task on iPhone and it clears in the overlay within seconds;
 add one in the overlay and it appears in Reminders.
+
+What landed (branch `phase-4-helper`, helper 0.3.0):
+
+- Helper EventKit methods: `calendar.events` (every calendar in Internet
+  Accounts, with iCalendar UIDs), `reminders.ensureList`, `reminders.list`,
+  `reminders.upsert` and `reminders.delete`. Writes carry only the fields
+  that changed and refuse a stale version (`conflict`). A debounced
+  `eventstore.changed` event covers edits arriving from other devices.
+- Migration 013: `acalendar` and `reminders` sources, `tasks.updated_at` kept
+  by triggers, and `task_links` with a snapshot of both sides per link.
+- Apple Calendar: the Google prep rule on EventKit events, reconciled as its
+  own source, minus meetings Google already reported (same UID, or same
+  title at the same minute).
+- Reminders: a pure field-by-field planner (`shared/remindersSync.ts`) and an
+  executor (`electron/services/reminders.ts`). Last edit wins per field,
+  tombstones both ways, an edit after a delete restores, a vanished list or a
+  mass disappearance deletes nothing. Passes run on EventKit changes, 1.5 s
+  after a local change, and every five minutes.
+- Settings → Sources → On this Mac: switches that ask macOS first, then show
+  what each source last did, or why it couldn't.
+- Tests: 14 planner cases, 3 calendar mapping and dedupe cases, 9 database
+  cases against an in-memory Reminders that enforces versions, 3 Settings
+  cases, and a smoke check that both sources are reachable and off by
+  default.
+
+Not done yet, and why:
+
+- A real iPhone round trip. In development macOS asks for Calendar and
+  Reminders on behalf of Cursor, which has no usage strings, so the switch
+  explains that and refuses; the installed app (`./dev packaged`) asks as
+  AmbientMind. The exit check needs you to allow it there once and complete
+  a task on the phone.
+- Recurrence is not written to Reminders: a recurring rule's occurrences go
+  as separate reminders. Recurring reminders made on the phone sync as
+  ordinary changes.
+- Notes sync one way: a task's evidence becomes the reminder's notes when it
+  is created, and a reminder's notes become the task's context when it
+  arrives. Later note edits don't cross.
 
 ### Phase 6 — AI upgrade (4–6 days)
 

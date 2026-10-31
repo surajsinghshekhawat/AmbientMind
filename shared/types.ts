@@ -6,6 +6,10 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskSource =
   | 'gmail'
   | 'gcalendar'
+  /** Apple Calendar through EventKit: every account in Internet Accounts. */
+  | 'acalendar'
+  /** Created in Apple Reminders, on this Mac or another device. */
+  | 'reminders'
   | 'outlook'
   | 'teams'
   | 'voice'
@@ -67,6 +71,10 @@ export interface Config {
   launchAtLogin: boolean
   /** Mirror recurring rules onto a Google Calendar this app creates. Opt-in: it writes to your account. */
   calendarWriteBack: boolean
+  /** Meetings from Apple Calendar become prep tasks, like Google's. Mac only; asks for Calendar access. */
+  appleCalendar: boolean
+  /** Two-way sync with an "AmbientMind" list in Reminders. Opt-in: it writes to your iCloud. */
+  remindersSync: boolean
   /** What the prompts should call the user. Empty falls back to the OS account. */
   displayName: string
   /**
@@ -154,6 +162,8 @@ export const DEFAULT_CONFIG: Config = {
   whisperModel: 'Xenova/whisper-base.en',
   launchAtLogin: false,
   calendarWriteBack: false,
+  appleCalendar: false,
+  remindersSync: false,
   displayName: '',
   aboutMe: '',
   pauseAiUntil: null,
@@ -176,6 +186,20 @@ export interface SpeechEngineInfo {
   apple: SpeechStatus | null
   /** 0–1 while Apple's model downloads. */
   installing: number | null
+}
+
+export interface AppleSourceState {
+  enabled: boolean
+  access: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
+  lastRun: string | null
+  lastError: string | null
+}
+
+export interface AppleSourcesStatus {
+  /** On a Mac with a helper that can reach Calendar and Reminders. */
+  available: boolean
+  calendar: AppleSourceState & { upcoming: number }
+  reminders: AppleSourceState & { list: string | null; linked: number }
 }
 
 export const WHISPER_MODELS: { id: string; label: string }[] = [

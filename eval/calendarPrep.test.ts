@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { PREP_LEAD_HOURS, prepTaskFor, type CalendarEvent } from '../shared/calendarPrep'
+import { fromAppleEvent, PREP_LEAD_HOURS, prepTaskFor, withoutGoogleCopies, type CalendarEvent } from '../shared/calendarPrep'
+import type { AppleEvent } from '../shared/helperProtocol'
 
 const NOW = new Date('2026-11-02T08:00:00.000Z')
 
@@ -48,4 +49,59 @@ test('events that need no preparation are not imported', () => {
   for (const [label, overrides] of cases) {
     assert.equal(prepTaskFor(meeting(overrides), NOW), null, label)
   }
+})
+
+function appleEvent(overrides: Partial<AppleEvent> = {}): AppleEvent {
+  return {
+    id: 'uid-1@google.com',
+    calendar: 'Work',
+    account: 'Google',
+    title: 'Design review',
+    notes: null,
+    start: '2026-11-02T15:00:00.000Z',
+    end: '2026-11-02T16:00:00.000Z',
+    allDay: false,
+    recurring: false,
+    cancelled: false,
+    attendees: [
+      { name: 'Me', email: 'me@example.com', me: true, declined: false, resource: false },
+      { name: 'Sam', email: 'sam@example.com', me: false, declined: false, resource: false }
+    ],
+    ...overrides
+  }
+}
+
+test('an Apple Calendar meeting follows the same rule, as its own source', () => {
+  const task = prepTaskFor(fromAppleEvent(appleEvent()), NOW, 'acalendar')
+  assert.ok(task)
+  assert.equal(task.source, 'acalendar')
+  assert.equal(task.sourceId, 'uid-1@google.com')
+  assert.deepEqual(task.people, ['Sam'])
+})
+
+test('Apple events that are declined, recurring, all-day, cancelled or solo are skipped', () => {
+  const me = { name: 'Me', email: 'me@example.com', me: true, declined: true, resource: false }
+  const sam = { name: 'Sam', email: 'sam@example.com', me: false, declined: false, resource: false }
+  for (const event of [
+    appleEvent({ attendees: [me, sam] }),
+    appleEvent({ recurring: true }),
+    appleEvent({ allDay: true }),
+    appleEvent({ cancelled: true }),
+    appleEvent({ attendees: [] })
+  ]) {
+    assert.equal(prepTaskFor(fromAppleEvent(event), NOW, 'acalendar'), null)
+  }
+})
+
+test('a meeting Google already reported is not added again from Apple Calendar', () => {
+  const prep = [
+    prepTaskFor(fromAppleEvent(appleEvent()), NOW, 'acalendar')!,
+    prepTaskFor(fromAppleEvent(appleEvent({ id: 'other', title: 'Retro' })), NOW, 'acalendar')!,
+    prepTaskFor(fromAppleEvent(appleEvent({ id: 'renamed-copy', title: 'Budget' })), NOW, 'acalendar')!
+  ]
+  const kept = withoutGoogleCopies(prep, {
+    uids: ['uid-1@google.com'],
+    tasks: [{ title: 'Prepare for Budget', deadline: prep[2]!.deadline }]
+  })
+  assert.deepEqual(kept.map((task) => task.title), ['Prepare for Retro'])
 })

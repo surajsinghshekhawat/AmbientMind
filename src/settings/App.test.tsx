@@ -119,6 +119,36 @@ describe('Settings', () => {
     expect(screen.getByText('Fallback voice model')).toBeTruthy()
   })
 
+  it('turning on Reminders asks main, then says where tasks go', async () => {
+    const mock = installMockAmbient()
+    mock.state.appleSources = { ...mock.state.appleSources, available: true }
+    await open('sources')
+    expect(screen.queryByText('Coming soon')).toBeNull()
+    fireEvent.click(screen.getByRole('switch', { name: 'Reminders' }))
+    await flush()
+    expect(mock.calls).toContainEqual({ method: 'appleSources.set', args: ['reminders', true] })
+    expect(screen.getByRole('switch', { name: 'Reminders' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText(/0 tasks in AmbientMind · iCloud/)).toBeTruthy()
+  })
+
+  it('a refused Calendar permission says why and leaves the switch off', async () => {
+    const mock = installMockAmbient({
+      appleSourceError: 'Calendar access is off for AmbientMind. Turn it on in System Settings → Privacy & Security → Calendars.'
+    })
+    mock.state.appleSources = { ...mock.state.appleSources, available: true }
+    await open('sources')
+    fireEvent.click(screen.getByRole('switch', { name: 'Apple Calendar' }))
+    await flush()
+    expect(screen.getByText(/Calendar access is off for AmbientMind/)).toBeTruthy()
+    expect(screen.getByRole('switch', { name: 'Apple Calendar' }).getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('no Apple sources off the Mac', async () => {
+    installMockAmbient({ permissions: [{ kind: 'microphone', status: 'granted', help: null, canOpenSettings: true }] })
+    await open('sources')
+    expect(screen.queryByText('On this Mac')).toBeNull()
+  })
+
   it('no live words row where Apple speech is missing', async () => {
     installMockAmbient()
     await open('capture')

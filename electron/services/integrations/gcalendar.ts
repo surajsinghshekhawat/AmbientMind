@@ -15,7 +15,7 @@ const MAX_PAGES = 10
  * full anyway to notice reschedules and cancellations. `showDeleted` is what
  * makes cancelled events visible here.
  */
-export async function fetchPrepTasks(now = new Date()): Promise<NewTask[]> {
+export async function fetchPrepTasks(now = new Date()): Promise<{ tasks: NewTask[]; uids: string[] }> {
   const params = new URLSearchParams({
     singleEvents: 'true',
     showDeleted: 'true',
@@ -40,5 +40,10 @@ export async function fetchPrepTasks(now = new Date()): Promise<NewTask[]> {
     params.set('pageToken', data.nextPageToken)
   }
 
-  return events.flatMap((event) => prepTaskFor(event, now) ?? [])
+  return {
+    tasks: events.flatMap((event) => prepTaskFor(event, now) ?? []),
+    // Every live event, not only the prep ones, so Apple Calendar can tell
+    // which of its events are Google's.
+    uids: events.flatMap((event) => (event.status !== 'cancelled' && event.iCalUID ? [event.iCalUID] : []))
+  }
 }

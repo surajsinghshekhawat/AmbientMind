@@ -4,6 +4,7 @@ import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
   ABOUT_ME_MAX_CHARS,
   WHISPER_MODELS,
+  type AppleSourcesStatus,
   type Config,
   type HealthReport,
   type OverlayCorner,
@@ -33,6 +34,7 @@ export interface SettingsData {
   permissions: PermissionState[]
   appInfo: { version: string; userData: string } | null
   speech: SpeechEngineInfo
+  apple: AppleSourcesStatus
 }
 
 export interface SettingsActions {
@@ -42,6 +44,7 @@ export interface SettingsActions {
   run: (label: string, task: () => Promise<string | void>) => Promise<void>
   busy: string | null
   setLearned: (learned: SettingsData['learned']) => void
+  setApple: (apple: AppleSourcesStatus) => void
 }
 
 interface PageProps {
@@ -137,7 +140,64 @@ export function General({ data: { config }, actions: { patch } }: PageProps) {
   )
 }
 
-export function Sources({ data: { config, account, sync }, actions: { patch, run, busy, refresh } }: PageProps) {
+const ipcMessage = (err: unknown) => ((err as Error)?.message ?? '').replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, '')
+
+function plural(n: number, one: string, many = `${one}s`) {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+/** One Apple source: a switch that asks macOS first, and what it last did. */
+function AppleSourceRow({
+  source,
+  apple,
+  label,
+  idle,
+  active,
+  onChange
+}: {
+  source: 'calendar' | 'reminders'
+  apple: AppleSourcesStatus
+  label: string
+  idle: string
+  active: string
+  onChange: (next: AppleSourcesStatus) => void
+}) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const state = apple[source]
+  const problem = error ?? (state.enabled ? state.lastError : null)
+  const description = !apple.available
+    ? 'Needs the AmbientMind helper, which isn’t running.'
+    : problem
+      ? <span className="text-danger">{problem}</span>
+      : state.enabled
+        ? `${active} · checked ${relativeTime(state.lastRun).toLowerCase()}`
+        : idle
+  return (
+    <Row label={label} description={description}>
+      <Toggle
+        label={label}
+        checked={state.enabled}
+        onChange={async (on) => {
+          if (pending || !apple.available) return
+          setPending(true)
+          setError(null)
+          try {
+            onChange(await window.ambient.appleSources.set(source, on))
+          } catch (err) {
+            setError(ipcMessage(err))
+          } finally {
+            setPending(false)
+          }
+        }}
+      />
+    </Row>
+  )
+}
+
+export function Sources({ data: { config, account, sync, apple, permissions }, actions: { patch, run, busy, refresh, setApple } }: PageProps) {
+  // Accessibility is a Mac-only permission, so its row says which platform this is.
+  const onMac = permissions.some((p) => p.kind === 'accessibility')
   return (
     <Page title="Sources" description="Where tasks come from. Mail is read from this Mac; nothing passes through a server of ours.">
       <Group
@@ -232,14 +292,29 @@ export function Sources({ data: { config, account, sync }, actions: { patch, run
         </Row>
       </Group>
 
-      <Group title="On this Mac" footer="Read directly through macOS, with your permission, in a coming update.">
-        <Row label="Apple Calendar" description="Events with a time become tasks you can see coming.">
-          <Pill tone="soon">Coming soon</Pill>
-        </Row>
-        <Row label="Reminders" description="Two-way: complete a task here, it’s done in Reminders.">
-          <Pill tone="soon">Coming soon</Pill>
-        </Row>
-      </Group>
+      {onMac && (
+        <Group
+          title="On this Mac"
+          footer="Read through macOS with your permission; nothing leaves this Mac. Reminders only ever touches its own “AmbientMind” list."
+        >
+          <AppleSourceRow
+            source="calendar"
+            apple={apple}
+            label="Apple Calendar"
+            idle="Meetings with other people in the next two days become prep tasks. Covers every account in Internet Accounts."
+            active={`${plural(apple.calendar.upcoming, 'meeting')} to prepare for`}
+            onChange={setApple}
+          />
+          <AppleSourceRow
+            source="reminders"
+            apple={apple}
+            label="Reminders"
+            idle="Two-way with an “AmbientMind” list: finish a task on your iPhone and it clears here."
+            active={`${plural(apple.reminders.linked, 'task')} in ${apple.reminders.list ?? 'the AmbientMind list'}`}
+            onChange={setApple}
+          />
+        </Group>
+      )}
     </Page>
   )
 }

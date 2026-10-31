@@ -77,6 +77,49 @@ export type SpeechStatus =
   | { available: false; reason: string }
   | { available: true; installed: boolean; downloading: boolean; locale: string }
 
+/** An event from any calendar in macOS Internet Accounts. */
+export interface AppleEvent {
+  /** The iCalendar UID where the account has one, so Google's copy matches. */
+  id: string
+  calendar: string
+  account: string
+  title: string
+  notes: string | null
+  start: string
+  end: string
+  allDay: boolean
+  recurring: boolean
+  cancelled: boolean
+  attendees: { name: string | null; email: string | null; me: boolean; declined: boolean; resource: boolean }[]
+}
+
+export interface AppleReminder {
+  id: string
+  title: string
+  notes: string | null
+  due: string | null
+  /** A date with no time: due that day. */
+  dueAllDay: boolean
+  /** EventKit's 0 (none), 1–4 high, 5 medium, 6–9 low. */
+  priority: number
+  completed: boolean
+  completedAt: string | null
+  modifiedAt: string | null
+  recurring: boolean
+}
+
+/** Only the fields present are written; `expectedModifiedAt` refuses a stale write. */
+export interface ReminderWrite {
+  listId?: string
+  id?: string
+  expectedModifiedAt?: string | null
+  title?: string
+  notes?: string | null
+  due?: string | null
+  priority?: number
+  completed?: boolean
+}
+
 /** Events the helper sends without being asked. */
 export interface HelperEvents {
   'speech.partial': { text: string; final: boolean }
@@ -84,6 +127,8 @@ export interface HelperEvents {
   'speech.error': { message: string }
   'speech.install': { fraction: number }
   hotkey: { name: string; phase: 'down' | 'up' }
+  /** Calendar or Reminders changed, here or on another device. */
+  'eventstore.changed': Record<string, never>
 }
 
 export interface HelperMethods {
@@ -108,6 +153,14 @@ export interface HelperMethods {
   'speech.start': { params: { hints?: string[] }; result: { locale: string } }
   'speech.stop': { params: Record<string, never>; result: { text: string } }
   'speech.cancel': { params: Record<string, never>; result: { cancelled: boolean } }
+  'calendar.events': { params: { from: string; to: string }; result: { events: AppleEvent[] } }
+  'reminders.ensureList': {
+    params: { title: string; id?: string | null }
+    result: { id: string; title: string; account: string; created: boolean }
+  }
+  'reminders.list': { params: { listId: string }; result: { reminders: AppleReminder[] } }
+  'reminders.upsert': { params: ReminderWrite; result: AppleReminder }
+  'reminders.delete': { params: { id: string; expectedModifiedAt?: string | null }; result: { deleted: boolean } }
   'hotkey.set': { params: { name: string; keyCode: number; modifiers: number }; result: { name: string } }
   'hotkey.clear': { params: { name: string }; result: { name: string } }
 }
@@ -144,6 +197,10 @@ export type HelperErrorCode =
   | 'install_failed'
   | 'in_use'
   | 'register_failed'
+  | 'conflict'
+  | 'list_missing'
+  | 'no_source'
+  | 'save_failed'
   | (string & {})
 
 export class HelperError extends Error {

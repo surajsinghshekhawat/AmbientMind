@@ -186,6 +186,11 @@ test('launches and opens every window', async () => {
       expect(kinds).toEqual(['microphone', 'screen', 'accessibility'])
       // Main asks the helper which voice engine to use once it is up.
       await expect.poll(async () => (await overlay.evaluate(() => window.ambient.speech.engine())).apple).not.toBeNull()
+      // Apple Calendar and Reminders are reachable, and stay off until switched on.
+      const apple = await overlay.evaluate(() => window.ambient.appleSources.status())
+      expect(apple.available).toBe(true)
+      expect(apple.calendar.enabled).toBe(false)
+      expect(apple.reminders.enabled).toBe(false)
     }
 
     expect(pageErrors).toEqual([])

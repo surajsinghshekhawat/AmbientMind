@@ -63,6 +63,11 @@ export function helperReady(): boolean {
   return client?.state === 'ready'
 }
 
+/** Whether the running helper has a feature; an older build simply lacks it. */
+export function helperHas(feature: string): boolean {
+  return helperReady() && (client?.hello?.features.includes(feature) ?? false)
+}
+
 /** Rejects with `unavailable` off the Mac or when the helper is not running. */
 export function helperRequest<M extends HelperMethod>(
   method: M,

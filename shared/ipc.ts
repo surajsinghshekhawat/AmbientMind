@@ -100,6 +100,8 @@ export const IPC = {
   SpeechStop: 'speech:stop',
   SpeechCancel: 'speech:cancel',
   /** Main -> quick-add renderer while listening: the words so far, and the input level. */
+  AppleSources: 'sources:apple',
+  SetAppleSource: 'sources:apple-set',
   SpeechPartial: 'speech:partial',
   SpeechLevel: 'speech:level'
 } as const
