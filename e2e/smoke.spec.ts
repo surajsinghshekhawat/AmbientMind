@@ -40,7 +40,7 @@ test('launches and opens every window', async () => {
 
   try {
     const overlay = await windowNamed(app, 'overlay')
-    await expect(overlay.getByRole('button', { name: /^Show \d+ tasks$|^Minimize/ })).toBeVisible()
+    await expect(overlay.getByRole('button', { name: /^Show tasks, \d+ due today$|^Minimize/ })).toBeVisible()
 
     await expect.poll(() => openWindows(app)).toEqual(['overlay', 'quickadd'])
 

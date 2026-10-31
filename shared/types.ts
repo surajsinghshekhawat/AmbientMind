@@ -10,7 +10,7 @@ export type TaskSource =
   /** Materialised from a recurrence rule rather than observed anywhere. */
   | 'rule'
 
-export type TaskStatus = 'pending' | 'done' | 'archived' | 'snoozed'
+export type TaskStatus = 'pending' | 'done' | 'archived' | 'snoozed' | 'deleted' | 'suggested'
 
 /**
  * Deadlines cross the IPC boundary as ISO-8601 strings; structured clone would

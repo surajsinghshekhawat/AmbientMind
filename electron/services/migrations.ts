@@ -9,6 +9,8 @@ import retry from '../../db/migrations/007_retry.sql?raw'
 import ruleCalendar from '../../db/migrations/008_rule_calendar.sql?raw'
 import decisions from '../../db/migrations/009_decisions.sql?raw'
 import exampleFeedback from '../../db/migrations/010_example_feedback.sql?raw'
+import taskLifecycle from '../../db/migrations/011_task_lifecycle.sql?raw'
+import exampleDedupe from '../../db/migrations/012_example_dedupe.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
@@ -25,7 +27,9 @@ const MIGRATIONS: string[] = [
   retry,
   ruleCalendar,
   decisions,
-  exampleFeedback
+  exampleFeedback,
+  taskLifecycle,
+  exampleDedupe
 ]
 
 export function migrate(db: Database.Database) {

@@ -177,15 +177,51 @@ export interface MaterialiseResult {
   removed: number
 }
 
+/** How long a missed occurrence stays overdue before the next one replaces it. */
+export const MISSED_GRACE_HOURS = 12
+
+interface OpenOccurrence {
+  id: string
+  source_id: string
+  deadline: string | null
+  status: 'pending' | 'snoozed'
+}
+
+function openOccurrences(ruleId: string): OpenOccurrence[] {
+  return getTaskStore()
+    .prepare<[string], OpenOccurrence>(
+      `SELECT id, source_id, deadline, status FROM tasks
+        WHERE source = 'rule' AND status IN ('pending', 'snoozed') AND source_id LIKE ?
+        ORDER BY deadline`
+    )
+    .all(`${ruleId}:%`)
+}
+
+/** Any row at all, including done and deleted: those occurrences are settled. */
+function occurrenceSettled(key: string): boolean {
+  return (
+    getTaskStore()
+      .prepare<[string], { n: number }>(
+        `SELECT 1 AS n FROM tasks WHERE source = 'rule' AND source_id = ?`
+      )
+      .get(key) !== undefined
+  )
+}
+
 /**
- * Idempotent: the unique index on (source, source_id) means running this every
- * few minutes cannot duplicate an occurrence, so it is safe to call from the
- * scheduler, at launch, and immediately after a rule is edited.
+ * Keeps exactly one open occurrence per rule: the missed one while it is
+ * still worth doing, otherwise the next one that has not been completed or
+ * deleted. Materialising two weeks ahead filled the list with copies of the
+ * same task, and deleting one simply brought it back on the next pass.
+ *
+ * Idempotent, so it is safe to call from the scheduler, at launch, and
+ * immediately after a rule is edited.
  */
 export function materialiseRules(
   now = new Date(),
   horizonDays = MATERIALISE_HORIZON_DAYS
 ): MaterialiseResult {
+  const db = getTaskStore()
   let created = 0
   let removed = 0
 
@@ -195,27 +231,40 @@ export function materialiseRules(
       continue
     }
 
-    const occurrences = occurrencesWithin(rule, now, horizonDays)
-    const keep = new Set<string>()
-    const tasks: NewTask[] = []
+    const upcoming = occurrencesWithin(rule, now, horizonDays)
+    const scheduled = new Set(upcoming.map((at) => occurrenceKey(rule.id, at)))
+    const graceCutoff = now.getTime() - MISSED_GRACE_HOURS * 3_600_000
 
-    for (const at of occurrences) {
-      const key = occurrenceKey(rule.id, at)
-      keep.add(key)
-      const due = new Date(at.getTime() - rule.leadMinutes * 60_000)
-      tasks.push({
-        title: rule.title,
-        deadline: due.toISOString(),
-        priority: rule.priority,
-        source: 'rule',
-        sourceId: key,
-        rawContext: `Recurring: ${rule.title}`,
-        confidence: 1
-      })
+    let kept: OpenOccurrence | null = null
+    for (const open of openOccurrences(rule.id)) {
+      const due = open.deadline ? new Date(open.deadline).getTime() : now.getTime()
+      const missed = due < now.getTime()
+      if (open.status === 'pending' && missed && due < graceCutoff) {
+        db.prepare(`UPDATE tasks SET status = 'archived' WHERE id = ?`).run(open.id)
+        removed++
+      } else if (open.status === 'pending' && (kept || (!missed && !scheduled.has(open.source_id)))) {
+        // A second open occurrence, or a future one the rule no longer
+        // schedules (it was retimed). Pending rows only: a snooze is a choice.
+        db.prepare(`DELETE FROM tasks WHERE id = ?`).run(open.id)
+        removed++
+      } else {
+        kept ??= open
+      }
     }
+    if (kept) continue
 
-    removed += dropStaleOccurrences(rule, keep)
-    created += addTasksIgnoringDuplicates(tasks).length
+    const at = upcoming.find((candidate) => !occurrenceSettled(occurrenceKey(rule.id, candidate)))
+    if (!at) continue
+    const task: NewTask = {
+      title: rule.title,
+      deadline: new Date(at.getTime() - rule.leadMinutes * 60_000).toISOString(),
+      priority: rule.priority,
+      source: 'rule',
+      sourceId: occurrenceKey(rule.id, at),
+      rawContext: `Recurring: ${rule.title}`,
+      confidence: 1
+    }
+    created += addTasksIgnoringDuplicates([task]).length
   }
 
   return { created, removed }

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import * as sqliteVec from 'sqlite-vec'
+import { KEEP_TOMBSTONE_DAYS } from '@shared/retention'
 import type { Task, TaskPriority, TaskSource } from '@shared/types'
 import { migrate } from './migrations'
 
@@ -173,20 +174,25 @@ export function updateTask(id: string, patch: TaskPatch): void {
 
   params.push(id)
   handle()
-    .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = ?`)
+    .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = ? AND status != 'deleted'`)
     .run(...params)
 }
 
 export function setStatus(id: string, status: Task['status']): void {
   handle()
-    .prepare(`UPDATE tasks SET status = ?, completed_at = ?, snoozed_until = NULL WHERE id = ?`)
+    .prepare(
+      `UPDATE tasks SET status = ?, completed_at = ?, snoozed_until = NULL
+        WHERE id = ? AND status != 'deleted'`
+    )
     .run(status, status === 'done' ? new Date().toISOString() : null, id)
 }
 
 /** Hides the task until `until`; wakeSnoozed() brings it back as pending. */
 export function snoozeTask(id: string, until: string): void {
   handle()
-    .prepare(`UPDATE tasks SET status = 'snoozed', snoozed_until = ? WHERE id = ?`)
+    .prepare(
+      `UPDATE tasks SET status = 'snoozed', snoozed_until = ? WHERE id = ? AND status != 'deleted'`
+    )
     .run(until, id)
 }
 
@@ -206,8 +212,24 @@ export function getTask(id: string): Task | null {
   return row ? toTask(row) : null
 }
 
+/**
+ * Leaves a tombstone rather than removing the row: the row is what holds the
+ * (source, source_id) slot, so removing it let the next sync import the same
+ * email, event or recurring occurrence again.
+ */
 export function deleteTask(id: string): void {
-  handle().prepare(`DELETE FROM tasks WHERE id = ?`).run(id)
+  handle()
+    .prepare(
+      `UPDATE tasks SET status = 'deleted', deleted_at = ?, snoozed_until = NULL WHERE id = ?`
+    )
+    .run(new Date().toISOString(), id)
+}
+
+export function purgeTombstones(now = Date.now(), days = KEEP_TOMBSTONE_DAYS): number {
+  const cutoff = new Date(now - days * 86_400_000).toISOString()
+  return handle()
+    .prepare(`DELETE FROM tasks WHERE status = 'deleted' AND deleted_at < ?`)
+    .run(cutoff).changes
 }
 
 export type ProcessOutcome = 'extracted' | 'skipped' | 'failed'
@@ -294,11 +316,18 @@ export function listRetryableFailures(source: TaskSource, limit = 25): string[] 
     .map((row) => row.source_id)
 }
 
-/** Manual Sync now must re-read recent mail; otherwise a 0-task extraction is sticky forever. */
+/**
+ * Manual Sync re-reads recent mail that yielded nothing, so a 0-task extraction
+ * is not sticky forever. Messages that did produce tasks are left alone:
+ * re-reading them is how deleted and edited tasks used to come back.
+ */
 export function forgetRecentGmail(hours = 48): number {
   const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString()
   return handle()
-    .prepare(`DELETE FROM processed_messages WHERE source = 'gmail' AND processed_at >= ?`)
+    .prepare(
+      `DELETE FROM processed_messages
+        WHERE source = 'gmail' AND processed_at >= ? AND tasks_found = 0`
+    )
     .run(cutoff).changes
 }
 

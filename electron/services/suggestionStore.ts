@@ -47,7 +47,7 @@ function observedTasks(): { title: string; at: string }[] {
     .prepare<[], { title: string; at: string }>(
       `SELECT title, COALESCE(deadline, created_at) AS at
        FROM tasks
-       WHERE source != 'rule'`
+       WHERE source != 'rule' AND status != 'deleted'`
     )
     .all()
 }

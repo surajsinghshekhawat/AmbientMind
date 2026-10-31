@@ -44,6 +44,19 @@ export function storeExample(
   const { source = 'observed', sourceId = null, embedVersion = 0 } = options
 
   return db.transaction(() => {
+    // One example per message: a re-read refreshes it and keeps its rating.
+    const existing =
+      sourceId === null
+        ? undefined
+        : db
+            .prepare<[string], { id: number }>(`SELECT id FROM examples WHERE source_id = ?`)
+            .get(sourceId)
+    if (existing) {
+      db.prepare(`UPDATE examples SET tasks = ? WHERE id = ?`).run(JSON.stringify(tasks), existing.id)
+      replaceEmbedding(db, existing.id, message, embedding, embedVersion)
+      return existing.id
+    }
+
     const { lastInsertRowid } = db
       .prepare(
         `INSERT INTO examples (message, tasks, source, source_id, embed_version, created_at)

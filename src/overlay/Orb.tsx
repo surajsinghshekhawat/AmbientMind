@@ -1,5 +1,5 @@
 import type { Task, Urgency } from '@shared/types'
-import { urgencyOf } from '@shared/urgency'
+import { isDueToday, urgencyOf } from '@shared/urgency'
 import { INTERACTIVE_ATTR } from './useMouseCapture'
 
 const RING: Record<Urgency, string> = {
@@ -29,13 +29,14 @@ export function Orb({ tasks, now, expanded, onToggle }: Props) {
   const pending = tasks.filter((task) => task.status === 'pending')
   const urgency = peakUrgency(pending, now)
   const ring = RING[urgency]
+  const due = pending.filter((task) => isDueToday(task, now)).length
 
   return (
     <button
       {...{ [INTERACTIVE_ATTR]: '' }}
       type="button"
       onClick={onToggle}
-      aria-label={expanded ? 'Minimize AmbientMind' : `Show ${pending.length} tasks`}
+      aria-label={expanded ? 'Minimize AmbientMind' : `Show tasks, ${due} due today`}
       title={expanded ? 'Minimize' : 'Show tasks'}
       className={`block h-[70px] w-[70px] shrink-0 cursor-pointer rounded-full border-0 p-0 ${
         urgency === 'overdue' ? 'animate-overdue-pulse' : ''
@@ -48,7 +49,7 @@ export function Orb({ tasks, now, expanded, onToggle }: Props) {
       }}
     >
       <span className="flex h-full w-full items-center justify-center text-[22px] font-semibold tabular-nums leading-none">
-        {pending.length}
+        {due}
       </span>
     </button>
   )

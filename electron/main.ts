@@ -395,7 +395,7 @@ function registerIpc() {
     return { google: false }
   })
 
-  ipcMain.handle(IPC.RunSyncNow, () => triggerSync())
+  ipcMain.handle(IPC.RunSyncNow, () => triggerSync(true))
 
   ipcMain.handle(IPC.GetConfig, () => loadConfig())
 
@@ -617,7 +617,8 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
   }
 }
 
-async function triggerSync(force = true): Promise<SyncReport> {
+/** Only an explicit "Sync now" forces; Connect and wake read new mail only. */
+async function triggerSync(force = false): Promise<SyncReport> {
   getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'running' })
   const report = await runSync(syncOptions(loadConfig(), { force }))
   lastReport = {
@@ -758,7 +759,7 @@ if (process.argv.includes('--sync-now')) {
     createOverlayWindow(config)
     createQuickAddWindow()
     trayHandle = createTray({
-      onSyncNow: triggerSync,
+      onSyncNow: () => triggerSync(true),
       onOpenSettings: () => showSettingsWindow()
     })
 
