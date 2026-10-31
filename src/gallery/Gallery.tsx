@@ -15,6 +15,7 @@ import {
 import { Panel, type PanelProps } from '../overlay/Panel'
 import { App as Chat } from '../chat/App'
 import { App as QuickCapture } from '../quickadd/App'
+import { App as SettingsApp, type SectionId } from '../settings/App'
 import { Button } from '../ui/Button'
 import { Check } from '../ui/Check'
 import { IconButton } from '../ui/IconButton'
@@ -178,6 +179,37 @@ const longTasks: Task[] = [
 
 const unhealthy: HealthReport = ollamaDownReport()
 
+/** A Settings window as macOS draws it: the page, plus traffic lights over the sidebar. */
+function SettingsWindow({ section, theme }: { section: SectionId; theme: 'light' | 'dark' }) {
+  return (
+    <div
+      data-theme={theme}
+      className="relative h-[560px] w-[760px] overflow-hidden rounded-[12px] shadow-[0_20px_60px_oklch(0_0_0/0.45),0_0_0_0.5px_oklch(0_0_0/0.5)]"
+    >
+      <SettingsApp initialSection={section} applyTheme={false} />
+      <div className="pointer-events-none absolute top-[18px] left-[18px] flex gap-2">
+        {['#ff5f57', '#febc2e', '#28c840'].map((color) => (
+          <i key={color} className="size-3 rounded-full" style={{ background: color }} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const SETTINGS_STATES: { section: SectionId; theme: 'light' | 'dark' }[] = [
+  { section: 'general', theme: 'light' },
+  { section: 'general', theme: 'dark' },
+  { section: 'sources', theme: 'dark' },
+  { section: 'ai', theme: 'light' },
+  { section: 'capture', theme: 'dark' },
+  { section: 'shortcuts', theme: 'dark' },
+  { section: 'recurring', theme: 'light' },
+  { section: 'learned', theme: 'dark' },
+  { section: 'privacy', theme: 'light' },
+  { section: 'permissions', theme: 'dark' },
+  { section: 'about', theme: 'light' }
+]
+
 export function Gallery() {
   return (
     <div data-theme="dark" className="h-full overflow-auto bg-[oklch(0.15_0.004_286)] text-ink-1" style={{ userSelect: 'text' }}>
@@ -298,6 +330,16 @@ export function Gallery() {
               <QuickCapture initialMessage={{ text: 'The microphone is blocked. Allow it in System Settings → Privacy & Security → Microphone.', error: true }} />
             </Backdrops>
           </State>
+        </Section>
+
+        <Section title="Settings">
+          {SETTINGS_STATES.map(({ section, theme }) => (
+            <State key={`${section}-${theme}`} name={`Settings ${section} ${theme}`}>
+              <div className="flex justify-center rounded-xl p-8" style={BACKDROPS[theme === 'light' ? 1 : 0]!.style}>
+                <SettingsWindow section={section} theme={theme} />
+              </div>
+            </State>
+          ))}
         </Section>
 
         <Section title="Chat">

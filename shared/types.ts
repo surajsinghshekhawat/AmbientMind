@@ -1,3 +1,5 @@
+import type { ShortcutSet } from './shortcuts'
+
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
 export type TaskSource =
@@ -42,6 +44,8 @@ export type Urgency = 'neutral' | 'approaching' | 'urgent' | 'overdue'
 
 export type OverlayCorner = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'
 
+export type ThemeChoice = 'system' | 'light' | 'dark'
+
 export interface Config {
   overlayCorner: OverlayCorner
   overlayOpacity: number
@@ -75,6 +79,10 @@ export interface Config {
    * Recurrence and snooze keep running. Null means not paused.
    */
   pauseAiUntil: string | null
+  /** Settings and onboarding only; the overlay, capture and chat stay dark. */
+  theme: ThemeChoice
+  /** Only the shortcuts the user changed; the rest use the platform defaults. */
+  shortcuts: Partial<ShortcutSet>
 }
 
 export interface ModelHealth {
@@ -145,7 +153,9 @@ export const DEFAULT_CONFIG: Config = {
   calendarWriteBack: false,
   displayName: '',
   aboutMe: '',
-  pauseAiUntil: null
+  pauseAiUntil: null,
+  theme: 'system',
+  shortcuts: {}
 }
 
 /** Long enough for real context, short enough not to crowd out the message. */

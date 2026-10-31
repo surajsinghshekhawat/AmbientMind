@@ -1,8 +1,10 @@
 import { normalizePauseAiUntil } from './pauseAi'
-import { ABOUT_ME_MAX_CHARS, DEFAULT_CONFIG, type Config, type OverlayCorner } from './types'
+import { isValidAccelerator, SHORTCUT_NAMES, type ShortcutAction, type ShortcutSet } from './shortcuts'
+import { ABOUT_ME_MAX_CHARS, DEFAULT_CONFIG, type Config, type OverlayCorner, type ThemeChoice } from './types'
 
 const CORNERS: OverlayCorner[] = ['top-right', 'top-left', 'bottom-right', 'bottom-left']
 const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
+const THEMES: ThemeChoice[] = ['system', 'light', 'dark']
 
 /** Any non-finite input (NaN, Infinity, a string, null) means "use the default". */
 function num(value: unknown, fallback: number, min: number, max: number, round = false): number {
@@ -13,6 +15,17 @@ function num(value: unknown, fallback: number, min: number, max: number, round =
 
 function text(value: unknown, fallback: string, max = Infinity): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : fallback
+}
+
+/** Unknown actions and malformed keys are dropped, so the default applies. Modifier rules are the same on every OS. */
+function shortcuts(value: unknown): Partial<ShortcutSet> {
+  if (!value || typeof value !== 'object') return {}
+  const out: Partial<ShortcutSet> = {}
+  for (const action of Object.keys(SHORTCUT_NAMES) as ShortcutAction[]) {
+    const accelerator = (value as Record<string, unknown>)[action]
+    if (typeof accelerator === 'string' && isValidAccelerator(accelerator, 'mac')) out[action] = accelerator
+  }
+  return out
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -45,6 +58,8 @@ export function sanitizeConfig(raw: Partial<Config>): Config {
     calendarWriteBack: bool(raw.calendarWriteBack, d.calendarWriteBack),
     displayName: text(raw.displayName, '', 80),
     aboutMe: text(raw.aboutMe, '', ABOUT_ME_MAX_CHARS),
-    pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil)
+    pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil),
+    theme: THEMES.includes(raw.theme as ThemeChoice) ? (raw.theme as ThemeChoice) : d.theme,
+    shortcuts: shortcuts(raw.shortcuts)
   }
 }

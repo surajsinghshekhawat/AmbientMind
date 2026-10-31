@@ -1,0 +1,502 @@
+import { useState } from 'react'
+import { describePause, isAiPaused, pauseAiForHours } from '@shared/pauseAi'
+import type { MediaKind, PermissionState } from '@shared/permissions'
+import {
+  ABOUT_ME_MAX_CHARS,
+  WHISPER_MODELS,
+  type Config,
+  type HealthReport,
+  type OverlayCorner,
+  type SyncSummary,
+  type ThemeChoice
+} from '@shared/types'
+import { Button } from '@/ui/Button'
+import { cn } from '@/ui/cn'
+import { Orb } from '@/ui/Orb'
+import { DraftInput, DraftTextarea } from './DraftField'
+import { areaClass, fieldClass, Group, Page, Pill, Row, Segmented, Select, Toggle } from './controls'
+
+export interface AccountStatus {
+  google: boolean
+  googleEmail: string | null
+  credentialsConfigured: boolean
+}
+
+export interface SettingsData {
+  config: Config
+  account: AccountStatus
+  ragCount: number
+  health: HealthReport | null
+  sync: SyncSummary | null
+  learned: { title: string; deletes: number }[]
+  permissions: PermissionState[]
+  appInfo: { version: string; userData: string } | null
+}
+
+export interface SettingsActions {
+  patch: (partial: Partial<Config>) => Promise<void>
+  refresh: () => Promise<void>
+  /** Runs a slow action with the buttons disabled; a returned string is shown as a toast. */
+  run: (label: string, task: () => Promise<string | void>) => Promise<void>
+  busy: string | null
+  setLearned: (learned: SettingsData['learned']) => void
+}
+
+interface PageProps {
+  data: SettingsData
+  actions: SettingsActions
+}
+
+export function relativeTime(iso: string | null, now = Date.now()): string {
+  if (!iso) return 'Never'
+  const ms = now - Date.parse(iso)
+  if (!Number.isFinite(ms)) return 'Never'
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  return `${Math.round(hours / 24)} d ago`
+}
+
+const CORNERS: { value: OverlayCorner; label: string }[] = [
+  { value: 'top-right', label: 'Top right' },
+  { value: 'top-left', label: 'Top left' },
+  { value: 'bottom-right', label: 'Bottom right' },
+  { value: 'bottom-left', label: 'Bottom left' }
+]
+
+const THEMES: { value: ThemeChoice; label: string }[] = [
+  { value: 'system', label: 'Auto' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' }
+]
+
+const VISIBLE = [3, 5, 7, 10, 12, 15, 20]
+const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
+
+export function General({ data: { config }, actions: { patch } }: PageProps) {
+  const visible = VISIBLE.includes(config.maxTasksVisible) ? VISIBLE : [...VISIBLE, config.maxTasksVisible].sort((a, b) => a - b)
+  return (
+    <Page title="General">
+      <Group>
+        <Row label="Appearance" description="For Settings. The orb and its panel stay dark.">
+          <Segmented label="Appearance" value={config.theme} options={THEMES} onChange={(theme) => void patch({ theme })} />
+        </Row>
+        <Row label="Orb position">
+          <Select aria-label="Orb position" value={config.overlayCorner} onChange={(e) => void patch({ overlayCorner: e.target.value as OverlayCorner })}>
+            {CORNERS.map((corner) => (
+              <option key={corner.value} value={corner.value}>
+                {corner.label}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row label="Tasks before “Show more”">
+          <Select aria-label="Tasks before Show more" value={config.maxTasksVisible} onChange={(e) => void patch({ maxTasksVisible: Number(e.target.value) })}>
+            {visible.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row label="Open at login" description="Adds AmbientMind to your login items. Off until you turn it on.">
+          <Toggle label="Open at login" checked={config.launchAtLogin} onChange={(launchAtLogin) => void patch({ launchAtLogin })} />
+        </Row>
+      </Group>
+
+      <Group
+        title="About you"
+        footer={`Background for the model when it reads your mail and screen. Never turned into a task, never leaves this Mac. ${config.aboutMe.length}/${ABOUT_ME_MAX_CHARS}`}
+      >
+        <Row label="Your name" description="How your mail addresses you." htmlFor="display-name">
+          <DraftInput
+            id="display-name"
+            value={config.displayName}
+            placeholder="Suraj"
+            onCommit={(displayName) => patch({ displayName })}
+            className={cn(fieldClass, 'w-48')}
+          />
+        </Row>
+        <Row label="Context" htmlFor="about-me" stacked>
+          <DraftTextarea
+            id="about-me"
+            rows={4}
+            value={config.aboutMe}
+            maxLength={ABOUT_ME_MAX_CHARS}
+            placeholder={'College until 4pm on weekdays.\nTuition is non-negotiable.\nI handle the fees, not my brother.'}
+            onCommit={(aboutMe) => patch({ aboutMe })}
+            className={areaClass}
+          />
+        </Row>
+      </Group>
+    </Page>
+  )
+}
+
+export function Sources({ data: { config, account, sync }, actions: { patch, run, busy, refresh } }: PageProps) {
+  return (
+    <Page title="Sources" description="Where tasks come from. Mail is read from this Mac; nothing passes through a server of ours.">
+      <Group
+        title="Google"
+        footer={
+          !account.credentialsConfigured ? (
+            <span>
+              Google needs an OAuth client file first. Put <code className="font-mono text-ink-2">google-credentials.json</code> in the
+              app data folder (see docs/google-setup.md), then connect.{' '}
+              <button type="button" className="focus-ring rounded text-accent hover:underline" onClick={() => void window.ambient.openUserData()}>
+                Open the folder
+              </button>
+            </span>
+          ) : sync?.lastError ? (
+            <span className="text-danger">{sync.lastError}</span>
+          ) : undefined
+        }
+      >
+        <Row label="Gmail" description={account.google ? `Connected as ${account.googleEmail ?? 'your account'}` : 'Reads new mail for things you need to do.'}>
+          {account.google ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!!busy}
+                onClick={() =>
+                  void run('Disconnecting…', async () => {
+                    await window.ambient.accounts.disconnect()
+                    await refresh()
+                    return 'Google disconnected'
+                  })
+                }
+              >
+                Disconnect
+              </Button>
+              <Button
+                size="sm"
+                disabled={!!busy}
+                onClick={() =>
+                  void run('Checking mail…', async () => {
+                    const report = await window.ambient.syncNow()
+                    await refresh()
+                    return report.errors?.length ? report.errors[0] : `Checked ${report.scanned} messages, added ${report.added}`
+                  })
+                }
+              >
+                Check now
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!!busy || !account.credentialsConfigured}
+              onClick={() =>
+                void run('Waiting for Google…', async () => {
+                  await window.ambient.accounts.connect()
+                  await refresh()
+                  return 'Google connected. The first check can take a minute.'
+                })
+              }
+            >
+              Connect
+            </Button>
+          )}
+        </Row>
+        {account.google && (
+          <Row
+            label="Check every"
+            description={`Last checked ${relativeTime(sync?.lastRun ?? null).toLowerCase()}${
+              sync?.lastReport ? ` · ${sync.lastReport.scanned} read, ${sync.lastReport.added} added` : ''
+            }`}
+          >
+            <Select
+              aria-label="Check every"
+              value={config.syncIntervalMinutes}
+              onChange={(e) => void patch({ syncIntervalMinutes: Number(e.target.value) as Config['syncIntervalMinutes'] })}
+            >
+              {INTERVALS.map((n) => (
+                <option key={n} value={n}>
+                  {n === 60 ? '1 hour' : `${n} minutes`}
+                </option>
+              ))}
+            </Select>
+          </Row>
+        )}
+        <Row
+          label="Recurring rules on Google Calendar"
+          description="Writes only to a separate “AmbientMind” calendar it creates, never yours. You may be asked to reconnect once."
+        >
+          <Toggle label="Recurring rules on Google Calendar" checked={config.calendarWriteBack} onChange={(calendarWriteBack) => void patch({ calendarWriteBack })} />
+        </Row>
+      </Group>
+
+      <Group title="On this Mac" footer="Read directly through macOS, with your permission, in a coming update.">
+        <Row label="Apple Calendar" description="Events with a time become tasks you can see coming.">
+          <Pill tone="soon">Coming soon</Pill>
+        </Row>
+        <Row label="Reminders" description="Two-way: complete a task here, it’s done in Reminders.">
+          <Pill tone="soon">Coming soon</Pill>
+        </Row>
+      </Group>
+    </Page>
+  )
+}
+
+export function AiModels({ data: { config, health, ragCount, account }, actions: { patch, run, busy, refresh } }: PageProps) {
+  return (
+    <Page title="AI & Models" description="Everything runs on this Mac. No prompt or email is sent anywhere.">
+      <Group
+        title="Status"
+        footer={
+          health && health.problems.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-warning">
+              {health.problems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          ) : undefined
+        }
+      >
+        <Row label="Ollama" description={health?.ollama.url ?? 'Checking…'}>
+          {health && <Pill tone={health.ollama.running ? 'ok' : 'bad'}>{health.ollama.running ? 'Running' : 'Not reachable'}</Pill>}
+          <Button variant="ghost" size="sm" onClick={() => void run('Checking…', refresh)}>
+            Check again
+          </Button>
+        </Row>
+        {health?.models.map((model) => (
+          <Row
+            key={model.name}
+            label={model.role === 'extraction' ? 'Task model' : 'Memory model'}
+            description={<span className="font-mono text-micro">{model.name}</span>}
+          >
+            <Pill tone={model.present ? 'ok' : 'warn'}>{model.present ? 'Ready' : 'Not downloaded'}</Pill>
+          </Row>
+        ))}
+        <Row label="Apple Intelligence" description="Used first when this Mac has it, with Ollama as the fallback.">
+          <Pill tone="soon">Coming soon</Pill>
+        </Row>
+      </Group>
+
+      <Group title="Model" footer="Any model you have pulled into the project’s Ollama. Smaller is faster; qwen2.5:3b is the tested default.">
+        <Row label="Ollama model" htmlFor="ollama-model">
+          <DraftInput
+            id="ollama-model"
+            value={config.ollamaModel}
+            onCommit={(ollamaModel) => patch({ ollamaModel })}
+            className={cn(fieldClass, 'w-48 font-mono text-small')}
+          />
+        </Row>
+      </Group>
+
+      <Group title="Learning">
+        <Row label="Examples remembered" description="Similar past mail is shown to the model, so it learns how you work.">
+          <span className="tabular text-body text-ink-2">{ragCount}</span>
+        </Row>
+        <Row label="Measure accuracy on your mail" description="Exports recent mail with today’s answers filled in, for you to correct. Stays on this Mac.">
+          <Button
+            size="sm"
+            disabled={!!busy || !account.google}
+            onClick={() =>
+              void run('Reading your mail… this takes a few minutes.', async () => {
+                const result = await window.ambient.exportCorpus()
+                return `Wrote ${result.messages} messages to ${result.path}`
+              })
+            }
+          >
+            Export
+          </Button>
+        </Row>
+      </Group>
+    </Page>
+  )
+}
+
+const PERMISSION_NAMES: Record<MediaKind, string> = {
+  microphone: 'Microphone',
+  screen: 'Screen Recording'
+}
+
+function permissionPill(permission: PermissionState) {
+  switch (permission.status) {
+    case 'granted':
+      return <Pill tone="ok">Allowed</Pill>
+    case 'denied':
+      return <Pill tone="warn">Off</Pill>
+    case 'restricted':
+      return <Pill tone="bad">Blocked</Pill>
+    case 'not-determined':
+      return <Pill tone="quiet">Asks on first use</Pill>
+    default:
+      return <Pill tone="quiet">Not needed</Pill>
+  }
+}
+
+function PermissionRow({ permission, description }: { permission: PermissionState; description: string }) {
+  return (
+    <Row label={PERMISSION_NAMES[permission.kind]} description={permission.help ?? description}>
+      {permissionPill(permission)}
+      {permission.canOpenSettings && permission.status !== 'granted' && (
+        <Button size="sm" onClick={() => void window.ambient.openPermissionSettings(permission.kind)}>
+          Open System Settings
+        </Button>
+      )}
+    </Row>
+  )
+}
+
+const PERMISSION_USE: Record<MediaKind, string> = {
+  microphone: 'To talk to Quick Capture. Audio is transcribed on this Mac and never saved.',
+  screen: 'Only when you ask it to read your screen. Nothing is recorded or kept.'
+}
+
+export function Capture({ data: { config, permissions }, actions: { patch } }: PageProps) {
+  const screen = permissions.find((p) => p.kind === 'screen')
+  return (
+    <Page title="Capture" description="Add tasks by typing, talking or pointing at your screen.">
+      <Group title="Voice" footer="Speech is turned into text on the CPU, so a larger model costs seconds, not memory. A new model downloads once, in the background.">
+        <Row label="Voice model">
+          <Select aria-label="Voice model" value={config.whisperModel} onChange={(e) => void patch({ whisperModel: e.target.value })}>
+            {WHISPER_MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Group>
+      {screen && (
+        <Group title="Screen" footer="Say “add what’s on my screen” in Quick Capture, or use the capture shortcut.">
+          <PermissionRow permission={screen} description={PERMISSION_USE.screen} />
+        </Group>
+      )}
+    </Page>
+  )
+}
+
+export function Learned({ data: { learned }, actions: { setLearned } }: PageProps) {
+  return (
+    <Page title="Learned" description="Things you deleted again and again without doing. New ones are kept off your list.">
+      {learned.length === 0 ? (
+        <div className="flex flex-col items-center gap-1 rounded-inner bg-fill px-6 py-10 text-center hairline">
+          <p className="text-body text-ink-2">Nothing learned yet</p>
+          <p className="max-w-[300px] text-small text-ink-3">When you keep deleting the same kind of task, it shows up here so you can undo it.</p>
+        </div>
+      ) : (
+        <Group>
+          {learned.map((entry) => (
+            <Row key={entry.title} label={entry.title} description={`Deleted ${entry.deletes} times`}>
+              <Button variant="ghost" size="sm" onClick={async () => setLearned(await window.ambient.learned.forget(entry.title))}>
+                Allow again
+              </Button>
+            </Row>
+          ))}
+        </Group>
+      )}
+    </Page>
+  )
+}
+
+function tomorrowMorning(now = new Date()): string {
+  const next = new Date(now)
+  next.setDate(next.getDate() + 1)
+  next.setHours(8, 0, 0, 0)
+  return next.toISOString()
+}
+
+export function Privacy({ data: { config }, actions: { patch, run, busy } }: PageProps) {
+  const [passphrase, setPassphrase] = useState('')
+  const paused = isAiPaused(config.pauseAiUntil)
+  return (
+    <Page title="Privacy & Data" description="Your mail, tasks and model all live on this Mac. Nothing is uploaded, and there is no account.">
+      <Group title="Pause AI" footer="While paused nothing reads your mail or screen. Recurring tasks and snoozes still work.">
+        <Row label={paused ? 'Paused' : 'AI is on'} description={paused ? describePause(config.pauseAiUntil!) : 'Reads new mail on schedule and answers in chat.'}>
+          {paused ? (
+            <Button variant="primary" size="sm" onClick={() => void patch({ pauseAiUntil: null })}>
+              Resume
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" onClick={() => void patch({ pauseAiUntil: pauseAiForHours(1) })}>
+                For 1 hour
+              </Button>
+              <Button size="sm" onClick={() => void patch({ pauseAiUntil: tomorrowMorning() })}>
+                Until tomorrow
+              </Button>
+            </>
+          )}
+        </Row>
+      </Group>
+
+      <Group title="Backup" footer="An encrypted file with your tasks, rules and settings. Without the passphrase it cannot be opened, by anyone.">
+        <Row label="Passphrase" htmlFor="backup-passphrase">
+          <input
+            id="backup-passphrase"
+            type="password"
+            autoComplete="new-password"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            placeholder="At least 8 characters"
+            className={cn(fieldClass, 'w-48')}
+          />
+          <Button
+            size="sm"
+            disabled={!!busy || passphrase.length < 8}
+            onClick={() =>
+              void run('Writing backup…', async () => {
+                const result = await window.ambient.exportBackup(passphrase)
+                if (result.canceled) return
+                setPassphrase('')
+                return `Backup saved to ${result.path}`
+              })
+            }
+          >
+            Save backup…
+          </Button>
+        </Row>
+      </Group>
+
+      <Group title="Your data">
+        <Row label="App data folder" description="The database, settings and downloaded models.">
+          <Button size="sm" onClick={() => void window.ambient.openUserData()}>
+            Show in Finder
+          </Button>
+        </Row>
+      </Group>
+    </Page>
+  )
+}
+
+export function Permissions({ data: { permissions } }: PageProps) {
+  return (
+    <Page title="Permissions" description="Asked for only when a feature needs it. Changes in System Settings show up here when you come back.">
+      <Group>
+        {permissions.map((permission) => (
+          <PermissionRow key={permission.kind} permission={permission} description={PERMISSION_USE[permission.kind]} />
+        ))}
+      </Group>
+    </Page>
+  )
+}
+
+export function About({ data: { appInfo } }: PageProps) {
+  return (
+    <Page title="About">
+      <div className="flex items-center gap-4 rounded-inner bg-fill px-4 py-4 hairline">
+        <span data-theme="dark" className="contents">
+          <Orb look={{ motion: 'breathing', calm: true, arc: null, badge: null, attention: false, peek: '' }} size={48} />
+        </span>
+        <div>
+          <p className="text-title font-semibold text-ink-1">AmbientMind</p>
+          <p className="text-small text-ink-3">Version {appInfo?.version ?? '…'} · Your tasks, noticed for you.</p>
+        </div>
+      </div>
+      <Group>
+        <Row label="Data folder" description={<span className="font-mono text-micro break-all">{appInfo?.userData ?? '…'}</span>}>
+          <Button size="sm" onClick={() => void window.ambient.openUserData()}>
+            Show
+          </Button>
+        </Row>
+      </Group>
+    </Page>
+  )
+}

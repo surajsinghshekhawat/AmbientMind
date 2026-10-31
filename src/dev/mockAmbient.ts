@@ -10,7 +10,15 @@ import {
   type Task
 } from '@shared/types'
 import type { MediaKind, PermissionState } from '@shared/permissions'
-import type { ShortcutStatus } from '@shared/shortcuts'
+import {
+  findConflicts,
+  resolveShortcuts,
+  SHORTCUT_NAMES,
+  shortcutLabel,
+  type ShortcutAction,
+  type ShortcutStatus
+} from '@shared/shortcuts'
+import { sanitizeConfig } from '@shared/config'
 import { healthyReport, makeTask } from './fixtures'
 
 type SyncStatus = { state: 'running' | 'idle' }
@@ -117,7 +125,18 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
 
     getConfig: async () => ({ ...state.config }),
     setConfig: async (patch: Partial<Config>) => {
-      state.config = { ...state.config, ...patch }
+      state.config = sanitizeConfig({ ...state.config, ...patch })
+      if (patch.shortcuts) {
+        const set = resolveShortcuts('mac', state.config.shortcuts)
+        const conflicts = findConflicts(set, 'mac')
+        state.shortcuts = (Object.keys(set) as ShortcutAction[]).map((action) => ({
+          action,
+          name: SHORTCUT_NAMES[action],
+          accelerator: set[action],
+          label: shortcutLabel(set[action], 'mac'),
+          problem: conflicts[action] ?? null
+        }))
+      }
       configChanged.emit({ ...state.config })
       return { ...state.config }
     },
@@ -224,6 +243,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     getAppInfo: async () => ({ version: '0.0.0-mock', userData: '/mock/userData' }),
     openUserData: async () => record('openUserData'),
     getShortcuts: async () => state.shortcuts,
+    suspendShortcuts: (suspended: boolean) => record('suspendShortcuts', suspended),
     getPermissions: async () => state.permissions,
     openPermissionSettings: async (kind: MediaKind) => {
       record('openPermissionSettings', kind)

@@ -2,11 +2,11 @@ import { isIsolated } from './isolation'
 import { userInfo } from 'node:os'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, dialog, globalShortcut, ipcMain, Notification, session, shell } from 'electron'
+import { app, dialog, globalShortcut, ipcMain, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import {
-  defaultShortcuts,
   findConflicts,
+  resolveShortcuts,
   SHORTCUT_NAMES,
   shortcutLabel,
   type ShortcutAction,
@@ -240,6 +240,8 @@ function applyLoginItem(config: Config) {
 
 function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
+  nativeTheme.themeSource = config.theme
+  if (previous && JSON.stringify(previous.shortcuts) !== JSON.stringify(config.shortcuts)) registerShortcuts()
   broadcast(IPC.ConfigChanged, config)
   setSpeechModel(config.whisperModel)
   if (!previous || previous.launchAtLogin !== config.launchAtLogin) applyLoginItem(config)
@@ -555,6 +557,8 @@ function registerIpc() {
   ipcMain.handle(IPC.OpenUserData, () => shell.openPath(app.getPath('userData')))
 
   ipcMain.handle(IPC.GetShortcuts, () => shortcutStatus)
+  // While Settings records a shortcut, the current ones must not fire.
+  onIpc(IPC.SuspendShortcuts, (_event, suspended: boolean) => (suspended ? unregisterShortcuts() : registerShortcuts()))
 
   ipcMain.handle(IPC.GetPermissions, () => [permissionState('microphone'), permissionState('screen')])
 
@@ -782,23 +786,35 @@ function guardNavigation() {
 }
 
 let shortcutStatus: ShortcutStatus[] = []
+let shortcutHandlers: Record<ShortcutAction, () => void> | null = null
+let registeredShortcuts: string[] = []
+
+function unregisterShortcuts() {
+  for (const accelerator of registeredShortcuts) globalShortcut.unregister(accelerator)
+  registeredShortcuts = []
+}
 
 /**
  * A known conflict is reported but still registered: the user may have
  * turned the other owner off. Registration fails when another app already
  * holds the keys, and that is reported too, instead of a dead shortcut.
+ * Called again whenever the user changes a shortcut.
  */
-function registerShortcuts(handlers: Record<ShortcutAction, () => void>) {
-  const set = defaultShortcuts(os)
+function registerShortcuts(handlers?: Record<ShortcutAction, () => void>) {
+  if (handlers) shortcutHandlers = handlers
+  if (!shortcutHandlers) return
+  unregisterShortcuts()
+  const set = resolveShortcuts(os, loadConfig().shortcuts)
   const conflicts = findConflicts(set, os)
   shortcutStatus = (Object.keys(set) as ShortcutAction[]).map((action) => {
     const accelerator = set[action]
     let registered = false
     try {
-      registered = globalShortcut.register(accelerator, guard(`shortcut:${action}`, handlers[action]))
+      registered = globalShortcut.register(accelerator, guard(`shortcut:${action}`, shortcutHandlers![action]))
     } catch (err) {
       console.warn('[shortcuts] failed to register', accelerator, err)
     }
+    if (registered) registeredShortcuts.push(accelerator)
     return {
       action,
       name: SHORTCUT_NAMES[action],
@@ -937,6 +953,7 @@ if (process.argv.includes('--selftest')) {
       }
     })
 
+    nativeTheme.themeSource = config.theme
     registerShortcuts({
       quickAdd: toggleQuickAdd,
       capture: () => void captureScreenAsTask(),

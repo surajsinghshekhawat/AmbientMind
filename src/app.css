@@ -1,14 +1,6 @@
 @import 'tailwindcss';
 @import './ui/tokens.css';
 
-/* Legacy names still used by screens not yet on the new primitives. */
-@theme inline {
-  --color-urgency-neutral: var(--ink-2);
-  --color-urgency-approaching: var(--soon);
-  --color-urgency-urgent: var(--warning);
-  --color-urgency-overdue: var(--danger);
-}
-
 html,
 body,
 #root {
@@ -47,7 +39,4 @@ html.settings-window,
 html.settings-window body,
 html.settings-window #root {
   background: var(--window);
-  overflow: auto;
-  user-select: text;
-  cursor: auto;
 }

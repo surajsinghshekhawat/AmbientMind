@@ -48,3 +48,14 @@ test('booleans must be booleans', () => {
   assert.equal(config.calendarWriteBack, DEFAULT_CONFIG.calendarWriteBack)
   assert.equal(config.launchAtLogin, DEFAULT_CONFIG.launchAtLogin)
 })
+
+test('theme and shortcut overrides are checked, never trusted', () => {
+  const config = sanitizeConfig({
+    theme: 'neon' as never,
+    shortcuts: { chat: 'Control+Alt+K', quickAdd: 'Shift+A', bogus: 'Control+Alt+B' } as never
+  })
+  assert.equal(config.theme, 'system')
+  assert.deepEqual(config.shortcuts, { chat: 'Control+Alt+K' })
+  assert.deepEqual(sanitizeConfig({ shortcuts: 'nope' as never }).shortcuts, {})
+  assert.equal(sanitizeConfig({ theme: 'light' }).theme, 'light')
+})

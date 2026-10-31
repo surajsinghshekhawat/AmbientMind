@@ -70,6 +70,7 @@ export const IPC = {
   OpenSettings: 'settings:open',
   GetAppInfo: 'app:info',
   ExportBackup: 'settings:export-backup',
+  SuspendShortcuts: 'settings:suspend-shortcuts',
   GetChatHistory: 'chat:history-get',
   SaveChatHistory: 'chat:history-save',
 

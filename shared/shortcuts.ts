@@ -154,3 +154,90 @@ export function findConflicts(set: ShortcutSet, os: Os): Partial<Record<Shortcut
   }
   return conflicts
 }
+
+export function resolveShortcuts(os: Os, overrides: Partial<ShortcutSet> = {}): ShortcutSet {
+  return { ...defaultShortcuts(os), ...overrides }
+}
+
+/** What a recorder sees of a keydown; a plain object so it is testable. */
+export interface KeyPress {
+  code: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+}
+
+const PUNCTUATION: Record<string, string> = {
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Semicolon: ';',
+  Quote: "'",
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Minus: '-',
+  Equal: '=',
+  Backquote: '`'
+}
+
+const NAMED: Record<string, string> = {
+  Space: 'Space',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown'
+}
+
+/**
+ * From the physical key, not the character: on the Mac ⌥S types ß, and a
+ * shortcut has to mean the same keys on any layout.
+ */
+function keyFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3)
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5)
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code
+  return PUNCTUATION[code] ?? NAMED[code] ?? null
+}
+
+const KEY_NAMES = new Set([...Object.values(PUNCTUATION), ...Object.values(NAMED)])
+
+function isKey(key: string): boolean {
+  return /^[A-Z0-9]$/.test(key) || /^F([1-9]|1[0-9]|2[0-4])$/.test(key) || KEY_NAMES.has(key)
+}
+
+/** A global shortcut needs ⌃, ⌥ or ⌘ (Ctrl, Alt or Win), or a function key; Shift alone would eat typing. */
+function strongEnough(modifiers: Set<Modifier>, key: string): boolean {
+  if (/^F\d+$/.test(key)) return true
+  return modifiers.has('control') || modifiers.has('alt') || modifiers.has('command') || modifiers.has('super')
+}
+
+export function isValidAccelerator(accelerator: string, os: Os): boolean {
+  if (typeof accelerator !== 'string' || !accelerator.trim()) return false
+  const { modifiers, key } = parse(accelerator, os)
+  return isKey(key) && strongEnough(modifiers, key)
+}
+
+export type Recorded = { accelerator: string } | { error: string } | null
+
+/** Null while only modifiers are held: the recorder keeps listening. */
+export function acceleratorFromKey(press: KeyPress, os: Os): Recorded {
+  if (/^(Shift|Control|Alt|Meta|OS)(Left|Right)?$/.test(press.code)) return null
+  const key = keyFromCode(press.code)
+  if (!key) return { error: 'That key cannot be part of a shortcut' }
+  const parts: string[] = []
+  if (press.ctrlKey) parts.push('Control')
+  if (press.altKey) parts.push('Alt')
+  if (press.shiftKey) parts.push('Shift')
+  if (press.metaKey) parts.push(os === 'mac' ? 'Command' : 'Super')
+  const accelerator = [...parts, key].join('+')
+  if (!isValidAccelerator(accelerator, os)) {
+    return { error: os === 'mac' ? 'Add ⌃, ⌥ or ⌘ to the key' : 'Add Ctrl, Alt or Win to the key' }
+  }
+  return { accelerator }
+}

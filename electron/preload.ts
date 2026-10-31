@@ -146,6 +146,7 @@ const api = {
 
   openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
   getShortcuts: (): Promise<ShortcutStatus[]> => ipcRenderer.invoke(IPC.GetShortcuts),
+  suspendShortcuts: (suspended: boolean) => ipcRenderer.send(IPC.SuspendShortcuts, suspended),
   getPermissions: (): Promise<PermissionState[]> => ipcRenderer.invoke(IPC.GetPermissions),
   openPermissionSettings: (kind: MediaKind): Promise<void> =>
     ipcRenderer.invoke(IPC.OpenPermissionSettings, kind),

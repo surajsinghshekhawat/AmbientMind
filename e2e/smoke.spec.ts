@@ -104,6 +104,19 @@ test('launches and opens every window', async () => {
     }
     expect(shortcuts.filter((s) => s.problem)).toEqual([])
 
+    await expect(settings.getByRole('navigation', { name: 'Settings' })).toBeVisible()
+    await settings.screenshot({ path: join(ROOT, '.local', 'shots', 'settings-window.png') })
+    const rebound = await settings.evaluate(async () => {
+      await window.ambient.setConfig({ shortcuts: { chat: 'Control+Alt+K' } })
+      const after = await window.ambient.getShortcuts()
+      await window.ambient.setConfig({ shortcuts: {} })
+      return after.find((s) => s.action === 'chat')?.accelerator
+    })
+    expect(rebound).toBe('Control+Alt+K')
+    expect((await settings.evaluate(() => window.ambient.getShortcuts())).find((s) => s.action === 'chat')?.accelerator).toBe(
+      shortcuts.find((s) => s.action === 'chat')?.accelerator
+    )
+
     const chat = await windowNamed(app, 'chat')
     await expect(chat.getByRole('textbox', { name: 'Message' })).toBeFocused()
     await chat.screenshot({ path: join(ROOT, '.local', 'shots', 'chat-window.png') })

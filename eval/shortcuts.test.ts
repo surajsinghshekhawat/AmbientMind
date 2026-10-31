@@ -1,10 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  acceleratorFromKey,
   defaultShortcuts,
   findConflicts,
+  isValidAccelerator,
+  resolveShortcuts,
   sameShortcut,
-  shortcutLabel
+  shortcutLabel,
+  type KeyPress
 } from '../shared/shortcuts'
 
 test('mac defaults sit on Control+Option, clear of Command shortcuts', () => {
@@ -76,4 +80,50 @@ test('flags Windows system shortcuts', () => {
   )
   assert.match(conflicts.quickAdd ?? '', /Snipping/)
   assert.match(conflicts.capture ?? '', /Task Manager/)
+})
+
+const press = (code: string, mods: Partial<KeyPress> = {}): KeyPress => ({
+  code,
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  ...mods
+})
+
+test('the recorder reads physical keys, so Option+S is S and not ß', () => {
+  assert.deepEqual(acceleratorFromKey(press('KeyS', { ctrlKey: true, altKey: true }), 'mac'), {
+    accelerator: 'Control+Alt+S'
+  })
+  assert.deepEqual(acceleratorFromKey(press('Space', { metaKey: true, shiftKey: true }), 'mac'), {
+    accelerator: 'Shift+Command+Space'
+  })
+  assert.deepEqual(acceleratorFromKey(press('Comma', { ctrlKey: true, metaKey: true }), 'win'), {
+    accelerator: 'Control+Super+,'
+  })
+  assert.deepEqual(acceleratorFromKey(press('F5'), 'mac'), { accelerator: 'F5' })
+})
+
+test('the recorder waits through modifiers and refuses weak or odd keys', () => {
+  assert.equal(acceleratorFromKey(press('AltLeft', { altKey: true }), 'mac'), null)
+  assert.equal(acceleratorFromKey(press('MetaRight', { metaKey: true }), 'mac'), null)
+  assert.ok('error' in acceleratorFromKey(press('KeyA'), 'mac')!)
+  assert.ok('error' in acceleratorFromKey(press('KeyA', { shiftKey: true }), 'mac')!)
+  assert.ok('error' in acceleratorFromKey(press('Enter', { ctrlKey: true }), 'mac')!)
+})
+
+test('recorded shortcuts round-trip through validation and labels', () => {
+  const recorded = acceleratorFromKey(press('KeyK', { ctrlKey: true, altKey: true, metaKey: true }), 'mac')
+  assert.ok(recorded && 'accelerator' in recorded)
+  assert.equal(isValidAccelerator(recorded.accelerator, 'mac'), true)
+  assert.equal(shortcutLabel(recorded.accelerator, 'mac'), '⌃⌥⌘K')
+  assert.equal(isValidAccelerator('Shift+A', 'mac'), false)
+  assert.equal(isValidAccelerator('Control+Banana', 'mac'), false)
+  assert.equal(isValidAccelerator('', 'mac'), false)
+})
+
+test('overrides replace only the shortcuts the user changed', () => {
+  const set = resolveShortcuts('mac', { chat: 'Control+Alt+K' })
+  assert.equal(set.chat, 'Control+Alt+K')
+  assert.equal(set.quickAdd, defaultShortcuts('mac').quickAdd)
 })
