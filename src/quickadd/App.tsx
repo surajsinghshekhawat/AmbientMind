@@ -247,7 +247,7 @@ export function App({ initialValue = '', initialPhase = 'typing', initialMessage
               active={listening}
               onClick={toggleMic}
               disabled={phase === 'transcribing'}
-              className={listening ? 'text-accent hover:text-accent' : undefined}
+              tone={listening ? 'accent' : undefined}
             >
               {listening ? <Square /> : <Mic />}
             </IconButton>

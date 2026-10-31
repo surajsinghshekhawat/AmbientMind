@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   _electron as electron,
@@ -23,7 +24,17 @@ async function windowNamed(app: ElectronApplication, name: string): Promise<Page
   return app.windows().find(isMatch) ?? app.waitForEvent('window', { predicate: isMatch })
 }
 
+/** Each run starts as a first run for onboarding, but keeps the downloaded speech model. */
+function resetOnboarding(dataDir: string) {
+  const file = join(dataDir, 'config.json')
+  if (!existsSync(file)) return
+  const config = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  delete config.onboarded
+  writeFileSync(file, JSON.stringify(config, null, 2))
+}
+
 test('launches and opens every window', async () => {
+  resetOnboarding(join(ROOT, '.local', 'e2e-data'))
   const app = await electron.launch({
     args: ['.'],
     cwd: ROOT,
@@ -45,6 +56,14 @@ test('launches and opens every window', async () => {
   app.on('window', watch)
 
   try {
+    const onboarding = await windowNamed(app, 'onboarding')
+    await expect(onboarding.getByRole('heading', { name: 'Meet AmbientMind' })).toBeVisible()
+    await onboarding.screenshot({ path: join(ROOT, '.local', 'shots', 'onboarding-window.png') })
+    await onboarding.getByRole('button', { name: 'Get started' }).click()
+    for (let i = 0; i < 4; i++) await onboarding.getByRole('button', { name: /^(Continue|Skip for now)$/ }).click()
+    await onboarding.getByRole('button', { name: 'Start using AmbientMind' }).click()
+    await expect.poll(() => openWindows(app)).toEqual(['overlay', 'quickadd'])
+
     const overlay = await windowNamed(app, 'overlay')
     const orb = overlay.getByRole('button', { name: /^AmbientMind: / })
     await expect(orb).toBeVisible()

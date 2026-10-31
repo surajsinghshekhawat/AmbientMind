@@ -185,7 +185,7 @@ export function TaskRow({ task, now, view, selected, open, editing, snoozing, ac
 
         {suggested && (
           <div className="-my-0.5 flex shrink-0 items-center">
-            <IconButton label="Add to tasks (Space)" className="text-accent hover:text-accent" onClick={() => actions.accept(task)}>
+            <IconButton label="Add to tasks (Space)" tone="accent" onClick={() => actions.accept(task)}>
               <CheckIcon />
             </IconButton>
             <IconButton label="Dismiss (Delete)" onClick={() => actions.remove(task)}>

@@ -15,6 +15,7 @@ import {
 import { Panel, type PanelProps } from '../overlay/Panel'
 import { App as Chat } from '../chat/App'
 import { App as QuickCapture } from '../quickadd/App'
+import { App as Onboarding, STEPS as ONBOARDING_STEPS } from '../onboarding/App'
 import { App as SettingsApp, type SectionId } from '../settings/App'
 import { Button } from '../ui/Button'
 import { Check } from '../ui/Check'
@@ -179,20 +180,29 @@ const longTasks: Task[] = [
 
 const unhealthy: HealthReport = ollamaDownReport()
 
-/** A Settings window as macOS draws it: the page, plus traffic lights over the sidebar. */
-function SettingsWindow({ section, theme }: { section: SectionId; theme: 'light' | 'dark' }) {
+/** A window as macOS draws it: the page, plus traffic lights in the corner. */
+function MacWindow({ theme, width, height, children }: { theme: 'light' | 'dark'; width: number; height: number; children: ReactNode }) {
   return (
     <div
       data-theme={theme}
-      className="relative h-[560px] w-[760px] overflow-hidden rounded-[12px] shadow-[0_20px_60px_oklch(0_0_0/0.45),0_0_0_0.5px_oklch(0_0_0/0.5)]"
+      className="relative overflow-hidden rounded-[12px] shadow-[0_20px_60px_oklch(0_0_0/0.45),0_0_0_0.5px_oklch(0_0_0/0.5)]"
+      style={{ width, height }}
     >
-      <SettingsApp initialSection={section} applyTheme={false} />
+      {children}
       <div className="pointer-events-none absolute top-[18px] left-[18px] flex gap-2">
         {['#ff5f57', '#febc2e', '#28c840'].map((color) => (
           <i key={color} className="size-3 rounded-full" style={{ background: color }} />
         ))}
       </div>
     </div>
+  )
+}
+
+function SettingsWindow({ section, theme }: { section: SectionId; theme: 'light' | 'dark' }) {
+  return (
+    <MacWindow theme={theme} width={760} height={560}>
+      <SettingsApp initialSection={section} applyTheme={false} />
+    </MacWindow>
   )
 }
 
@@ -330,6 +340,18 @@ export function Gallery() {
               <QuickCapture initialMessage={{ text: 'The microphone is blocked. Allow it in System Settings → Privacy & Security → Microphone.', error: true }} />
             </Backdrops>
           </State>
+        </Section>
+
+        <Section title="Onboarding">
+          {ONBOARDING_STEPS.map((step, i) => (
+            <State key={step} name={`Onboarding ${step}`}>
+              <div className="flex justify-center rounded-xl p-8" style={BACKDROPS[i % 2 === 0 ? 1 : 0]!.style}>
+                <MacWindow theme={i % 2 === 0 ? 'light' : 'dark'} width={640} height={560}>
+                  <Onboarding initialStep={step} applyTheme={false} />
+                </MacWindow>
+              </div>
+            </State>
+          ))}
         </Section>
 
         <Section title="Settings">

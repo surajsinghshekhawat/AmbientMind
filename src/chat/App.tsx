@@ -239,7 +239,7 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
             className="max-h-[120px] min-h-7 flex-1 resize-none bg-transparent py-[5px] text-body text-ink-1 outline-none placeholder:text-ink-4"
           />
           {busy ? (
-            <IconButton label="Stop (Esc)" onClick={() => window.ambient.stopChat()} className="bg-fill-2 text-ink-1">
+            <IconButton label="Stop (Esc)" onClick={() => window.ambient.stopChat()} tone="pressed">
               <Square />
             </IconButton>
           ) : (
@@ -247,7 +247,7 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
               label="Send (Enter)"
               type="submit"
               disabled={!draft.trim()}
-              className="bg-accent text-on-accent hover:bg-accent hover:text-on-accent hover:brightness-110"
+              tone="primary"
             >
               <ArrowUp />
             </IconButton>

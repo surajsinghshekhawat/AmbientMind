@@ -316,7 +316,7 @@ const PERMISSION_NAMES: Record<MediaKind, string> = {
   screen: 'Screen Recording'
 }
 
-function permissionPill(permission: PermissionState) {
+export function permissionPill(permission: PermissionState) {
   switch (permission.status) {
     case 'granted':
       return <Pill tone="ok">Allowed</Pill>
@@ -491,6 +491,11 @@ export function About({ data: { appInfo } }: PageProps) {
         </div>
       </div>
       <Group>
+        <Row label="Welcome tour" description="The first-run guide: sources, permissions, model and shortcuts.">
+          <Button size="sm" onClick={() => window.ambient.openOnboarding()}>
+            Show again
+          </Button>
+        </Row>
         <Row label="Data folder" description={<span className="font-mono text-micro break-all">{appInfo?.userData ?? '…'}</span>}>
           <Button size="sm" onClick={() => void window.ambient.openUserData()}>
             Show

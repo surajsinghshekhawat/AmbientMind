@@ -60,6 +60,7 @@ export function sanitizeConfig(raw: Partial<Config>): Config {
     aboutMe: text(raw.aboutMe, '', ABOUT_ME_MAX_CHARS),
     pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil),
     theme: THEMES.includes(raw.theme as ThemeChoice) ? (raw.theme as ThemeChoice) : d.theme,
-    shortcuts: shortcuts(raw.shortcuts)
+    shortcuts: shortcuts(raw.shortcuts),
+    onboarded: bool(raw.onboarded, d.onboarded)
   }
 }

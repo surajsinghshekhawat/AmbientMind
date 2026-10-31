@@ -250,6 +250,12 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     },
     getRagCount: async () => 0,
     openSettings: () => record('openSettings'),
+    openOnboarding: () => record('openOnboarding'),
+    finishOnboarding: () => {
+      record('finishOnboarding')
+      state.config = { ...state.config, onboarded: true }
+      configChanged.emit({ ...state.config })
+    },
 
     quickAdd: {
       open: () => record('quickAdd.open'),

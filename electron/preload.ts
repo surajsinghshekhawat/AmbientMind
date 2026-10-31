@@ -152,6 +152,8 @@ const api = {
     ipcRenderer.invoke(IPC.OpenPermissionSettings, kind),
   getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),
   openSettings: () => ipcRenderer.send(IPC.OpenSettings),
+  openOnboarding: () => ipcRenderer.send(IPC.OpenOnboarding),
+  finishOnboarding: () => ipcRenderer.send(IPC.FinishOnboarding),
 
   quickAdd: {
     open: () => ipcRenderer.send(IPC.OpenQuickAdd),

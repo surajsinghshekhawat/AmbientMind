@@ -431,7 +431,7 @@ export function Panel(props: PanelProps) {
                       <div className="-my-0.5 flex shrink-0">
                         <IconButton
                           label="Make it recurring"
-                          className="text-accent hover:text-accent"
+                          tone="accent"
                           onClick={() =>
                             void window.ambient.rules.acceptSuggestion(suggestion.id).then((result) => {
                               onRecurrence(result.suggestions)

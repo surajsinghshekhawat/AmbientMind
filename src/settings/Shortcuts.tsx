@@ -71,7 +71,7 @@ function Recorder({
           recording ? 'bg-[color-mix(in_oklch,var(--accent)_14%,transparent)] shadow-[inset_0_0_0_1px_var(--accent)]' : 'hover:bg-fill-2'
         )}
       >
-        {recording ? <span className="text-small text-accent">Type keys…</span> : <Kbd className="h-[22px] px-2 text-small">{status.label}</Kbd>}
+        {recording ? <span className="text-small text-accent">Type keys…</span> : <Kbd size="md">{status.label}</Kbd>}
       </button>
       {recording && (
         <span className={cn('text-micro', error ? 'text-warning' : 'text-ink-3')}>{error ?? 'Esc cancels · Delete resets'}</span>

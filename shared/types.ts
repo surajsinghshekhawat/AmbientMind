@@ -83,6 +83,8 @@ export interface Config {
   theme: ThemeChoice
   /** Only the shortcuts the user changed; the rest use the platform defaults. */
   shortcuts: Partial<ShortcutSet>
+  /** Set when the welcome flow is finished; it opens at launch until then. */
+  onboarded: boolean
 }
 
 export interface ModelHealth {
@@ -155,7 +157,8 @@ export const DEFAULT_CONFIG: Config = {
   aboutMe: '',
   pauseAiUntil: null,
   theme: 'system',
-  shortcuts: {}
+  shortcuts: {},
+  onboarded: false
 }
 
 /** Long enough for real context, short enough not to crowd out the message. */

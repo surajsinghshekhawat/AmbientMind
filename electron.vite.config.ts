@@ -58,7 +58,8 @@ export default defineConfig({
           overlay: resolve(__dirname, 'src/overlay/index.html'),
           quickadd: resolve(__dirname, 'src/quickadd/index.html'),
           settings: resolve(__dirname, 'src/settings/index.html'),
-          chat: resolve(__dirname, 'src/chat/index.html')
+          chat: resolve(__dirname, 'src/chat/index.html'),
+          onboarding: resolve(__dirname, 'src/onboarding/index.html')
         }
       }
     }

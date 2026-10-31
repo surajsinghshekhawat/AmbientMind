@@ -168,6 +168,7 @@ import {
   syncRuleToCalendar
 } from './services/calendarSync'
 import { getChatWindow, showChatWindow } from './chat'
+import { getOnboardingWindow, showOnboardingWindow } from './onboarding'
 import { runChat } from './services/chat'
 import { describeRule, type NewRecurrenceRule } from '@shared/recurrence'
 import { seedIfEmpty } from './seedTasks'
@@ -589,6 +590,12 @@ function registerIpc() {
   ipcMain.handle(IPC.GetRagCount, () => exampleCount(getTaskStore()))
 
   onIpc(IPC.OpenSettings, () => showSettingsWindow())
+  onIpc(IPC.OpenOnboarding, () => showOnboardingWindow())
+  onIpc(IPC.FinishOnboarding, () => {
+    const previous = loadConfig()
+    applyLiveConfig(saveConfig({ onboarded: true }), previous)
+    getOnboardingWindow()?.close()
+  })
 
   onIpc(IPC.OpenChat, () => showChatWindow())
   onIpc(IPC.CloseChat, () => getChatWindow()?.close())
@@ -961,6 +968,7 @@ if (process.argv.includes('--selftest')) {
       chat: () => showChatWindow()
     })
     startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)
+    if (!config.onboarded) showOnboardingWindow()
 
     // First mic use would otherwise stall on a model download/load.
     setSpeechModel(config.whisperModel)

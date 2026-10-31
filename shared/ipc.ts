@@ -68,6 +68,8 @@ export const IPC = {
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',
   OpenSettings: 'settings:open',
+  OpenOnboarding: 'onboarding:open',
+  FinishOnboarding: 'onboarding:finish',
   GetAppInfo: 'app:info',
   ExportBackup: 'settings:export-backup',
   SuspendShortcuts: 'settings:suspend-shortcuts',
