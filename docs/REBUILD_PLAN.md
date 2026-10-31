@@ -301,8 +301,9 @@ becomes the lead platform.
 - **Soft delete with tombstones.** Deleting a task sets `status='deleted'` and
   keeps the row, so `(source, source_id)` keeps blocking re-imports. A
   retention sweep removes old tombstones.
-- **Skipped occurrences.** `rule_skips(rule_id, occurrence_key)` so deleting one
-  occurrence of a recurring task stays deleted.
+- **Skipped occurrences.** Handled by the same tombstones: deleting one
+  occurrence leaves a `deleted` row for that rule and time, so it is never
+  materialised again. No separate `rule_skips` table (decided in Phase 1).
 - **Suggestions.** `tasks.state` gains a `suggested` stage: AI-extracted tasks
   wait for acceptance unless auto-accept is on and confidence is high.
 - **Provenance.** `source_url` (Gmail thread link, calendar event link) and
@@ -474,12 +475,12 @@ days with agents doing most of the typing.
 Exit check passed: build, typecheck, `./dev npm test` (110 logic + 8 component
 tests), the smoke test, `smoke:sqlite`, `smoke:vec`, and `./dev doctor`.
 
-### Phase 1 — Fix the logic that survives the redesign (3–4 days)
+### Phase 1 — Fix the logic that survives the redesign (3–4 days) — done, branch `phase-1-logic`
 
 1. Tombstone deletes; forced sync no longer resurrects anything; dedupe RAG
    examples.
-2. Recurring occurrences: skip table, show only the next occurrence per rule,
-   orb counts only overdue and today.
+2. Recurring occurrences: tombstones instead of a skip table, show only the
+   next occurrence per rule, orb counts only overdue and today.
 3. Calendar import: upsert on reschedule, remove on cancel, page through
    results, import only events that need preparation.
 4. Recurrence parsing requires an explicit cue. Add the failing phrases as
@@ -501,6 +502,38 @@ tests), the smoke test, `smoke:sqlite`, `smoke:vec`, and `./dev doctor`.
 
 Exit: every fix has a test; the audit's top bugs 2–7 and 15 cannot be
 reproduced.
+
+What landed:
+
+- Migrations 011 (task lifecycle: `deleted` and `suggested` states,
+  `deleted_at`, `user_edited_at`, `source_url`, `evidence`) and 012 (one RAG
+  example per source, unique index). Tombstones are purged after 90 days by
+  the retention sweep. `check:migration` passes against a copy of the dev
+  database.
+- `./dev npm test` now runs three suites: `test:logic` (`node:test` over
+  `eval/`), `test:db` (`db/tests/`, real SQLite under Electron's Node with a
+  stubbed `electron` module and a temp data dir, fetch mocked for Google), and
+  `test:ui` (Vitest).
+- Calendar import keeps only timed meetings with other people in the next 48
+  hours (`shared/calendarPrep.ts`) and reconciles: rescheduled events move,
+  cancelled ones are removed, past ones archived. It no longer needs Ollama.
+- Main-process failures go through `guard()` and a crash-loop limiter instead
+  of exiting on the first error; renderer reloads are rate-limited.
+- Security: every window is sandboxed. Builds carry the CSP as a `<meta>` tag
+  (pages load from `file://`, which has no response headers); the dev server
+  gets the same policy as a header plus what Vite needs. Only audio capture
+  from our own pages is allowed. Navigation away, webviews and new windows are
+  blocked, and web links open in the default browser. The smoke test checks
+  all of this.
+- The login item defaults to off and is written only from the config; the
+  tray toggle saves the config like Settings does.
+
+Left for Phase 2: the overlay refuses to close, which cancels a normal quit
+(the smoke test kills the process).
+
+Exit check passed: build, typecheck, `./dev npm test` (135 logic + 27 db + 11
+component tests), the smoke test, `smoke:sqlite`, `smoke:vec`,
+`check:migration`, and `./dev doctor`.
 
 ### Phase 2 — Mac foundation (3–4 days)
 
