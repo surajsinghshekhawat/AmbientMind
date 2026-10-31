@@ -1,6 +1,6 @@
 # Capturing the screen as a task
 
-Press **Ctrl+Shift+S** and AmbientMind reads whatever is on screen, works out
+Press **Ctrl+Shift+S** (**⌃⌥S** on a Mac) and AmbientMind reads whatever is on screen, works out
 what you need to do about it, and files it as a task with a short write-up.
 
 Everything runs on this machine. The screenshot is held in memory, converted to

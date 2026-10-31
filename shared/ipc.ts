@@ -53,6 +53,12 @@ export const IPC = {
   ForgetLearned: 'learned:forget',
   ExportCorpus: 'eval:export-corpus',
 
+  /** Each global shortcut, its label, and whether it could be registered. */
+  GetShortcuts: 'shortcuts:get',
+  /** Microphone and screen recording status, with what to do when refused. */
+  GetPermissions: 'permissions:get',
+  OpenPermissionSettings: 'permissions:open-settings',
+
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',
   OpenSettings: 'settings:open',
@@ -70,10 +76,3 @@ export const IPC = {
   /** Renderer -> main: float32 PCM @ 16 kHz ArrayBuffer in, transcript out. */
   TranscribeAudio: 'speech:transcribe'
 } as const
-
-export const QUICK_ADD_SHORTCUT = 'CommandOrControl+Shift+A'
-/** Reads the current screen and turns it into a task. */
-export const CAPTURE_SCREEN_SHORTCUT = 'CommandOrControl+Shift+S'
-export const SETTINGS_SHORTCUT = 'CommandOrControl+Shift+,'
-/** Opens the chat panel, which can both answer about and change the list. */
-export const CHAT_SHORTCUT = 'CommandOrControl+Shift+C'

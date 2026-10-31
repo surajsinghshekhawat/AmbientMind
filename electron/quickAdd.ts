@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { BrowserWindow, screen } from 'electron'
 import { IPC } from '@shared/ipc'
+import { bringToFront, prepareQuickAdd } from './platform'
 
 const WIDTH = 560
 const HEIGHT = 76
@@ -36,7 +37,7 @@ export function createQuickAddWindow(): BrowserWindow {
     }
   })
 
-  quickAddWindow.setAlwaysOnTop(true, 'screen-saver')
+  prepareQuickAdd(quickAddWindow)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void quickAddWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/quickadd/index.html`)
@@ -82,8 +83,7 @@ export function toggleQuickAdd() {
   }
 
   centerOnActiveDisplay(win)
-  win.show()
-  win.focus()
+  bringToFront(win)
   win.webContents.send(IPC.QuickAddOpened)
 }
 

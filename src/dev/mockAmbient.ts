@@ -8,6 +8,8 @@ import {
   type RecurrenceSuggestion,
   type Task
 } from '@shared/types'
+import type { MediaKind, PermissionState } from '@shared/permissions'
+import type { ShortcutStatus } from '@shared/shortcuts'
 import { healthyReport, makeTask } from './fixtures'
 
 type SyncStatus = { state: 'running' | 'idle' }
@@ -36,6 +38,8 @@ export interface MockState {
   chatHistory: ChatTurn[]
   google: { connected: boolean; email: string | null; credentialsConfigured: boolean }
   learned: { title: string; deletes: number }[]
+  shortcuts: ShortcutStatus[]
+  permissions: PermissionState[]
 }
 
 /**
@@ -53,6 +57,16 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     chatHistory: [],
     google: { connected: true, email: 'me@example.com', credentialsConfigured: true },
     learned: [],
+    shortcuts: [
+      { action: 'quickAdd', name: 'Quick add', accelerator: 'Control+Alt+Space', label: '⌃⌥Space', problem: null },
+      { action: 'capture', name: 'Capture screen', accelerator: 'Control+Alt+S', label: '⌃⌥S', problem: null },
+      { action: 'chat', name: 'Ask about your tasks', accelerator: 'Control+Alt+C', label: '⌃⌥C', problem: null },
+      { action: 'settings', name: 'Open settings', accelerator: 'Control+Alt+,', label: '⌃⌥,', problem: null }
+    ],
+    permissions: [
+      { kind: 'microphone', status: 'granted', help: null, canOpenSettings: true },
+      { kind: 'screen', status: 'granted', help: null, canOpenSettings: true }
+    ],
     ...initial
   }
   const calls: { method: string; args: unknown[] }[] = []
@@ -201,6 +215,11 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     },
     getAppInfo: async () => ({ version: '0.0.0-mock', userData: '/mock/userData' }),
     openUserData: async () => record('openUserData'),
+    getShortcuts: async () => state.shortcuts,
+    getPermissions: async () => state.permissions,
+    openPermissionSettings: async (kind: MediaKind) => {
+      record('openPermissionSettings', kind)
+    },
     getRagCount: async () => 0,
     openSettings: () => record('openSettings'),
 

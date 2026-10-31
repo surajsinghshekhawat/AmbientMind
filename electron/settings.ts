@@ -1,12 +1,12 @@
 import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
+import { bringToFront, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let settingsWindow: BrowserWindow | null = null
 
 export function showSettingsWindow() {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.show()
-    settingsWindow.focus()
+    bringToFront(settingsWindow)
     return settingsWindow
   }
 
@@ -16,9 +16,7 @@ export function showSettingsWindow() {
     minWidth: 400,
     minHeight: 520,
     title: 'AmbientMind settings',
-    autoHideMenuBar: true,
-    // Settings has to sit above the overlay or it disappears under it.
-    alwaysOnTop: true,
+    ...utilityWindowOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
@@ -27,7 +25,7 @@ export function showSettingsWindow() {
     }
   })
 
-  settingsWindow.setAlwaysOnTop(true, 'floating')
+  prepareUtilityWindow(settingsWindow, 'settings')
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/settings/index.html`)
@@ -39,6 +37,7 @@ export function showSettingsWindow() {
     settingsWindow = null
   })
 
+  bringToFront(settingsWindow)
   return settingsWindow
 }
 

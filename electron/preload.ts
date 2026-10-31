@@ -10,6 +10,8 @@ import type {
   Task
 } from '@shared/types'
 import type { NewRecurrenceRule, RecurrenceRule } from '@shared/recurrence'
+import type { MediaKind, PermissionState } from '@shared/permissions'
+import type { ShortcutStatus } from '@shared/shortcuts'
 
 const api = {
   setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
@@ -139,6 +141,10 @@ const api = {
     ipcRenderer.invoke(IPC.GetAppInfo),
 
   openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
+  getShortcuts: (): Promise<ShortcutStatus[]> => ipcRenderer.invoke(IPC.GetShortcuts),
+  getPermissions: (): Promise<PermissionState[]> => ipcRenderer.invoke(IPC.GetPermissions),
+  openPermissionSettings: (kind: MediaKind): Promise<void> =>
+    ipcRenderer.invoke(IPC.OpenPermissionSettings, kind),
   getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),
   openSettings: () => ipcRenderer.send(IPC.OpenSettings),
 

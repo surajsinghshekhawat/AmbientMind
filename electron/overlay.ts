@@ -1,29 +1,36 @@
 import { join } from 'node:path'
-import { BrowserWindow, screen, type Rectangle } from 'electron'
+import { app, BrowserWindow, screen, type Display, type Rectangle } from 'electron'
 import { IPC } from '@shared/ipc'
-import { DEFAULT_CONFIG, type Config, type OverlayCorner } from '@shared/types'
-
-const MARGIN = 24
-/** Matches the 64px disc + 3px ring; extra pixels are what Windows paints as a square. */
-const ORB_SIZE = 70
-const COLLAPSED_SIZE = ORB_SIZE
+import { overlayBounds } from '@shared/overlayGeometry'
+import { DEFAULT_CONFIG, type Config } from '@shared/types'
+import { overlayWindowOptions, prepareOverlay, shapesOverlay } from './platform'
 
 let overlayWindow: BrowserWindow | null = null
 /** Starts as a corner circle; click expands the task list. */
 let expanded = false
 let currentConfig: Config = DEFAULT_CONFIG
+/** The display the overlay lives on; it moves to the cursor's display when opened. */
+let displayId: number | null = null
+let quitting = false
 
-function boundsFor(corner: OverlayCorner, width: number, isExpanded: boolean) {
-  const { x, y, width: aw, height: ah } = screen.getPrimaryDisplay().workArea
-  const w = isExpanded ? width : COLLAPSED_SIZE
-  const h = isExpanded ? ah - MARGIN * 2 : COLLAPSED_SIZE
+function cursorDisplay(): Display {
+  return screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+}
 
-  return {
-    x: corner.endsWith('right') ? x + aw - w - MARGIN : x + MARGIN,
-    y: corner.startsWith('bottom') && !isExpanded ? y + ah - h - MARGIN : y + MARGIN,
-    width: w,
-    height: h
-  }
+function currentDisplay(followCursor: boolean): Display {
+  const kept = followCursor ? undefined : screen.getAllDisplays().find((d) => d.id === displayId)
+  const display = kept ?? cursorDisplay()
+  displayId = display.id
+  return display
+}
+
+function boundsFor(followCursor = false) {
+  return overlayBounds({
+    workArea: currentDisplay(followCursor).workArea,
+    corner: currentConfig.overlayCorner,
+    width: currentConfig.overlayWidth,
+    expanded
+  })
 }
 
 /** Scanline circle so DWM cannot fill the square corners of the HWND. */
@@ -41,7 +48,7 @@ function circleShape(size: number): Rectangle[] {
 }
 
 function applyWindowShape() {
-  if (!overlayWindow) return
+  if (!overlayWindow || !shapesOverlay) return
   if (expanded) {
     overlayWindow.setShape([])
     return
@@ -53,22 +60,17 @@ function applyWindowShape() {
 export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWindow {
   currentConfig = config
   overlayWindow = new BrowserWindow({
-    ...boundsFor(config.overlayCorner, config.overlayWidth, expanded),
+    ...boundsFor(true),
+    ...overlayWindowOptions,
     transparent: true,
     frame: false,
     hasShadow: false,
-    thickFrame: false,
-    roundedCorners: false,
-    backgroundMaterial: 'none',
     backgroundColor: '#00000000',
     titleBarStyle: 'hidden',
-    // Tool window: no Win11 caption/snap buttons on the orb.
-    type: 'toolbar',
     focusable: false,
     skipTaskbar: true,
     resizable: false,
     movable: false,
-    closable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -81,8 +83,7 @@ export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWin
     }
   })
 
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver')
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false })
+  prepareOverlay(overlayWindow)
   overlayWindow.setBackgroundColor('#00000000')
   overlayWindow.setHasShadow(false)
   overlayWindow.removeMenu()
@@ -96,6 +97,11 @@ export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWin
     void overlayWindow.loadFile(join(__dirname, '../renderer/overlay/index.html'))
   }
 
+  // The overlay is the app: nothing but quitting may close it. It has to stay
+  // closable, though, because macOS cancels a quit when a window refuses.
+  overlayWindow.on('close', (event) => {
+    if (!quitting) event.preventDefault()
+  })
   overlayWindow.on('closed', () => {
     overlayWindow = null
   })
@@ -108,10 +114,12 @@ export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWin
   return overlayWindow
 }
 
-function reposition() {
-  overlayWindow?.setBounds(
-    boundsFor(currentConfig.overlayCorner, currentConfig.overlayWidth, expanded)
-  )
+app.on('before-quit', () => {
+  quitting = true
+})
+
+function reposition(followCursor = false) {
+  overlayWindow?.setBounds(boundsFor(followCursor))
   applyWindowShape()
 }
 
@@ -123,7 +131,8 @@ export function applyOverlayConfig(config: Config) {
 export function setOverlayExpanded(next: boolean) {
   if (next !== expanded) {
     expanded = next
-    reposition()
+    // Opened from the tray or a shortcut, the list belongs where you are looking.
+    reposition(next)
   }
   applyMouseIgnore(true)
   overlayWindow?.webContents.send(IPC.OverlayExpandedChanged, expanded)

@@ -33,6 +33,7 @@ test('launches and opens every window', async () => {
       AMBIENTMIND_DATA_DIR: join(ROOT, '.local', 'e2e-data')
     }
   })
+  const proc = app.process()
   const pageErrors: string[] = []
   const watch = (page: Page) => {
     page.on('pageerror', (err) => pageErrors.push(err.message))
@@ -48,7 +49,6 @@ test('launches and opens every window', async () => {
     await expect(overlay.getByRole('button', { name: /^Show tasks, \d+ due today$|^Minimize/ })).toBeVisible()
 
     await expect.poll(() => openWindows(app)).toEqual(['overlay', 'quickadd'])
-
     await overlay.evaluate(() => window.ambient.openSettings())
     await overlay.evaluate(() => window.ambient.openChat())
     await expect.poll(() => openWindows(app)).toEqual(['chat', 'overlay', 'quickadd', 'settings'])
@@ -65,9 +65,42 @@ test('launches and opens every window', async () => {
     )
     expect(renderers.length).toBeGreaterThanOrEqual(4)
     expect(renderers.every(Boolean)).toBe(true)
+
+    const roles = await app.evaluate(({ Menu }) =>
+      Menu.getApplicationMenu()?.items.flatMap((item) => item.submenu?.items.map((sub) => sub.role) ?? [])
+    )
+    for (const role of ['copy', 'paste', 'cut', 'selectAll', 'undo']) {
+      expect(roles?.map((r) => r?.toLowerCase())).toContain(role.toLowerCase())
+    }
+
+    const settings = await windowNamed(app, 'settings')
+    const shortcuts = await settings.evaluate(() => window.ambient.getShortcuts())
+    expect(shortcuts.map((s) => s.action).sort()).toEqual(['capture', 'chat', 'quickAdd', 'settings'])
+    if (process.platform === 'darwin') {
+      expect(shortcuts.every((s) => s.accelerator.startsWith('Control+Alt+'))).toBe(true)
+    }
+    expect(shortcuts.filter((s) => s.problem)).toEqual([])
+
+    if (process.platform === 'darwin') {
+      const dockVisible = () => app.evaluate(({ app }) => app.dock?.isVisible())
+      // Settings and chat are open, so the Dock icon is too.
+      await expect.poll(dockVisible).toBe(true)
+      await app.evaluate(({ BrowserWindow }) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (/\/(settings|chat)\//.test(win.webContents.getURL())) win.close()
+        }
+      })
+      await expect.poll(() => openWindows(app)).toEqual(['overlay', 'quickadd'])
+      await expect.poll(dockVisible).toBe(false)
+    }
+
     expect(pageErrors).toEqual([])
+
+    const closed = app.waitForEvent('close', { timeout: 15_000 })
+    await app.evaluate(({ app }) => setTimeout(() => app.quit(), 0))
+    await closed
+    expect(proc.exitCode).toBe(0)
   } finally {
-    // The overlay refuses to close, which cancels a normal quit (Phase 2 fix).
-    app.process().kill('SIGKILL')
+    if (proc.exitCode === null) proc.kill('SIGKILL')
   }
 })

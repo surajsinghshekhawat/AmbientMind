@@ -1,26 +1,33 @@
 import { isIsolated } from './isolation'
 import { userInfo } from 'node:os'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog, globalShortcut, ipcMain, Notification, session, shell } from 'electron'
+import { IPC } from '@shared/ipc'
 import {
-  CAPTURE_SCREEN_SHORTCUT,
-  CHAT_SHORTCUT,
-  IPC,
-  QUICK_ADD_SHORTCUT,
-  SETTINGS_SHORTCUT
-} from '@shared/ipc'
+  defaultShortcuts,
+  findConflicts,
+  SHORTCUT_NAMES,
+  shortcutLabel,
+  type ShortcutAction,
+  type ShortcutStatus
+} from '@shared/shortcuts'
+import { privacySettingsUrl, type MediaKind } from '@shared/permissions'
 
 import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
 import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
+import { hideDock, installAppMenu, os, permissionState } from './platform'
 
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
 app.commandLine.appendSwitch('disable-features', 'EnableTransparentHwndEnlargement')
 
+/** ~/Library/Logs/AmbientMind on the Mac, where Console.app looks. */
 function crashLogPath() {
-  return join(app.getPath('userData'), 'crash.log')
+  const dir = app.getPath('logs')
+  mkdirSync(dir, { recursive: true })
+  return join(dir, 'crash.log')
 }
 
 function recordCrash(kind: string, err: unknown) {
@@ -512,6 +519,15 @@ function registerIpc() {
 
   ipcMain.handle(IPC.OpenUserData, () => shell.openPath(app.getPath('userData')))
 
+  ipcMain.handle(IPC.GetShortcuts, () => shortcutStatus)
+
+  ipcMain.handle(IPC.GetPermissions, () => [permissionState('microphone'), permissionState('screen')])
+
+  ipcMain.handle(IPC.OpenPermissionSettings, async (_event, kind: MediaKind) => {
+    const url = privacySettingsUrl(kind, os)
+    if (url) await shell.openExternal(url)
+  })
+
   ipcMain.handle(IPC.GetAppInfo, () => ({
     version: app.getVersion(),
     userData: app.getPath('userData')
@@ -624,10 +640,17 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
     new Notification({ title: result.title, body: result.summary || 'Added from screen' }).show()
   } catch (err) {
     console.error('[screen] failed:', err)
-    new Notification({
-      title: 'AmbientMind',
-      body: `Screen capture failed: ${(err as Error).message}`
-    }).show()
+    // macOS reports "denied" until the first request too, so the capture is
+    // always attempted (that is what registers the app) and only explained
+    // once it fails.
+    const permission = permissionState('screen')
+    const url = privacySettingsUrl('screen', os)
+    const notice = new Notification({
+      title: permission.help ? 'Screen Recording is off' : 'AmbientMind',
+      body: permission.help ?? `Screen capture failed: ${(err as Error).message}`
+    })
+    if (permission.help && url) notice.on('click', () => void shell.openExternal(url))
+    notice.show()
   } finally {
     broadcast(IPC.ScreenStatus, { state: 'idle' })
   }
@@ -704,13 +727,33 @@ function guardNavigation() {
   })
 }
 
-function registerShortcut(accelerator: string, fn: () => void) {
-  try {
-    return globalShortcut.register(accelerator, fn)
-  } catch (err) {
-    console.warn('[shortcuts] failed to register', accelerator, err)
-    return false
-  }
+let shortcutStatus: ShortcutStatus[] = []
+
+/**
+ * A known conflict is reported but still registered: the user may have
+ * turned the other owner off. Registration fails when another app already
+ * holds the keys, and that is reported too, instead of a dead shortcut.
+ */
+function registerShortcuts(handlers: Record<ShortcutAction, () => void>) {
+  const set = defaultShortcuts(os)
+  const conflicts = findConflicts(set, os)
+  shortcutStatus = (Object.keys(set) as ShortcutAction[]).map((action) => {
+    const accelerator = set[action]
+    let registered = false
+    try {
+      registered = globalShortcut.register(accelerator, guard(`shortcut:${action}`, handlers[action]))
+    } catch (err) {
+      console.warn('[shortcuts] failed to register', accelerator, err)
+    }
+    return {
+      action,
+      name: SHORTCUT_NAMES[action],
+      accelerator,
+      label: shortcutLabel(accelerator, os),
+      problem: conflicts[action] ?? (registered ? null : 'Another app is using these keys')
+    }
+  })
+  console.log('[shortcuts]', JSON.stringify(shortcutStatus.map((s) => [s.label, s.problem])))
 }
 
 /**
@@ -774,12 +817,13 @@ if (process.argv.includes('--sync-now')) {
 } else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  // The overlay is the whole UI, so there is no dock presence to keep alive.
-  app.dock?.hide()
+  // A menu-bar app: Settings and Chat bring the Dock icon back while open.
+  hideDock()
 
   void app.whenReady().then(() => {
     applyDevCsp()
     guardNavigation()
+    installAppMenu({ openSettings: () => showSettingsWindow() })
 
     // Mic access is requested from the QuickAdd renderer; without this grant
     // Electron denies getUserMedia even when the OS dialog would allow it.
@@ -832,16 +876,12 @@ if (process.argv.includes('--sync-now')) {
       }
     })
 
-    const registered = {
-      quickAdd: registerShortcut(QUICK_ADD_SHORTCUT, toggleQuickAdd),
-      capture: registerShortcut(CAPTURE_SCREEN_SHORTCUT, () => {
-        console.log('[shortcut] screen capture')
-        void captureScreenAsTask()
-      }),
-      settings: registerShortcut(SETTINGS_SHORTCUT, () => showSettingsWindow()),
-      chat: registerShortcut(CHAT_SHORTCUT, () => showChatWindow())
-    }
-    console.log('[shortcuts]', JSON.stringify(registered))
+    registerShortcuts({
+      quickAdd: toggleQuickAdd,
+      capture: () => void captureScreenAsTask(),
+      settings: () => showSettingsWindow(),
+      chat: () => showChatWindow()
+    })
     startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)
 
     // First mic use would otherwise stall on a model download/load.

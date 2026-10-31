@@ -1,6 +1,6 @@
 # Voice input
 
-Press **Ctrl+Shift+A** to open QuickAdd, then click the mic. Speak a task,
+Press **Ctrl+Shift+A** (**⌃⌥Space** on a Mac) to open QuickAdd, then click the mic. Speak a task,
 click the mic again to stop. AmbientMind transcribes locally and submits.
 
 ## Two routes from one utterance
@@ -8,7 +8,7 @@ click the mic again to stop. AmbientMind transcribes locally and submits.
 | You say | What happens |
 | --- | --- |
 | "buy milk tomorrow" | Quick-add + LLM enrichment (deadline, priority) |
-| "add what's on my screen" / "add this to my tasks" | Same pipeline as **Ctrl+Shift+S** |
+| "add what's on my screen" / "add this to my tasks" | Same pipeline as **Ctrl+Shift+S** (**⌃⌥S** on a Mac) |
 
 Intent detection lives in `shared/voiceIntent.ts` and applies to typed text
 too, so the same phrasing works without the mic.

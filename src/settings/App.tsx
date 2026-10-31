@@ -9,7 +9,8 @@ import {
   type SyncSummary
 } from '@shared/types'
 import type { RecurrenceRule } from '@shared/recurrence'
-import { CAPTURE_SCREEN_SHORTCUT, CHAT_SHORTCUT, QUICK_ADD_SHORTCUT } from '@shared/ipc'
+import type { MediaKind, PermissionState } from '@shared/permissions'
+import type { ShortcutStatus } from '@shared/shortcuts'
 import { DraftInput, DraftTextarea } from './DraftField'
 import { Recurring } from './Recurring'
 
@@ -28,8 +29,17 @@ interface AccountStatus {
   credentialsConfigured: boolean
 }
 
-function shortcutLabel(accelerator: string) {
-  return accelerator.replace('CommandOrControl', 'Ctrl').replace('Shift', 'Shift')
+const PERMISSION_NAMES: Record<MediaKind, string> = {
+  microphone: 'Microphone',
+  screen: 'Screen Recording'
+}
+
+const PERMISSION_STATUS: Record<PermissionState['status'], string> = {
+  granted: 'Allowed',
+  denied: 'Off',
+  restricted: 'Blocked',
+  'not-determined': 'Asked on first use',
+  unknown: 'Not needed'
 }
 
 function relativeTime(iso: string | null): string {
@@ -53,8 +63,19 @@ export function App() {
   const [rules, setRules] = useState<RecurrenceRule[]>([])
   const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
   const [learned, setLearned] = useState<{ title: string; deletes: number }[]>([])
+  const [shortcuts, setShortcuts] = useState<ShortcutStatus[]>([])
+  const [permissions, setPermissions] = useState<PermissionState[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    void window.ambient.getShortcuts().then(setShortcuts)
+    // Permissions change in System Settings, so check again on return.
+    const check = () => void window.ambient.getPermissions().then(setPermissions)
+    check()
+    window.addEventListener('focus', check)
+    return () => window.removeEventListener('focus', check)
+  }, [])
 
   const refresh = useCallback(async () => {
     const [
@@ -464,19 +485,42 @@ export function App() {
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
           Shortcuts
         </h2>
-        <p className="text-sm text-white/70">
-          <kbd className={kbdClass}>{shortcutLabel(QUICK_ADD_SHORTCUT)}</kbd> Quick add / voice
-        </p>
-        <p className="text-sm text-white/70">
-          <kbd className={kbdClass}>{shortcutLabel(CAPTURE_SCREEN_SHORTCUT)}</kbd> Capture screen
-          as a task
-        </p>
-        <p className="text-sm text-white/70">
-          <kbd className={kbdClass}>{shortcutLabel(CHAT_SHORTCUT)}</kbd> Ask about your tasks
-        </p>
-        <p className="text-sm text-white/70">
-          <kbd className={kbdClass}>Ctrl+Shift+,</kbd> Open settings
-        </p>
+        {shortcuts.map((shortcut) => (
+          <div key={shortcut.action} className="flex flex-col gap-0.5">
+            <p className="text-sm text-white/70">
+              <kbd className={kbdClass}>{shortcut.label}</kbd> {shortcut.name}
+            </p>
+            {shortcut.problem && (
+              <p className="text-xs text-urgency-approaching">{shortcut.problem}</p>
+            )}
+          </div>
+        ))}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
+          Permissions
+        </h2>
+        {permissions.map((permission) => (
+          <div key={permission.kind} className="flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-white/80">{PERMISSION_NAMES[permission.kind]}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-white/50">{PERMISSION_STATUS[permission.status]}</span>
+                {permission.canOpenSettings && permission.status !== 'granted' && (
+                  <button
+                    type="button"
+                    className={btnGhost}
+                    onClick={() => void window.ambient.openPermissionSettings(permission.kind)}
+                  >
+                    Open System Settings
+                  </button>
+                )}
+              </span>
+            </div>
+            {permission.help && <p className="text-xs text-white/50">{permission.help}</p>}
+          </div>
+        ))}
       </section>
 
       {(busy || notice) && (

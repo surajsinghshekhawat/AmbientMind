@@ -446,9 +446,9 @@ sqlite-vec      localhost      Gmail,          safeStorage/DPAPI,
 | Surface | Trigger | Behaviour |
 | --- | --- | --- |
 | **Overlay** | Always present | Starts as a ~70 px circle in the configured corner. Click expands to the full-height list. Transparent, always-on-top, click-through except over real controls. |
-| **QuickAdd** | `Ctrl+Shift+A` | Palette for typed or spoken capture. Mic opens with the window; three seconds of silence after speech ends recording and submits. |
-| **Settings** | `Ctrl+Shift+,`, tray, or the gear | Google connection, models, profile, recurring rules, health, learned suppressions, corpus export. |
-| **Chat** | `Ctrl+Shift+C`, tray, or the overlay header | Conversational panel that can both answer about and modify the list. |
+| **QuickAdd** | `Ctrl+Shift+A` (Mac `⌃⌥Space`) | Palette for typed or spoken capture. Mic opens with the window; three seconds of silence after speech ends recording and submits. |
+| **Settings** | `Ctrl+Shift+,` (Mac `⌃⌥,` or `⌘,`), tray, or the gear | Google connection, models, profile, recurring rules, health, learned suppressions, corpus export. |
+| **Chat** | `Ctrl+Shift+C` (Mac `⌃⌥C`), tray, or the overlay header | Conversational panel that can both answer about and modify the list. |
 | **Tray** | Always | Show/hide, sync now, chat, settings, quit. There is no main window, so closing the overlay must never quit the process. |
 
 ### 4.2 The click-through mechanism
@@ -678,7 +678,7 @@ a task with those words as its title.
 
 ### 6.5 Screen capture
 
-`Ctrl+Shift+S` or a spoken screen intent. Captures the display **the cursor is
+`Ctrl+Shift+S` (Mac `⌃⌥S`) or a spoken screen intent. Captures the display **the cursor is
 on** — on a two-monitor desk, capturing the primary screen silently produces a
 task about whatever was idle on the other one. OCR, denoise, then a one-task
 extraction. Deadlines like `"Thursday"` are normalised in
@@ -1362,12 +1362,15 @@ npm run corpus:export -- --days=30 --limit=120
 
 ### 13.3 Shortcuts
 
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+Shift+A` | QuickAdd; mic starts; 3 s of silence submits |
-| `Ctrl+Shift+S` | Capture the screen as a task |
-| `Ctrl+Shift+C` | Ask about your tasks |
-| `Ctrl+Shift+,` | Settings |
+Defaults live in `shared/shortcuts.ts`. Settings lists each one and says when
+it conflicts or another app holds the keys.
+
+| Windows | Mac | Action |
+| --- | --- | --- |
+| `Ctrl+Shift+A` | `⌃⌥Space` | QuickAdd; mic starts; 3 s of silence submits |
+| `Ctrl+Shift+S` | `⌃⌥S` | Capture the screen as a task |
+| `Ctrl+Shift+C` | `⌃⌥C` | Ask about your tasks |
+| `Ctrl+Shift+,` | `⌃⌥,` | Settings |
 
 ### 13.4 Packaging configuration
 
