@@ -780,7 +780,7 @@ Exit check (second round): typecheck, `./dev npm test` (203 logic + 30 db +
 39 component tests), the smoke test (including the helper's speech status),
 `test:packaged`, and `./dev doctor` all pass.
 
-### Phase 5 — Apple sources (4–6 days) — built, awaiting a device check
+### Phase 5 — Apple sources (4–6 days) — done
 
 - Apple Calendar through EventKit for every account in macOS Internet
   Accounts. When Google Calendar is also connected, dedupe by event identity.
@@ -816,14 +816,17 @@ What landed (branch `phase-4-helper`, helper 0.3.0):
   cases against an in-memory Reminders that enforces versions, 3 Settings
   cases, and a smoke check that both sources are reachable and off by
   default.
+- Device check passed: the installed app asked for Calendar and Reminders,
+  pushed open tasks into the list, and completions and new reminders crossed
+  both ways. Two fixes got it there: `./dev packaged` launches through
+  LaunchServices so macOS asks as AmbientMind rather than the terminal, and
+  the app and helper are signed with the `personal-information` entitlements
+  the hardened runtime requires (`test:packaged` now checks them). In
+  development macOS still asks on Cursor's behalf, so the switch explains
+  that and refuses.
 
 Not done yet, and why:
 
-- A real iPhone round trip. In development macOS asks for Calendar and
-  Reminders on behalf of Cursor, which has no usage strings, so the switch
-  explains that and refuses; the installed app (`./dev packaged`) asks as
-  AmbientMind. The exit check needs you to allow it there once and complete
-  a task on the phone.
 - Recurrence is not written to Reminders: a recurring rule's occurrences go
   as separate reminders. Recurring reminders made on the phone sync as
   ordinary changes.
