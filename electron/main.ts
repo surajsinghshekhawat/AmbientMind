@@ -11,6 +11,9 @@ import {
   SETTINGS_SHORTCUT
 } from '@shared/ipc'
 
+import { BurstLimiter, guard, setErrorSink } from './services/guard'
+import { broadcast } from './broadcast'
+
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
 app.commandLine.appendSwitch('disable-features', 'EnableTransparentHwndEnlargement')
@@ -30,10 +33,17 @@ function recordCrash(kind: string, err: unknown) {
   }
 }
 
+setErrorSink((where, err) => recordCrash(where, err))
+
+// One bad message or timer tick used to quit the whole app. Now only a burst
+// of failures does, since that means the process is stuck failing.
+const crashLoop = new BurstLimiter(3, 60_000)
+
 process.on('uncaughtException', (err) => {
   recordCrash('uncaughtException', err)
+  if (!crashLoop.hit()) return
   try {
-    dialog.showErrorBox('AmbientMind crashed', err.message)
+    dialog.showErrorBox('AmbientMind stopped', `It kept failing, so it quit. ${err.message}`)
   } catch {
     // Dialog is unavailable before app ready; the log is the record.
   }
@@ -44,14 +54,23 @@ process.on('unhandledRejection', (reason) => {
   recordCrash('unhandledRejection', reason)
 })
 
+const reloads = new Map<number, BurstLimiter>()
+
 app.on('render-process-gone', (_event, webContents, details) => {
   recordCrash('render-process-gone', `${details.reason} exit=${details.exitCode}`)
-  try {
-    dialog.showErrorBox('AmbientMind', 'A window crashed and will be reloaded.')
-  } catch {
-    /* ignore */
+  if (webContents.isDestroyed()) return
+  const limiter = reloads.get(webContents.id) ?? new BurstLimiter(3, 60_000)
+  reloads.set(webContents.id, limiter)
+  // A window that crashes on load would otherwise reload, and alert, forever.
+  if (limiter.hit()) {
+    try {
+      dialog.showErrorBox('AmbientMind', 'A window keeps crashing, so it was left closed.')
+    } catch {
+      /* ignore */
+    }
+    return
   }
-  if (!webContents.isDestroyed()) webContents.reload()
+  webContents.reload()
 })
 
 app.on('child-process-gone', (_event, details) => {
@@ -60,7 +79,6 @@ app.on('child-process-gone', (_event, details) => {
 import {
   applyOverlayConfig,
   createOverlayWindow,
-  getOverlayWindow,
   setMouseCapture,
   setOverlayExpanded
 } from './overlay'
@@ -150,8 +168,16 @@ let trayHandle: { refresh: () => void } | null = null
 /** In-memory: the DB keeps last_run/last_error, this keeps the counts. */
 let lastReport: SyncSummary['lastReport'] = null
 
+/** `ipcMain.on` with a guard: a throwing handler is logged, not fatal. */
+function onIpc<A extends unknown[]>(
+  channel: string,
+  handler: (event: Electron.IpcMainEvent, ...args: A) => unknown
+) {
+  ipcMain.on(channel, guard(`ipc:${channel}`, handler) as (event: Electron.IpcMainEvent, ...args: unknown[]) => void)
+}
+
 function broadcastTasks() {
-  getOverlayWindow()?.webContents.send(IPC.TasksChanged, listActive())
+  broadcast(IPC.TasksChanged, listActive())
 }
 
 /**
@@ -202,7 +228,7 @@ function applyLoginItem(config: Config) {
 
 function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
-  getOverlayWindow()?.webContents.send(IPC.ConfigChanged, config)
+  broadcast(IPC.ConfigChanged, config)
   setSpeechModel(config.whisperModel)
   applyLoginItem(config)
 
@@ -249,19 +275,19 @@ function onScheduledSync(report: SyncReport) {
   }
   // Calendar reconciliation can move or remove tasks without adding any.
   broadcastTasks()
-  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle' })
+  broadcast(IPC.SyncStatus, { state: 'idle' })
   trayHandle?.refresh()
 }
 
 function registerIpc() {
-  ipcMain.on(IPC.SetMouseCapture, (_event, capture: boolean) => setMouseCapture(capture))
+  onIpc(IPC.SetMouseCapture, (_event, capture: boolean) => setMouseCapture(capture))
 
   ipcMain.handle(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
     setOverlayExpanded(expanded)
   })
   // Older preload used send() instead of invoke(); keep both so a stale
   // renderer can still collapse/expand.
-  ipcMain.on(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
+  onIpc(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
     setOverlayExpanded(expanded)
   })
 
@@ -320,7 +346,7 @@ function registerIpc() {
     return listActive()
   })
 
-  ipcMain.on(IPC.QuickAddSubmit, (_event, title: string) => {
+  onIpc(IPC.QuickAddSubmit, (_event, title: string) => {
     const trimmed = title.trim()
     hideQuickAdd()
     setQuickAddRecording(false)
@@ -363,12 +389,12 @@ function registerIpc() {
     })
   })
 
-  ipcMain.on(IPC.QuickAddCancel, () => {
+  onIpc(IPC.QuickAddCancel, () => {
     setQuickAddRecording(false)
     hideQuickAdd()
   })
 
-  ipcMain.on(IPC.QuickAddRecording, (_event, next: boolean) => {
+  onIpc(IPC.QuickAddRecording, (_event, next: boolean) => {
     setQuickAddRecording(Boolean(next))
   })
 
@@ -506,9 +532,9 @@ function registerIpc() {
 
   ipcMain.handle(IPC.GetRagCount, () => exampleCount(getTaskStore()))
 
-  ipcMain.on(IPC.OpenSettings, () => showSettingsWindow())
+  onIpc(IPC.OpenSettings, () => showSettingsWindow())
 
-  ipcMain.on(IPC.OpenChat, () => showChatWindow())
+  onIpc(IPC.OpenChat, () => showChatWindow())
 
   ipcMain.handle(IPC.ChatSend, async (_event, message: string, history: ChatTurn[]) => {
     const config = loadConfig()
@@ -564,8 +590,7 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
     new Notification({ title: 'AmbientMind', body: describePause(pausedUntil) }).show()
     return
   }
-  const overlay = getOverlayWindow()
-  overlay?.webContents.send(IPC.ScreenStatus, { state: 'running' })
+  broadcast(IPC.ScreenStatus, { state: 'running' })
 
   try {
     const config = loadConfig()
@@ -603,13 +628,13 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
       body: `Screen capture failed: ${(err as Error).message}`
     }).show()
   } finally {
-    overlay?.webContents.send(IPC.ScreenStatus, { state: 'idle' })
+    broadcast(IPC.ScreenStatus, { state: 'idle' })
   }
 }
 
 /** Only an explicit "Sync now" forces; Connect and wake read new mail only. */
 async function triggerSync(force = false): Promise<SyncReport> {
-  getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'running' })
+  broadcast(IPC.SyncStatus, { state: 'running' })
   let report: SyncReport
   try {
     report = await runSync(syncOptions(loadConfig(), { force }))
@@ -625,7 +650,7 @@ async function triggerSync(force = false): Promise<SyncReport> {
       errors: [`sync: ${(err as Error).message}`]
     }
   } finally {
-    getOverlayWindow()?.webContents.send(IPC.SyncStatus, { state: 'idle' })
+    broadcast(IPC.SyncStatus, { state: 'idle' })
   }
   lastReport = {
     ranAt: report.ranAt,
@@ -787,36 +812,45 @@ if (process.argv.includes('--sync-now')) {
 
     // Snoozed tasks are checked far more often than completed ones are swept:
     // a task that reappears 15 minutes late has missed the point of snoozing.
-    setInterval(() => {
-      if (wakeSnoozed() > 0) {
-        broadcastTasks()
-        trayHandle?.refresh()
-      }
-      // Keeps the rolling horizon topped up as days pass.
-      applyRules()
-    }, SNOOZE_SWEEP_MS)
+    setInterval(
+      guard('timer:snooze-sweep', () => {
+        if (wakeSnoozed() > 0) {
+          broadcastTasks()
+          trayHandle?.refresh()
+        }
+        // Brings up each rule's next occurrence as the previous one settles.
+        applyRules()
+      }),
+      SNOOZE_SWEEP_MS
+    )
 
-    setInterval(() => {
-      if (archiveStaleCompleted() > 0) broadcastTasks()
-      // Hourly is plenty: a habit that took three weeks to form will keep.
-      refreshSuggestions()
-      // Cheap and usually a no-op, but it is the only thing standing between
-      // the vector store and unbounded linear growth in retrieval cost.
-      runRetention()
-      void backfillEmbeddings(loadConfig().embeddingModel)
-    }, ARCHIVE_SWEEP_MS)
+    setInterval(
+      guard('timer:archive-sweep', async () => {
+        if (archiveStaleCompleted() > 0) broadcastTasks()
+        // Hourly is plenty: a habit that took three weeks to form will keep.
+        refreshSuggestions()
+        // Cheap and usually a no-op, but it is the only thing standing between
+        // the vector store and unbounded linear growth in retrieval cost.
+        runRetention()
+        await backfillEmbeddings(loadConfig().embeddingModel)
+      }),
+      ARCHIVE_SWEEP_MS
+    )
 
     // Closing the lid at night and opening it in the morning is the normal
     // case, not an edge case. Timers do not run while the machine is asleep,
     // so on resume the list is showing yesterday: snoozes that should have
     // returned are still hidden, and mail from overnight has not been read.
-    powerMonitor.on('resume', () => {
-      console.log('[power] resumed; catching up')
-      if (wakeSnoozed() > 0) trayHandle?.refresh()
-      applyRules()
-      broadcastTasks()
-      void triggerSync()
-    })
+    powerMonitor.on(
+      'resume',
+      guard('power:resume', async () => {
+        console.log('[power] resumed; catching up')
+        if (wakeSnoozed() > 0) trayHandle?.refresh()
+        applyRules()
+        broadcastTasks()
+        await triggerSync()
+      })
+    )
   })
 
   // Tray-resident app: closing a window must not terminate the process.
