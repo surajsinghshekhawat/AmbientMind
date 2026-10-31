@@ -196,4 +196,21 @@ enum SelfTest {
     }
     exit((report["ok"] as? Bool) == true ? 0 : 1)
   }
+
+  static func transcribe(path: String, hints: [String]) -> Never {
+    guard #available(macOS 26, *) else {
+      FileHandle.standardError.write("Live speech needs macOS 26\n".data(using: .utf8)!)
+      exit(2)
+    }
+    Task {
+      do {
+        print(try await SpeechSession.transcribe(file: URL(fileURLWithPath: path), hints: hints))
+        exit(0)
+      } catch {
+        FileHandle.standardError.write("\(error)\n".data(using: .utf8)!)
+        exit(1)
+      }
+    }
+    dispatchMain()
+  }
 }

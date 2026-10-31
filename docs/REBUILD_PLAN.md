@@ -759,9 +759,11 @@ What landed in the second round:
 
 Not done yet, and why:
 
-- Apple's en-US speech model is not downloaded on this Mac, so live words
-  are proven by the protocol, the component tests and a clean refusal, not
-  by a real utterance. One press of Download in Settings changes that.
+- Live words through the real microphone: the en-US model is installed
+  and `ambientmind-helper --transcribe <file> [hints]` runs the same feed,
+  analyzer and results path on a `say` recording (word-perfect, names from
+  the hints, about 0.7 s for 5 s of speech). The microphone itself still
+  needs a person talking to it.
 - Hold-to-talk release needs a physical key test; the hotkey registers and
   clears in the probe and the smoke test.
 - Moving Transformers.js into a utility process: less pressing now that the

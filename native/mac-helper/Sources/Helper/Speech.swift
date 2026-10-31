@@ -57,7 +57,6 @@ actor SpeechSession {
   private var finalized = ""
   private var volatile = ""
   private var resultsTask: Task<Void, Never>?
-  private var converter: AVAudioConverter?
 
   private init(transcriber: SpeechTranscriber) {
     self.transcriber = transcriber
@@ -152,15 +151,15 @@ actor SpeechSession {
     current = nil
   }
 
-  private func begin(hints: [String]) async throws {
+  /// Sets up the analyzer for audio in `sourceFormat` and returns the feed
+  /// that audio goes into.
+  private func prepare(hints: [String], sourceFormat: AVAudioFormat) async throws -> AudioFeed {
     let context = AnalysisContext()
     let cleaned = Array(Set(hints.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })).prefix(100)
     if !cleaned.isEmpty { context.contextualStrings[.general] = Array(cleaned) }
     try await analyzer.setContext(context)
 
-    let inputNode = engine.inputNode
-    let naturalFormat = inputNode.outputFormat(forBus: 0)
-    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber], considering: naturalFormat) else {
+    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber], considering: sourceFormat) else {
       throw HelperError("speech_failed", "No audio format the speech model accepts")
     }
     try await analyzer.prepareToAnalyze(in: format)
@@ -175,20 +174,43 @@ actor SpeechSession {
       }
     }
     try await analyzer.start(inputSequence: stream)
+    return AudioFeed(format: format, continuation: input)
+  }
 
-    let continuation = input
+  private func begin(hints: [String]) async throws {
+    let inputNode = engine.inputNode
+    let naturalFormat = inputNode.outputFormat(forBus: 0)
+    let feed = try await prepare(hints: hints, sourceFormat: naturalFormat)
     var lastLevel = Date.distantPast
-    inputNode.installTap(onBus: 0, bufferSize: 2048, format: naturalFormat) { [weak self] buffer, _ in
+    inputNode.installTap(onBus: 0, bufferSize: 2048, format: naturalFormat) { buffer, _ in
       let now = Date()
       if now.timeIntervalSince(lastLevel) > 0.05 {
         lastLevel = now
-        Output.shared.event("speech.level", ["rms": Self.rms(buffer)])
+        Output.shared.event("speech.level", ["rms": AudioFeed.rms(buffer)])
       }
-      guard let self else { return }
-      Task { if let converted = await self.convert(buffer, to: format) { continuation.yield(AnalyzerInput(buffer: converted)) } }
+      feed.push(buffer)
     }
     engine.prepare()
     try engine.start()
+  }
+
+  /// The live path with a file instead of the microphone, for `--transcribe`.
+  static func transcribe(file: URL, hints: [String]) async throws -> String {
+    guard let locale = await locale() else { throw HelperError("unsupported", "Live speech does not support this language") }
+    let transcriber = makeTranscriber(locale)
+    guard await AssetInventory.status(forModules: [transcriber]) == .installed else {
+      throw HelperError("not_installed", "The speech model for this language is not downloaded")
+    }
+    let audio = try AVAudioFile(forReading: file)
+    let session = SpeechSession(transcriber: transcriber)
+    let feed = try await session.prepare(hints: hints, sourceFormat: audio.processingFormat)
+    while audio.framePosition < audio.length,
+      let buffer = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: 4096)
+    {
+      try audio.read(into: buffer)
+      feed.push(buffer)
+    }
+    return await session.finish()
   }
 
   private func take(_ text: String, final: Bool) {
@@ -224,8 +246,26 @@ actor SpeechSession {
     if engine.isRunning { engine.stop() }
     engine.inputNode.removeTap(onBus: 0)
   }
+}
 
-  private func convert(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+/// Converts audio to the analyzer's format and queues it, synchronously and in
+/// order. Called from the audio thread, one buffer at a time.
+@available(macOS 26, *)
+final class AudioFeed: @unchecked Sendable {
+  private let format: AVAudioFormat
+  private let continuation: AsyncStream<AnalyzerInput>.Continuation
+  private var converter: AVAudioConverter?
+
+  init(format: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation) {
+    self.format = format
+    self.continuation = continuation
+  }
+
+  func push(_ buffer: AVAudioPCMBuffer) {
+    if let converted = convert(buffer) { continuation.yield(AnalyzerInput(buffer: converted)) }
+  }
+
+  private func convert(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
     if buffer.format == format { return buffer }
     if converter == nil {
       converter = AVAudioConverter(from: buffer.format, to: format)
@@ -249,7 +289,7 @@ actor SpeechSession {
     return status == .error ? nil : output
   }
 
-  private static func rms(_ buffer: AVAudioPCMBuffer) -> Double {
+  static func rms(_ buffer: AVAudioPCMBuffer) -> Double {
     guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
     var sum: Float = 0
     let count = Int(buffer.frameLength)

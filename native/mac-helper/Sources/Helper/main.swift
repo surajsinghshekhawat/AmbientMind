@@ -7,6 +7,8 @@ import Foundation
 ///
 ///   ambientmind-helper             serve requests on stdin
 ///   ambientmind-helper --selftest  print a JSON report and exit
+///   ambientmind-helper --transcribe <audio file> [hint ...]
+///                                  run the live speech path on a file, print the text
 ///   ambientmind-helper --version
 
 let helperVersion = "0.2.0"
@@ -22,6 +24,10 @@ Activation.shared.start()
 
 if arguments.contains("--selftest") {
   SelfTest.run()
+}
+
+if let flag = arguments.firstIndex(of: "--transcribe"), flag + 1 < arguments.count {
+  SelfTest.transcribe(path: arguments[flag + 1], hints: Array(arguments.dropFirst(flag + 2)))
 }
 
 ParentWatch.start()
