@@ -13,6 +13,10 @@ export const OLLAMA_URL = process.env.OLLAMA_URL ?? 'http://localhost:11434'
 
 /** A 3B model on a 4GB GPU: generous, but bounded so a stall cannot wedge sync. */
 const REQUEST_TIMEOUT_MS = 120_000
+/** Quick Add shows the raw text at once; a slower answer is not worth waiting for. */
+const ENRICH_TIMEOUT_MS = 30_000
+/** Health polls this; a wedged server must read as down, not hang the banner. */
+const TAGS_TIMEOUT_MS = 3_000
 
 export class OllamaUnavailableError extends Error {
   constructor(cause?: unknown) {
@@ -56,8 +60,13 @@ const DEFAULTS = {
   minConfidence: 0.6
 }
 
-async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+async function post<T>(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS
+): Promise<T> {
+  const timeout = AbortSignal.timeout(timeoutMs)
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
 
   let response: Response
@@ -124,8 +133,11 @@ export async function isAvailable(): Promise<boolean> {
   }
 }
 
-export async function listModels(): Promise<string[]> {
-  const response = await fetch(`${OLLAMA_URL}/api/tags`)
+export async function listModels(options: { timeoutMs?: number } = {}): Promise<string[]> {
+  const response = await fetch(`${OLLAMA_URL}/api/tags`, {
+    signal: AbortSignal.timeout(options.timeoutMs ?? TAGS_TIMEOUT_MS)
+  })
+  if (!response.ok) throw new Error(`Ollama /api/tags responded ${response.status}`)
   const data = (await response.json()) as { models?: { name: string }[] }
   return (data.models ?? []).map((model) => model.name)
 }
@@ -234,7 +246,7 @@ export interface EnrichedTask {
  */
 export async function enrichTask(
   input: string,
-  options: { model?: string; signal?: AbortSignal } = {}
+  options: { model?: string; signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<EnrichedTask> {
   const fallback: EnrichedTask = { title: input.trim(), deadline: null, priority: 'medium', people: [] }
 
@@ -256,7 +268,8 @@ export async function enrichTask(
         stream: false,
         options: { temperature: 0, num_ctx: 2048, num_predict: 200 }
       },
-      options.signal
+      options.signal,
+      options.timeoutMs ?? ENRICH_TIMEOUT_MS
     )
 
     const parsed = JSON.parse(data.message?.content ?? '{}') as Partial<EnrichedTask>

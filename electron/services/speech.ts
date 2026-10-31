@@ -21,44 +21,27 @@ import { app } from 'electron'
  */
 
 import { DEFAULT_CONFIG } from '@shared/types'
+import { createModelCache } from './modelCache'
 
 type Transcriber = (
   audio: Float32Array,
   options?: { sampling_rate?: number; return_timestamps?: boolean }
 ) => Promise<{ text: string }>
 
-let transcriber: Transcriber | null = null
-let loading: Promise<Transcriber> | null = null
-let activeModel: string = DEFAULT_CONFIG.whisperModel
+const transcribers = createModelCache(async (model): Promise<Transcriber> => {
+  // Dynamic import keeps the heavy ONNX runtime out of the main startup path.
+  const { env, pipeline } = await import('@xenova/transformers')
+  env.cacheDir = join(app.getPath('userData'), 'whisper')
+  env.allowLocalModels = false
 
-async function getTranscriber(): Promise<Transcriber> {
-  if (transcriber) return transcriber
-  if (loading) return loading
+  console.log(`[speech] loading ${model}…`)
+  const started = Date.now()
+  const pipe = (await pipeline('automatic-speech-recognition', model)) as unknown as Transcriber
+  console.log(`[speech] ready in ${Date.now() - started}ms`)
+  return pipe
+}, DEFAULT_CONFIG.whisperModel)
 
-  const model = activeModel
-  loading = (async () => {
-    // Dynamic import keeps the heavy ONNX runtime out of the main startup path.
-    const { env, pipeline } = await import('@xenova/transformers')
-    env.cacheDir = join(app.getPath('userData'), 'whisper')
-    env.allowLocalModels = false
-
-    console.log(`[speech] loading ${model}…`)
-    const started = Date.now()
-    const pipe = (await pipeline(
-      'automatic-speech-recognition',
-      model
-    )) as unknown as Transcriber
-    console.log(`[speech] ready in ${Date.now() - started}ms`)
-    transcriber = pipe
-    return pipe
-  })()
-
-  try {
-    return await loading
-  } finally {
-    loading = null
-  }
-}
+const getTranscriber = () => transcribers.get()
 
 /**
  * Switching models drops the cached pipeline so the next transcription loads
@@ -66,10 +49,7 @@ async function getTranscriber(): Promise<Transcriber> {
  * is fired immediately rather than left to surprise the user mid-sentence.
  */
 export function setSpeechModel(model: string): void {
-  if (model === activeModel) return
-  activeModel = model
-  transcriber = null
-  loading = null
+  if (!transcribers.setModel(model)) return
   void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
 }
 
@@ -96,6 +76,5 @@ export async function transcribePcm(samples: Float32Array): Promise<string> {
 }
 
 export function disposeSpeech() {
-  transcriber = null
-  loading = null
+  transcribers.dispose()
 }
