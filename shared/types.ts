@@ -115,6 +115,8 @@ export interface ChatReply {
   /** Changes actually made, in plain words, so the UI can show its work. */
   actions: string[]
   changed: boolean
+  /** The user pressed Stop before an answer arrived. */
+  stopped?: boolean
 }
 
 export interface SyncSummary {

@@ -91,6 +91,8 @@ const api = {
   }> => ipcRenderer.invoke(IPC.RunSyncNow),
 
   openChat: () => ipcRenderer.send(IPC.OpenChat),
+  closeChat: () => ipcRenderer.send(IPC.CloseChat),
+  stopChat: () => ipcRenderer.send(IPC.ChatStop),
   chat: (message: string, history: ChatTurn[]): Promise<ChatReply> =>
     ipcRenderer.invoke(IPC.ChatSend, message, history),
   getChatHistory: (): Promise<ChatTurn[]> => ipcRenderer.invoke(IPC.GetChatHistory),

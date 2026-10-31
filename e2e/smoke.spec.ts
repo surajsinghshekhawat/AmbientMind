@@ -104,6 +104,14 @@ test('launches and opens every window', async () => {
     }
     expect(shortcuts.filter((s) => s.problem)).toEqual([])
 
+    const chat = await windowNamed(app, 'chat')
+    await expect(chat.getByRole('textbox', { name: 'Message' })).toBeFocused()
+    await chat.screenshot({ path: join(ROOT, '.local', 'shots', 'chat-window.png') })
+    await chat.getByRole('button', { name: 'Close (Esc)' }).click()
+    await expect.poll(() => openWindows(app)).toEqual(['overlay', 'quickadd', 'settings'])
+    await overlay.evaluate(() => window.ambient.openChat())
+    await expect.poll(() => openWindows(app)).toEqual(['chat', 'overlay', 'quickadd', 'settings'])
+
     if (process.platform === 'darwin') {
       const dockVisible = () => app.evaluate(({ app }) => app.dock?.isVisible())
       // Settings and chat are open, so the Dock icon is too.

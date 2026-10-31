@@ -158,7 +158,7 @@ import { loadChatHistory, saveChatHistory } from './services/chatHistory'
 import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
 import { backfillEmbeddings, runRetention } from './services/maintenance'
 import { parseCapture } from '@shared/capture'
-import type { ChatTurn, Config, SyncSummary, Task } from '@shared/types'
+import type { ChatReply, ChatTurn, Config, SyncSummary, Task } from '@shared/types'
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import { powerMonitor } from 'electron'
 import { forgetSubject, learnedSuppressions, recordDecision } from './services/decisionStore'
@@ -167,7 +167,7 @@ import {
   syncAllRulesToCalendar,
   syncRuleToCalendar
 } from './services/calendarSync'
-import { showChatWindow } from './chat'
+import { getChatWindow, showChatWindow } from './chat'
 import { runChat } from './services/chat'
 import { describeRule, type NewRecurrenceRule } from '@shared/recurrence'
 import { seedIfEmpty } from './seedTasks'
@@ -587,8 +587,9 @@ function registerIpc() {
   onIpc(IPC.OpenSettings, () => showSettingsWindow())
 
   onIpc(IPC.OpenChat, () => showChatWindow())
+  onIpc(IPC.CloseChat, () => getChatWindow()?.close())
 
-  ipcMain.handle(IPC.ChatSend, async (_event, message: string, history: ChatTurn[]) => {
+  ipcMain.handle(IPC.ChatSend, async (_event, message: string, history: ChatTurn[]): Promise<ChatReply> => {
     const config = loadConfig()
     if (isAiPaused(config.pauseAiUntil) && config.pauseAiUntil) {
       return {
@@ -597,20 +598,38 @@ function registerIpc() {
         changed: false
       }
     }
-    const reply = await runChat(message, history ?? [], {
-      model: config.ollamaModel,
-      userName: currentUserName(),
-      ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
-      rules: listRules()
-    })
-    if (reply.changed) {
-      applyRules()
+    chatAbort?.abort()
+    const controller = new AbortController()
+    chatAbort = controller
+    try {
+      const reply = await runChat(message, history ?? [], {
+        model: config.ollamaModel,
+        userName: currentUserName(),
+        ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
+        rules: listRules(),
+        signal: controller.signal
+      })
+      if (reply.changed) {
+        applyRules()
+        broadcastTasks()
+        trayHandle?.refresh()
+      }
+      return reply
+    } catch (err) {
+      if (!controller.signal.aborted) throw err
+      // Stopped mid-answer: anything already changed is real, so show it.
       broadcastTasks()
       trayHandle?.refresh()
+      return { reply: '', actions: [], changed: false, stopped: true }
+    } finally {
+      if (chatAbort === controller) chatAbort = null
     }
-    return reply
   })
+
+  onIpc(IPC.ChatStop, () => chatAbort?.abort())
 }
+
+let chatAbort: AbortController | null = null
 
 /**
  * Who the prompts should treat as "me". A connected mailbox is the best signal;

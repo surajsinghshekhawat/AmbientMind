@@ -2,6 +2,7 @@ import type { AmbientApi } from '../../electron/preload'
 import type { RecurrenceRule } from '@shared/recurrence'
 import {
   DEFAULT_CONFIG,
+  type ChatReply,
   type ChatTurn,
   type Config,
   type HealthReport,
@@ -142,9 +143,11 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     },
 
     openChat: () => record('openChat'),
-    chat: async (message: string, history: ChatTurn[]) => {
+    closeChat: () => record('closeChat'),
+    stopChat: () => record('stopChat'),
+    chat: async (message: string, history: ChatTurn[]): Promise<ChatReply> => {
       record('chat', message, history)
-      return { reply: `Mock reply to: ${message}`, actions: [] as string[], changed: false }
+      return { reply: `Mock reply to: ${message}`, actions: [], changed: false }
     },
     getChatHistory: async () => [...state.chatHistory],
     saveChatHistory: async (turns: ChatTurn[]) => {

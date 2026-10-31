@@ -39,6 +39,9 @@ export const IPC = {
   DismissSuggestion: 'rules:suggestion-dismiss',
 
   ChatSend: 'chat:send',
+  ChatStop: 'chat:stop',
+  /** Renderer -> main: the chat card's close button and Esc. */
+  CloseChat: 'chat:close',
   OpenChat: 'chat:open',
 
   GetRules: 'rules:get',

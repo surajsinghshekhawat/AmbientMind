@@ -10,12 +10,17 @@ export function showChatWindow() {
     return chatWindow
   }
 
+  // The same glass card as the panel. Frameless, so the page draws its own
+  // header (a drag region) and Esc or the close button closes it.
   chatWindow = new BrowserWindow({
-    width: 440,
-    height: 620,
-    minWidth: 360,
-    minHeight: 420,
-    title: 'AmbientMind',
+    width: 460,
+    height: 600,
+    minWidth: 380,
+    minHeight: 360,
+    title: 'Ask AmbientMind',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     ...utilityWindowOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),

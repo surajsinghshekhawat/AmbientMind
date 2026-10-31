@@ -13,6 +13,7 @@ import {
   sampleTasks
 } from '../dev/fixtures'
 import { Panel, type PanelProps } from '../overlay/Panel'
+import { App as Chat } from '../chat/App'
 import { App as QuickCapture } from '../quickadd/App'
 import { Button } from '../ui/Button'
 import { Check } from '../ui/Check'
@@ -295,6 +296,59 @@ export function Gallery() {
           <State name="Microphone blocked">
             <Backdrops width={600} only={[0]}>
               <QuickCapture initialMessage={{ text: 'The microphone is blocked. Allow it in System Settings → Privacy & Security → Microphone.', error: true }} />
+            </Backdrops>
+          </State>
+        </Section>
+
+        <Section title="Chat">
+          <State name="Chat empty">
+            <Backdrops width={460} only={[0, 1]}>
+              <div className="h-[420px]">
+                <Chat initialEntries={[]} />
+              </div>
+            </Backdrops>
+          </State>
+          <State name="Chat conversation">
+            <Backdrops width={460} only={[0, 2]}>
+              <div className="h-[560px]">
+                <Chat
+                  initialEntries={[
+                    { role: 'user', content: "What's urgent today?" },
+                    {
+                      role: 'assistant',
+                      content:
+                        'Two things need you today:\n\n- **Reply to Priya** about the vendor contract. It was due 5 hours ago.\n- **Prepare slides** for the design review at 3 pm.\n\nEverything else can wait until tomorrow.'
+                    },
+                    { role: 'user', content: 'Push the slides to tomorrow morning and remind me about the passport on Friday' },
+                    {
+                      role: 'assistant',
+                      content: 'Done. The slides are now due tomorrow at 9 am, and the passport renewal is due Friday.',
+                      actions: ['Moved “Prepare slides for the design review” to tomorrow 09:00', 'Added “Renew passport”, due Friday 17:00']
+                    }
+                  ]}
+                />
+              </div>
+            </Backdrops>
+          </State>
+          <State name="Chat thinking">
+            <Backdrops width={460} only={[0]}>
+              <div className="h-[260px]">
+                <Chat initialEntries={[{ role: 'user', content: 'Clear everything that came from Gmail this week' }]} initialBusy />
+              </div>
+            </Backdrops>
+          </State>
+          <State name="Chat stopped and failed">
+            <Backdrops width={460} only={[0]}>
+              <div className="h-[320px]">
+                <Chat
+                  initialEntries={[
+                    { role: 'user', content: 'Summarise my week' },
+                    { role: 'assistant', content: '', stopped: true },
+                    { role: 'user', content: 'What is due tomorrow?' },
+                    { role: 'assistant', content: '', failed: 'Could not reach the model at 127.0.0.1:11435. If the model is not running, start it and try again.' }
+                  ]}
+                />
+              </div>
             </Backdrops>
           </State>
         </Section>
