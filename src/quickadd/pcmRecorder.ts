@@ -20,6 +20,7 @@ export class PcmRecorder {
   private _state: RecorderState = 'idle'
 
   private onSilence: (() => void) | null = null
+  private onLevel: ((rms: number) => void) | null = null
   private heardSpeech = false
   private lastLoudAt = 0
   private silenceMs = 3000
@@ -30,10 +31,16 @@ export class PcmRecorder {
     return this._state
   }
 
-  async start(options?: { onSilence?: () => void; silenceMs?: number }): Promise<void> {
+  async start(options?: {
+    onSilence?: () => void
+    silenceMs?: number
+    /** Called per audio block with the input level, for a live waveform. */
+    onLevel?: (rms: number) => void
+  }): Promise<void> {
     if (this._state !== 'idle') return
 
     this.onSilence = options?.onSilence ?? null
+    this.onLevel = options?.onLevel ?? null
     this.silenceMs = options?.silenceMs ?? 3000
     this.heardSpeech = false
     this.lastLoudAt = 0
@@ -62,6 +69,7 @@ export class PcmRecorder {
       for (let i = 0; i < input.length; i += 8) sum += input[i]! * input[i]!
       const rms = Math.sqrt(sum / (input.length / 8))
       const now = Date.now()
+      this.onLevel?.(rms)
 
       // Ignore the first 400ms: opening the mic often spikes as "speech".
       if (now - this.startedAt < 400) return

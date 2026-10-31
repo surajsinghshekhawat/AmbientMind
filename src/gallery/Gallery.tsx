@@ -13,6 +13,7 @@ import {
   sampleTasks
 } from '../dev/fixtures'
 import { Panel, type PanelProps } from '../overlay/Panel'
+import { App as QuickCapture } from '../quickadd/App'
 import { Button } from '../ui/Button'
 import { Check } from '../ui/Check'
 import { IconButton } from '../ui/IconButton'
@@ -258,6 +259,44 @@ export function Gallery() {
               ))}
             </div>
           </Backdrops>
+        </Section>
+
+        <Section title="Quick Capture">
+          <State name="Empty">
+            <Backdrops width={600} only={[0, 1]}>
+              <QuickCapture />
+            </Backdrops>
+          </State>
+          <State name="Typing, with what it understood">
+            <Backdrops width={600} only={[0, 2]}>
+              <QuickCapture initialValue="Call @Priya about the contract tomorrow at 5pm asap" />
+            </Backdrops>
+          </State>
+          <State name="Recurring">
+            <Backdrops width={600} only={[0]}>
+              <QuickCapture initialValue="Tuition every tue, thu and sat at 5pm" />
+            </Backdrops>
+          </State>
+          <State name="Listening">
+            <Backdrops width={600} only={[0]}>
+              <QuickCapture initialPhase="listening" />
+            </Backdrops>
+          </State>
+          <State name="Writing it down">
+            <Backdrops width={600} only={[0]}>
+              <QuickCapture initialPhase="transcribing" />
+            </Backdrops>
+          </State>
+          <State name="Saved">
+            <Backdrops width={600} only={[0]}>
+              <QuickCapture initialPhase="saved" />
+            </Backdrops>
+          </State>
+          <State name="Microphone blocked">
+            <Backdrops width={600} only={[0]}>
+              <QuickCapture initialMessage={{ text: 'The microphone is blocked. Allow it in System Settings → Privacy & Security → Microphone.', error: true }} />
+            </Backdrops>
+          </State>
         </Section>
 
         <Section title="Panel">

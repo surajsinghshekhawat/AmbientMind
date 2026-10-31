@@ -77,6 +77,10 @@ export const IPC = {
   QuickAddOpened: 'quickadd:opened',
   /** Renderer -> main: keep the window open while the mic is live. */
   QuickAddRecording: 'quickadd:recording',
+  /** Main -> quick-add renderer: the capture shortcut was pressed while open. */
+  QuickAddShortcutAgain: 'quickadd:shortcut-again',
+  /** Renderer -> main: the composer's height, so the window fits it. */
+  QuickAddHeight: 'quickadd:height',
   /** Renderer -> main: float32 PCM @ 16 kHz ArrayBuffer in, transcript out. */
   TranscribeAudio: 'speech:transcribe'
 } as const

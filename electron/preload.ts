@@ -152,7 +152,9 @@ const api = {
 
   quickAdd: {
     open: () => ipcRenderer.send(IPC.OpenQuickAdd),
-    submit: (title: string) => ipcRenderer.send(IPC.QuickAddSubmit, title),
+    submit: (title: string, options?: { keepOpen?: boolean }) =>
+      ipcRenderer.send(IPC.QuickAddSubmit, title, options),
+    setHeight: (height: number) => ipcRenderer.send(IPC.QuickAddHeight, height),
     cancel: () => ipcRenderer.send(IPC.QuickAddCancel),
     setRecording: (recording: boolean) =>
       ipcRenderer.send(IPC.QuickAddRecording, recording),
@@ -164,6 +166,13 @@ const api = {
       ipcRenderer.on(IPC.QuickAddOpened, listener)
       return () => {
         ipcRenderer.off(IPC.QuickAddOpened, listener)
+      }
+    },
+    onShortcutAgain: (handler: () => void): (() => void) => {
+      const listener = () => handler()
+      ipcRenderer.on(IPC.QuickAddShortcutAgain, listener)
+      return () => {
+        ipcRenderer.off(IPC.QuickAddShortcutAgain, listener)
       }
     }
   }

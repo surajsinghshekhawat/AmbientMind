@@ -94,6 +94,7 @@ import {
   createQuickAddWindow,
   hideQuickAdd,
   setQuickAddRecording,
+  setQuickAddHeight,
   showQuickAdd,
   toggleQuickAdd
 } from './quickAdd'
@@ -156,7 +157,7 @@ import { writeEncryptedBackup } from './services/backup'
 import { loadChatHistory, saveChatHistory } from './services/chatHistory'
 import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
 import { backfillEmbeddings, runRetention } from './services/maintenance'
-import { isScreenCaptureIntent } from '@shared/voiceIntent'
+import { parseCapture } from '@shared/capture'
 import type { ChatTurn, Config, SyncSummary, Task } from '@shared/types'
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import { powerMonitor } from 'electron'
@@ -168,7 +169,7 @@ import {
 } from './services/calendarSync'
 import { showChatWindow } from './chat'
 import { runChat } from './services/chat'
-import { describeRule, parseRecurrence, type NewRecurrenceRule } from '@shared/recurrence'
+import { describeRule, type NewRecurrenceRule } from '@shared/recurrence'
 import { seedIfEmpty } from './seedTasks'
 import { runSelfTest } from './services/selfTest'
 
@@ -293,6 +294,7 @@ function onScheduledSync(report: SyncReport) {
 function registerIpc() {
   onIpc(IPC.SetPanelHeight, (_event, height: number) => setPanelHeight(Number(height)))
   onIpc(IPC.OpenQuickAdd, () => showQuickAdd())
+  onIpc(IPC.QuickAddHeight, (_event, height: number) => setQuickAddHeight(Number(height)))
 
   ipcMain.handle(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
     setOverlayExpanded(expanded)
@@ -373,27 +375,28 @@ function registerIpc() {
     return listActive()
   })
 
-  onIpc(IPC.QuickAddSubmit, (_event, title: string) => {
+  onIpc(IPC.QuickAddSubmit, (_event, title: string, options?: { keepOpen?: boolean }) => {
     const trimmed = title.trim()
-    hideQuickAdd()
+    if (!options?.keepOpen) hideQuickAdd()
     setQuickAddRecording(false)
     if (!trimmed) return
 
+    const parsed = parseCapture(trimmed)
+
     // Voice (and typed) "add what's on my screen" routes into the same
-    // capture pipeline as Ctrl+Shift+S, with the utterance as instruction.
-    if (isScreenCaptureIntent(trimmed)) {
+    // capture pipeline as the capture shortcut, with the utterance as instruction.
+    if (parsed.screen) {
       void captureScreenAsTask(trimmed)
       return
     }
 
     // "tuition Tue, Thu, Sat at 5pm" is a standing commitment, not one task.
     // Parsed in code rather than by the model: a wrong recurrence repeats.
-    const recurrence = parseRecurrence(trimmed)
-    if (recurrence) {
+    if (parsed.recurrence) {
       const rule = addRule({
-        title: recurrence.title,
-        weekdays: recurrence.weekdays,
-        time: recurrence.time,
+        title: parsed.recurrence.title,
+        weekdays: parsed.recurrence.weekdays,
+        time: parsed.recurrence.time,
         priority: 'medium',
         leadMinutes: 0,
         enabled: true,
@@ -403,16 +406,29 @@ function registerIpc() {
       return
     }
 
-    // Insert immediately so the overlay never waits on the model, then upgrade
-    // the row in place once enrichment resolves. Quick-add has to feel instant.
-    const task = addTask({ title: trimmed, source: 'manual' })
+    // Insert immediately with what Quick Capture showed as chips, so the
+    // overlay never waits on the model; enrichment may tidy the title and
+    // fill gaps afterwards, but never overrides what was parsed.
+    const task = addTask({
+      title: parsed.title,
+      deadline: parsed.deadline,
+      priority: parsed.priority ?? 'medium',
+      people: parsed.people,
+      source: 'manual'
+    })
     broadcastTasks()
 
     const config = loadConfig()
     if (isAiPaused(config.pauseAiUntil)) return
     void enrichTask(trimmed, { model: config.ollamaModel }).then((enriched) => {
-      if (enriched.title === trimmed && enriched.deadline === null) return
-      if (applyEnrichment(task.id, enriched)) broadcastTasks()
+      const merged = {
+        title: enriched.title,
+        deadline: parsed.deadline ?? enriched.deadline,
+        priority: parsed.priority ?? enriched.priority,
+        people: [...new Set([...parsed.people, ...enriched.people])]
+      }
+      if (merged.title === task.title && merged.deadline === task.deadline && merged.priority === task.priority) return
+      if (applyEnrichment(task.id, merged)) broadcastTasks()
     })
   })
 

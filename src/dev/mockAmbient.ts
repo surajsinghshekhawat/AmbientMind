@@ -80,6 +80,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
   const screenStatus = channel<SyncStatus>()
   const overlayExpanded = channel<boolean>()
   const quickAddOpened = channel<void>()
+  const quickAddShortcut = channel<void>()
 
   const visible = () => state.tasks.filter((task) => task.status !== 'deleted' && task.status !== 'archived')
   const setTasks = (next: Task[]) => {
@@ -229,11 +230,13 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
 
     quickAdd: {
       open: () => record('quickAdd.open'),
-      submit: (title: string) => record('quickAdd.submit', title),
+      submit: (title: string, options?: { keepOpen?: boolean }) => record('quickAdd.submit', title, options),
+      setHeight: (height: number) => record('quickAdd.setHeight', height),
       cancel: () => record('quickAdd.cancel'),
       setRecording: (recording: boolean) => record('quickAdd.setRecording', recording),
       transcribe: async (_pcm: ArrayBuffer) => '',
-      onOpened: (handler: () => void) => quickAddOpened.on(handler)
+      onOpened: (handler: () => void) => quickAddOpened.on(handler),
+      onShortcutAgain: (handler: () => void) => quickAddShortcut.on(handler)
     }
   } satisfies AmbientApi
 
@@ -247,7 +250,8 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       syncStatus: syncStatus.emit,
       screenStatus: screenStatus.emit,
       overlayExpanded: overlayExpanded.emit,
-      quickAddOpened: () => quickAddOpened.emit()
+      quickAddOpened: () => quickAddOpened.emit(),
+      quickAddShortcut: () => quickAddShortcut.emit()
     }
   }
 }

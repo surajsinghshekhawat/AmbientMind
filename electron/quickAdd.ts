@@ -3,19 +3,22 @@ import { BrowserWindow, screen } from 'electron'
 import { IPC } from '@shared/ipc'
 import { bringToFront, prepareQuickAdd } from './platform'
 
-const WIDTH = 560
-const HEIGHT = 76
+const WIDTH = 600
+/** Until the renderer reports its real height. */
+const START_HEIGHT = 64
+const MAX_HEIGHT = 240
 /** Sits high on screen so it never collides with the overlay's corner. */
 const VERTICAL_FRACTION = 0.22
 
 let quickAddWindow: BrowserWindow | null = null
 /** True while the mic is open — blur must not dismiss the palette mid-utterance. */
 let recording = false
+let height = START_HEIGHT
 
 export function createQuickAddWindow(): BrowserWindow {
   quickAddWindow = new BrowserWindow({
     width: WIDTH,
-    height: HEIGHT,
+    height: START_HEIGHT,
     show: false,
     transparent: true,
     frame: false,
@@ -69,16 +72,28 @@ function centerOnActiveDisplay(win: BrowserWindow) {
     x: Math.round(x + (width - WIDTH) / 2),
     y: Math.round(y + height * VERTICAL_FRACTION),
     width: WIDTH,
-    height: HEIGHT
+    height
   })
+}
+
+/** The window is exactly as tall as the composer, which grows with its chips. */
+export function setQuickAddHeight(next: number) {
+  if (!Number.isFinite(next) || next <= 0) return
+  height = Math.min(MAX_HEIGHT, Math.ceil(next))
+  const win = quickAddWindow
+  if (!win) return
+  const bounds = win.getBounds()
+  if (bounds.height !== height) win.setBounds({ ...bounds, height })
 }
 
 export function toggleQuickAdd() {
   const win = quickAddWindow
   if (!win) return
 
+  // Pressed again while open: the composer toggles the mic. Electron cannot
+  // see a held key, so this stands in for hold-to-talk until the Swift helper.
   if (win.isVisible()) {
-    hideQuickAdd()
+    win.webContents.send(IPC.QuickAddShortcutAgain)
     return
   }
   showQuickAdd()
