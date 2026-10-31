@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChatTurn } from '@shared/types'
 
 interface Entry extends ChatTurn {

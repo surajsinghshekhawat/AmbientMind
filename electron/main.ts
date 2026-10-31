@@ -740,7 +740,7 @@ if (process.argv.includes('--sync-now')) {
     })
 
     openTaskStore()
-    if (!app.isPackaged) seedIfEmpty()
+    if (!app.isPackaged && process.argv.includes('--seed')) seedIfEmpty()
     archiveStaleCompleted()
     // The app may have been shut for longer than a snooze.
     wakeSnoozed()
