@@ -11,7 +11,7 @@ import Foundation
 ///                                  run the live speech path on a file, print the text
 ///   ambientmind-helper --version
 
-let helperVersion = "0.3.0"
+let helperVersion = "0.4.0"
 let protocolVersion = 1
 
 let arguments = CommandLine.arguments

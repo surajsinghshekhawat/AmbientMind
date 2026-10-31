@@ -51,6 +51,9 @@ export type OverlayCorner = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
 
+export type AiEngine = 'apple' | 'ollama'
+export type AiEnginePreference = 'auto' | AiEngine
+
 export interface Config {
   overlayCorner: OverlayCorner
   overlayOpacity: number
@@ -59,6 +62,13 @@ export interface Config {
   workHoursEnd: number
   syncIntervalMinutes: 5 | 15 | 30 | 60
   maxTasksVisible: number
+  /** Automatic uses Apple's on-device model when this Mac has it, else Ollama. */
+  aiEngine: AiEnginePreference
+  /**
+   * Mail tasks at or above this confidence, with a quote found in the message,
+   * go straight onto the list. Null keeps every one a suggestion.
+   */
+  autoAcceptAbove: number | null
   ollamaModel: string
   embeddingModel: string
   /** Transformers.js model id for speech-to-text. */
@@ -107,6 +117,13 @@ export interface HealthReport {
   checkedAt: string
   ollama: { running: boolean; url: string }
   models: ModelHealth[]
+  ai: {
+    preference: AiEnginePreference
+    /** What answers now; null when nothing can. */
+    engine: AiEngine | null
+    /** Null off the Mac or without the helper. */
+    apple: { available: boolean; reason: string | null } | null
+  }
   google: { connected: boolean; credentialsConfigured: boolean }
   problems: string[]
   ok: boolean
@@ -157,6 +174,8 @@ export const DEFAULT_CONFIG: Config = {
   workHoursEnd: 18,
   syncIntervalMinutes: 15,
   maxTasksVisible: 7,
+  aiEngine: 'auto',
+  autoAcceptAbove: null,
   ollamaModel: 'qwen2.5:3b',
   embeddingModel: 'nomic-embed-text',
   whisperModel: 'Xenova/whisper-base.en',

@@ -103,7 +103,8 @@ test('launches and opens every window', async () => {
     await expect.poll(async () => (await overlayState())?.width).toBe(380)
     // offsetHeight, not the bounding box: the opening animation scales the card.
     const panelHeight = await panel.evaluate((el) => (el as HTMLElement).offsetHeight)
-    await expect.poll(async () => (await overlayState())?.height).toBe(Math.ceil(panelHeight) + 2)
+    // A short panel sits in a window no shorter than the overlay's minimum.
+    await expect.poll(async () => (await overlayState())?.height).toBe(Math.max(96, Math.ceil(panelHeight) + 2))
     await overlay.screenshot({ path: join(ROOT, '.local', 'shots', 'overlay-panel.png') })
 
     await panel.press('Escape')

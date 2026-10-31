@@ -141,7 +141,10 @@ import {
   listPendingSuggestions,
   refreshSuggestions
 } from './services/suggestionStore'
-import { enrichTask } from './services/ollama'
+import { enrichTask } from './services/extract'
+import { configureAi } from './services/ai'
+import { openAiLog } from './services/aiLog'
+import { helperAppleModel } from './services/appleModel'
 import {
   connectGoogle,
   connectedGoogleAccount,
@@ -173,7 +176,7 @@ import { writeEncryptedBackup } from './services/backup'
 import { loadChatHistory, saveChatHistory } from './services/chatHistory'
 import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
 import { backfillEmbeddings, runRetention } from './services/maintenance'
-import { parseCapture } from '@shared/capture'
+import { needsEnrichment, parseCapture } from '@shared/capture'
 import type { ChatReply, ChatTurn, Config, SyncSummary, Task } from '@shared/types'
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import { powerMonitor } from 'electron'
@@ -232,9 +235,9 @@ function rateSourceExample(task: Task, feedback: -1 | 1) {
 function syncOptions(config: Config = loadConfig(), extra: { force?: boolean } = {}) {
   const email = connectedGoogleAccount()
   return {
-    model: config.ollamaModel,
     embeddingModel: config.embeddingModel,
     userName: currentUserName(),
+    autoAcceptAbove: config.autoAcceptAbove,
     ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
     ...(email ? { userEmail: email } : {}),
     ...extra
@@ -262,6 +265,7 @@ function applyLiveConfig(config: Config, previous?: Config) {
   if (previous && JSON.stringify(previous.shortcuts) !== JSON.stringify(config.shortcuts)) registerShortcuts()
   broadcast(IPC.ConfigChanged, config)
   setSpeechModel(config.whisperModel)
+  configureAi({ preference: config.aiEngine, ollamaModel: config.ollamaModel })
   if (!previous || previous.launchAtLogin !== config.launchAtLogin) applyLoginItem(config)
 
   // Switching write-back on has to backfill: rules made before today are
@@ -441,8 +445,8 @@ function registerIpc() {
     broadcastTasks()
 
     const config = loadConfig()
-    if (isAiPaused(config.pauseAiUntil)) return
-    void enrichTask(trimmed, { model: config.ollamaModel }).then((enriched) => {
+    if (isAiPaused(config.pauseAiUntil) || !needsEnrichment(parsed)) return
+    void enrichTask(trimmed).then((enriched) => {
       const merged = {
         title: enriched.title,
         deadline: parsed.deadline ?? enriched.deadline,
@@ -554,7 +558,8 @@ function registerIpc() {
       ollamaModel: config.ollamaModel,
       embeddingModel: config.embeddingModel,
       calendarWriteBack: config.calendarWriteBack,
-      pauseAiUntil: config.pauseAiUntil
+      pauseAiUntil: config.pauseAiUntil,
+      aiEngine: config.aiEngine
     })
   })
 
@@ -575,7 +580,6 @@ function registerIpc() {
   ipcMain.handle(IPC.ExportCorpus, async () => {
     const config = loadConfig()
     return exportCorpus({
-      model: config.ollamaModel,
       userName: currentUserName(),
       ...(config.aboutMe ? { aboutMe: config.aboutMe } : {})
     })
@@ -657,7 +661,6 @@ function registerIpc() {
     chatAbort = controller
     try {
       const reply = await runChat(message, history ?? [], {
-        model: config.ollamaModel,
         userName: currentUserName(),
         ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
         rules: listRules(),
@@ -720,7 +723,6 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
   try {
     const config = loadConfig()
     const result = await screenToTask(instruction, {
-      model: config.ollamaModel,
       userName: currentUserName(),
       ...(config.aboutMe ? { aboutMe: config.aboutMe } : {})
     })
@@ -996,7 +998,6 @@ if (process.argv.includes('--selftest')) {
       const days = numeric('days')
 
       const result = await exportCorpus({
-        model: config.ollamaModel,
         userName: currentUserName(),
         ...(config.aboutMe ? { aboutMe: config.aboutMe } : {}),
         ...(limit ? { limit } : {}),
@@ -1062,6 +1063,12 @@ if (process.argv.includes('--selftest')) {
 
     const config = loadConfig()
     applyLoginItem(config)
+    configureAi({
+      apple: os === 'mac' ? helperAppleModel : null,
+      preference: config.aiEngine,
+      ollamaModel: config.ollamaModel,
+      onCall: openAiLog(join(app.getPath('userData'), 'ai-calls.jsonl'))
+    })
     // A store holding two embedding conventions ranks neighbours across two
     // slightly different spaces, so this is a repair and should start now
     // rather than at the first sweep. It no-ops once every row agrees.

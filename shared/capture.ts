@@ -30,11 +30,21 @@ interface Found {
 }
 
 function findDay(text: string, now: Date): (Found & { offset: number }) | null {
-  const relative = text.match(/\b(?:by\s+|on\s+)?(today|tonight|tomorrow|tmrw|eod)\b/i)
+  // "EOD tomorrow" is tomorrow: the day word wins over the time-of-day one.
+  const relative =
+    text.match(/\b(?:by\s+|on\s+)?(tomorrow|tmrw)\b/i) ??
+    text.match(/\b(?:by\s+|on\s+)?(today|tonight|eod|(?:the\s+)?end of (?:the\s+)?day)\b/i)
   if (relative) {
     const word = relative[1]!.toLowerCase()
     const offset = word === 'tomorrow' || word === 'tmrw' ? 1 : 0
     return { value: -1, offset, match: relative[0] }
+  }
+  // The working week ends on Friday; said at the weekend, that is the coming one.
+  const endOf = text.match(/\b(?:by\s+)?(?:the\s+)?end of (?:the\s+|this\s+)?(week|month)\b/i)
+  if (endOf) {
+    if (endOf[1]!.toLowerCase() === 'week') return { value: 5, offset: (5 - now.getDay() + 7) % 7, match: endOf[0] }
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    return { value: -1, offset: last - now.getDate(), match: endOf[0] }
   }
   const names = [...DAYS, ...SHORT_DAYS].join('|')
   const weekday = text.match(new RegExp(`\\b(?:by\\s+|on\\s+)?(?:next\\s+|this\\s+)?(${names})\\b`, 'i'))
@@ -50,6 +60,12 @@ function findDay(text: string, now: Date): (Found & { offset: number }) | null {
 function findTime(text: string): (Found & { minutes: number }) | null {
   if (/\b(?:at\s+)?noon\b/i.test(text)) {
     return { value: 12, minutes: 0, match: text.match(/\b(?:at\s+)?noon\b/i)![0] }
+  }
+  // "Good morning" is a greeting, not a time.
+  const part = text.match(/(?<!\bgood\s)\b(?:by\s+|in\s+the\s+|this\s+)?(morning|afternoon|evening)\b/i)
+  if (part) {
+    const hour = { morning: 9, afternoon: 15, evening: 19 }[part[1]!.toLowerCase() as 'morning' | 'afternoon' | 'evening']
+    return { value: hour, minutes: 0, match: part[0] }
   }
   const twelve = text.match(/\b(?:at\s+|by\s+)?(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b/i)
   if (twelve) {
@@ -83,6 +99,31 @@ function tidy(title: string): string {
     .replace(/(?:\s|^)(?:by|on|at|due)\s*$/i, '')
     .replace(/^[\s,;:–-]+|[\s,;:–-]+$/g, '')
     .trim()
+}
+
+/**
+ * Deadline words copied from a message ("EOD tomorrow", "by Thursday 2pm"),
+ * resolved against when it was sent. Models get the words right far more
+ * often than the arithmetic.
+ */
+export function resolveWhen(when: string, sentAt: Date): string | null {
+  const parsed = parseCapture(`x ${when}`, sentAt)
+  return parsed.recurrence ? null : parsed.deadline
+}
+
+/** Timing the parser didn't turn into a date: words it doesn't know, still in the title. */
+const UNPARSED_TIME =
+  /\b(?:morning|afternoon|evening|noon|midnight|next|weeks?|weekend|months?|before|until|due|deadline|end of|in \d+ (?:min(?:ute)?s?|hours?|days?|weeks?)|(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}\/\d{1,2})\b/i
+
+/**
+ * Whether the model could add anything the parser didn't. It finds timing and
+ * tidies long, rambling input; a short title with no timing words left in it
+ * gains nothing from a model call, so Quick Add skips it.
+ */
+export function needsEnrichment(parsed: ParsedCapture): boolean {
+  if (parsed.recurrence || parsed.screen) return false
+  if (UNPARSED_TIME.test(parsed.title)) return true
+  return parsed.title.split(/\s+/).length > 10
 }
 
 export function parseCapture(input: string, now: Date = new Date()): ParsedCapture {
@@ -121,7 +162,7 @@ export function parseCapture(input: string, now: Date = new Date()): ParsedCaptu
     else deadline.setHours(END_OF_DAY_HOUR, 0)
     // "at 9am" said at noon means tomorrow morning, not three hours ago.
     if (!day && deadline.getTime() <= now.getTime()) deadline.setDate(deadline.getDate() + 1)
-    if (day) title = title.replace(day.match, ' ')
+    if (day) title = title.replace(day.match, ' ').replace(/\b(?:by\s+)?(?:eod|(?:the\s+)?end of (?:the\s+)?day)\b/i, ' ')
     if (time) title = title.replace(time.match, ' ')
   }
 
@@ -129,8 +170,10 @@ export function parseCapture(input: string, now: Date = new Date()): ParsedCaptu
     ? `${dayLabel(deadline, now)}, ${deadline.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
     : null
 
+  const tidied = tidy(title) || text
   return {
-    title: tidy(title) || text,
+    // Capitalised here, since the model is no longer always asked to.
+    title: tidied.charAt(0).toUpperCase() + tidied.slice(1),
     deadline: deadline ? deadline.toISOString() : null,
     deadlineLabel: label,
     priority,

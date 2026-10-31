@@ -1,8 +1,16 @@
 import { normalizePauseAiUntil } from './pauseAi'
 import { isValidAccelerator, SHORTCUT_NAMES, type ShortcutAction, type ShortcutSet } from './shortcuts'
-import { ABOUT_ME_MAX_CHARS, DEFAULT_CONFIG, type Config, type OverlayCorner, type ThemeChoice } from './types'
+import {
+  ABOUT_ME_MAX_CHARS,
+  DEFAULT_CONFIG,
+  type AiEnginePreference,
+  type Config,
+  type OverlayCorner,
+  type ThemeChoice
+} from './types'
 
 const CORNERS: OverlayCorner[] = ['top-right', 'top-left', 'bottom-right', 'bottom-left']
+const ENGINES: AiEnginePreference[] = ['auto', 'apple', 'ollama']
 const INTERVALS: Config['syncIntervalMinutes'][] = [5, 15, 30, 60]
 const THEMES: ThemeChoice[] = ['system', 'light', 'dark']
 
@@ -51,6 +59,8 @@ export function sanitizeConfig(raw: Partial<Config>): Config {
       ? (raw.syncIntervalMinutes as Config['syncIntervalMinutes'])
       : d.syncIntervalMinutes,
     maxTasksVisible: num(raw.maxTasksVisible, d.maxTasksVisible, 3, 20, true),
+    aiEngine: ENGINES.includes(raw.aiEngine as AiEnginePreference) ? (raw.aiEngine as AiEnginePreference) : d.aiEngine,
+    autoAcceptAbove: raw.autoAcceptAbove == null ? null : num(raw.autoAcceptAbove, 0.9, 0.7, 1),
     ollamaModel: text(raw.ollamaModel, d.ollamaModel) || d.ollamaModel,
     embeddingModel: text(raw.embeddingModel, d.embeddingModel) || d.embeddingModel,
     whisperModel: text(raw.whisperModel, d.whisperModel) || d.whisperModel,

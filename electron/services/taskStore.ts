@@ -40,6 +40,8 @@ export interface NewTask {
   confidence?: number
   sourceUrl?: string | null
   evidence?: string | null
+  /** AI-found tasks wait as suggestions until accepted. */
+  status?: 'pending' | 'suggested'
 }
 
 function toTask(row: TaskRow): Task {
@@ -119,7 +121,7 @@ export function addTask(input: NewTask): Task {
     people: JSON.stringify(input.people ?? []),
     raw_context: input.rawContext ?? null,
     confidence: input.confidence ?? 1,
-    status: 'pending',
+    status: input.status ?? 'pending',
     created_at: new Date().toISOString(),
     completed_at: null,
     snoozed_until: null,

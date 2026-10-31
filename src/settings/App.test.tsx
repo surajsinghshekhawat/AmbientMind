@@ -149,6 +149,39 @@ describe('Settings', () => {
     expect(screen.queryByText('On this Mac')).toBeNull()
   })
 
+  it('shows which engine answers and switches between them', async () => {
+    const mock = installMockAmbient()
+    await open('ai')
+    // The status row and the "Answering now" pill.
+    expect(screen.getAllByText('Apple Intelligence')).toHaveLength(2)
+    expect(screen.getByText('On this Mac, private and fast.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('radio', { name: 'Ollama' }))
+    await flush()
+    expect(mock.state.config.aiEngine).toBe('ollama')
+  })
+
+  it('says why Apple Intelligence is off, and hides the engine choice off the Mac', async () => {
+    const mock = installMockAmbient()
+    mock.state.health = { ...mock.state.health, ai: { preference: 'auto', engine: 'ollama', apple: { available: false, reason: 'not_enabled' } } }
+    await open('ai')
+    expect(screen.getByText(/Turn on Apple Intelligence in System Settings/)).toBeTruthy()
+
+    mock.state.health = { ...mock.state.health, ai: { preference: 'auto', engine: 'ollama', apple: null } }
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    await flush()
+    expect(screen.queryByRole('radiogroup', { name: 'AI engine' })).toBeNull()
+  })
+
+  it('confident mail tasks skip Suggested only when asked', async () => {
+    const mock = installMockAmbient()
+    await open('ai')
+    const toggle = screen.getByRole('switch', { name: 'Add confident tasks straight away' })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    await flush()
+    expect(mock.state.config.autoAcceptAbove).toBe(0.9)
+  })
+
   it('no live words row where Apple speech is missing', async () => {
     installMockAmbient()
     await open('capture')

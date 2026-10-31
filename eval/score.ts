@@ -1,5 +1,5 @@
 import { similarity } from '../shared/similarity'
-import type { ExtractedTask } from '../electron/services/ollama'
+import type { ExtractedTask } from '../electron/services/extract'
 import type { GoldTask, LabelledMessage, Metrics } from './types'
 
 export { similarity }

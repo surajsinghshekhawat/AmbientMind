@@ -91,6 +91,11 @@ console.log(`[packaged] ${check.ok ? 'ok  ' : 'FAIL'} helper ${check.helper?.ver
 for (const permission of check.permissions) {
   console.log(`[packaged]      ${permission.kind}: app ${permission.app}, helper ${permission.helper}`)
 }
+const apple = check.appleModel
+if (apple) {
+  const state = apple.available ? `answered in ${apple.answeredMs ?? '?'} ms` : `unavailable (${apple.reason})`
+  console.log(`[packaged]      Apple's on-device model: ${state}`)
+}
 for (const problem of check.problems) console.error(`[packaged]      ${problem}`)
 if (!check.ok) process.exit(1)
 

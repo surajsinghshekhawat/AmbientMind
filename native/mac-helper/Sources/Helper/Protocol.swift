@@ -160,6 +160,8 @@ enum Methods {
     "reminders.list": { params, reply in eventKitQueue.async { Reminders.items(params, reply) } },
     "reminders.upsert": { params, reply in eventKitQueue.async { reply(Reminders.upsert(params)) } },
     "reminders.delete": { params, reply in eventKitQueue.async { reply(Reminders.delete(params)) } },
+    "llm.status": { _, reply in reply(.success(Language.status())) },
+    "llm.generate": { params, reply in Language.generate(params, reply) },
     "hotkey.set": { params, reply in
       guard let name = params["name"] as? String,
         let keyCode = (params["keyCode"] as? NSNumber)?.uint32Value,
@@ -185,7 +187,7 @@ enum Methods {
       "responsibleApp": json(ResponsibleApp.bundleIdentifier),
       "responsiblePid": Int(ResponsibleApp.pid),
       "parentApp": json(ResponsibleApp.parentBundleIdentifier),
-      "features": ["perms", "context", "capture", "ocr", "system", "contacts", "speech", "hotkey", "eventkit"],
+      "features": ["perms", "context", "capture", "ocr", "system", "contacts", "speech", "hotkey", "eventkit", "llm"],
     ]
   }
 }

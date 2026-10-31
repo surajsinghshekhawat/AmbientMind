@@ -834,7 +834,7 @@ Not done yet, and why:
   is created, and a reminder's notes become the task's context when it
   arrives. Later note edits don't cross.
 
-### Phase 6 — AI upgrade (4–6 days)
+### Phase 6 — AI upgrade (4–6 days) — done
 
 - Model router: Apple Foundation Models through the helper when available
   (schema-constrained output, 4K context per session, so one message per call),
@@ -851,6 +851,68 @@ Not done yet, and why:
 
 Exit: extraction quality is at least as good as today on the eval set, and no
 AI task reaches your list without a source and evidence.
+
+What landed (branch `phase-4-helper`, helper 0.4.0):
+
+- Helper `llm.status` and `llm.generate` on Apple's Foundation Models,
+  weak-linked so the helper still starts on older macOS. The JSON Schema we
+  already send Ollama is translated to a `DynamicGenerationSchema`, so both
+  engines produce the same shape. Guardrail, refusal, context overflow and
+  busy come back as typed errors.
+- Router (`electron/services/ai.ts`): Automatic, Apple or Ollama. Automatic
+  uses Apple when it is ready and the prompt fits its 4K window, otherwise
+  Ollama, and falls back to Ollama when Apple refuses or fails. Extraction,
+  enrichment, chat and screen capture all go through it; extraction drops
+  few-shot examples and clips long mail for Apple.
+- Every response is validated with zod (`electron/services/extract.ts`). The
+  schema opens with an `asksUser` yes/no, and a "no" discards whatever tasks
+  the model wrote anyway; that took Apple's task-free accuracy from 25% to
+  100% and made `qwen2.5:3b` work again under Ollama 0.40.
+- Evidence (`shared/evidence.ts`): every task carries a quote checked against
+  the message. A paraphrase is replaced by the message's own best-matching
+  sentence and capped below "high" confidence; a task nothing supports is
+  dropped. Deadlines are resolved from the quote's own words against the
+  message date ("by end of week", "Friday morning") rather than trusting the
+  model's arithmetic.
+- Mail tasks arrive as suggestions with a Gmail link and the quote.
+  Settings → AI & Models can add confident ones straight away (0.9 and a
+  verified quote; off by default).
+- Quick Add skips the model when the parser already found everything; the
+  parser now knows end of day, week and month, and morning, afternoon and
+  evening.
+- Every model call is logged to `ai-calls.jsonl` in the data folder;
+  `./dev npm run ai:budget` prints calls, failures, fallbacks and p50/p95
+  latency per purpose and engine. A prompt-size test keeps the fixed prompt
+  small enough to leave Apple at least 3,000 characters of mail.
+- Settings → AI & Models: Apple Intelligence status with the reason when it
+  is off, which engine is answering, the engine switch, and auto-accept.
+- `test:packaged` asks the signed helper for Apple's model and fails if a
+  model that says it is ready does not answer.
+
+Benchmark on `eval/corpus/seed.jsonl` (14 messages, results in
+`eval/results/*-v7-final.json`), on this M-series Mac:
+
+| Engine                          | F1   | Task-free left alone | Deadline | Median latency |
+| ------------------------------- | ---- | -------------------- | -------- | -------------- |
+| `qwen2.5:3b` (default)          | 100% | 100%                 | 71%      | 0.2 s          |
+| `qwen3:4b-instruct-2507-q4_K_M` | 100% | 100%                 | 57%      | 0.2 s          |
+| `gemma3n:e4b`                   | 100% | 100%                 | 57%      | 0.5 s          |
+| Apple on-device                 | 86%  | 100%                 | 67%      | 0.8 s          |
+
+The previous best was 83.3% F1 and 60% deadlines. `qwen2.5:3b` stays the
+default: smallest download, fastest and best on deadlines. `gemma3n:e4b`
+stood in for the plan's `gemma4:e4b`; `qwen3.5:4b` was not benchmarked.
+
+Not done yet, and why:
+
+- The eval set is 14 messages; the differences between engines are one or
+  two tasks. A larger labelled set (real mail, with consent) is needed before
+  reading much into the ranking.
+- The remaining deadline misses need context outside the quote ("ahead of
+  it", meaning a meeting named earlier) or are models dating "ASAP".
+- Chat context is not trimmed for Apple's 4K window: Automatic sends a chat
+  that doesn't fit to Ollama, and with Apple chosen alone it fails as too
+  long.
 
 ### Phase 7 — Trust and privacy (3–4 days)
 

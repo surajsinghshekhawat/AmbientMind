@@ -144,6 +144,43 @@ external service, which is precisely why the health check in §7.3 exists.
 | `stream` | `false` | Nothing here renders token-by-token, and a non-streamed call is simpler to time out. |
 | timeout | 120 s | A stalled model must not wedge the sync loop forever. |
 
+### 3.1a Apple's on-device model and the router (Mac)
+
+On a Mac with Apple Intelligence turned on, the same calls can go to Apple's
+on-device Foundation Model instead of Ollama. The Swift helper exposes it as
+`llm.status` and `llm.generate` (`native/mac-helper/Sources/Helper/Language.swift`).
+FoundationModels is weak-linked, so the helper still starts on macOS releases
+without it and simply reports the model as unavailable, with a reason
+(`device_not_eligible`, `not_enabled`, `model_not_ready`, `os_too_old`).
+
+**Same schema, both engines.** `llm.generate` takes the JSON Schema we already
+send Ollama and translates it into a `DynamicGenerationSchema`: properties in
+the order of `required`, `anyOf` with null as an optional property, enums as
+string choices. Apple's decoder is schema-constrained too, so the rest of the
+pipeline cannot tell which engine answered. Each call gets a fresh session
+with greedy sampling; errors come back typed (`guardrail`, `refusal`,
+`context_overflow`, `unsupported_language`, `busy`, `generation_failed`).
+
+**The router** (`electron/services/ai.ts`) is the only way the app talks to a
+model. The `aiEngine` setting is `auto`, `apple` or `ollama`:
+
+- `auto` uses Apple when it is ready, otherwise Ollama. A prompt that would not
+  fit Apple's 4,096-token window (estimated at 3.2 characters a token plus the
+  schema and output budget) goes to Ollama, so a long message is read whole
+  rather than cut down. When Apple fails with a refusal, guardrail, overflow
+  or timeout, the call is retried on Ollama.
+- `apple` or `ollama` uses only that engine and reports it as unavailable
+  otherwise.
+
+When Apple does answer an extraction, few-shot examples are left out and the
+message is clipped to what fits; that is the price of the 4K window, and the
+reason `auto` prefers Ollama for long mail.
+
+**Every call is logged** to `ai-calls.jsonl` in the data folder (purpose,
+engine, model, milliseconds, prompt size, success, whether it fell back),
+trimmed at 1 MB. `./dev npm run ai:budget` summarises it per purpose and
+engine: calls, failures, fallbacks, p50, p95 and the longest call.
+
 ### 3.2 Grammar-constrained decoding
 
 This is the single most important technique in the app, and it is worth
@@ -171,13 +208,58 @@ of that gap.
 
 | Prompt | Schema shape | Purpose |
 | --- | --- | --- |
-| `taskExtraction` | `{ tasks: [{ title, deadline, priority, people, confidence }] }` | Mail → zero or more tasks |
+| `taskExtraction` | `{ asksUser, tasks: [{ evidence, title, deadline, priority, people, confidence }] }` | Mail → zero or more tasks, each with a quote |
 | `taskEnrichment` | `{ title, deadline, priority, people }` | One typed or spoken line → a structured task |
 | `screenTask` | single task object | One screenshot → at most one task |
 | `chat` | `{ action, query?, title?, deadline?, priority?, until?, weekdays?, time?, reply }` | One conversational turn → one action plus a human reply |
 
 `deadline` is declared as `anyOf: [string, null]`, which is what lets the model
 say "there is no deadline here" rather than inventing one to satisfy the type.
+
+**Order is a technique, too.** Decoding runs left to right, so a field written
+first conditions everything after it. The extraction schema opens with
+`asksUser`: does this message ask the user for anything, or record their own
+promise? A "no" discards whatever tasks the model writes anyway. Each task
+then starts with its `evidence` quote, so the title is written from the words
+it cites. The gate took Apple's model from 25% to 100% on task-free mail and
+made `qwen2.5:3b` usable again under Ollama 0.40, where it had begun returning
+nothing for the old prompt.
+
+Every response is parsed with zod after decoding (`electron/services/extract.ts`):
+the grammar holds the shape, zod holds the code to it, and a field that slips
+through malformed drops one task rather than the whole message.
+
+### 3.2a Evidence, confidence and suggestions
+
+A schema-valid task can still be invented. Every extracted task therefore
+carries a quote, and `shared/evidence.ts` checks it against the message
+(case, whitespace and curly quotes ignored):
+
+- **Found**: the quote is shown as the message wrote it, and marked verified.
+  A quote that wraps a real sentence in a greeting ("Sally, I'll review…")
+  counts as found.
+- **Not found**: models paraphrase even when told to copy. The quote is
+  replaced by the message's own sentence that best supports the task, and the
+  task's confidence is capped at 0.84, just under "high".
+- **Nothing supports it**: the task is dropped.
+
+So evidence shown to the user is always text that really is in the message.
+Confidence falls into buckets: **high** at 0.85 and above with a verified
+quote, **medium** from 0.7, **low** below that.
+
+**Deadlines come from the quote.** When the model gives a deadline and the
+quote contains timing words ("by EOD tomorrow", "Friday morning", "end of
+week"), the deadline is re-derived from those words by the Quick Add parser,
+anchored to the message's sent date. Code does date arithmetic more reliably
+than a 3B model: this took deadline accuracy on the seed corpus from 43% to
+71% for `qwen2.5:3b`. A model deadline with no timing words in the quote is
+kept, moved into the message's year if the model got the year wrong.
+
+**Mail tasks arrive as suggestions** (`status = 'suggested'`), with a link to
+the message in Gmail and the quote. With `autoAcceptAbove` set (Settings → AI
+& Models → "Add confident tasks straight away", 0.9), a task at or above it
+*with a verified quote* goes straight to the list; a quote that had to be
+found for the model is never auto-accepted.
 
 ### 3.3 Prompt architecture
 
@@ -385,8 +467,11 @@ human prose. Everything downstream of that is arithmetic.**
   snooze arithmetic, decision memory, retry policy, calendar event shaping,
   voice intent, scoring).
 - `npm run eval` — the extraction harness. Reports precision, recall, F1,
-  empty-specificity (does it correctly return *nothing* for mail with no task)
-  and deadline accuracy against a labelled corpus.
+  empty-specificity (does it correctly return *nothing* for mail with no task),
+  deadline accuracy, and how many quotes the model copied exactly, against a
+  labelled corpus. `--model <tag>` picks the Ollama model; `--engine apple`
+  runs Apple's model through the locally built helper.
+- `ai:budget` — latency and failure summary from the call log (§3.1a).
 - `npx tsx eval/chatActions.ts` — runs the chat prompt against the **real**
   model with ten scripted messages and checks which action it chose. This
   exists because the risk in chat is not the wiring but the model's judgement.
@@ -413,6 +498,17 @@ it refers to, `eval/corpus/enron-200.jsonl`, **has never been built** (§12.3).
 | Deadline accuracy | 60% | Only 5 matched pairs; mostly noise |
 | Chat action selection | 10/10 | Was 6/10 before worked examples were added |
 | Real-mail precision | No false positives on 13 messages | See §10.2 |
+
+Those were measured on the original Windows machine. After the Phase 6
+changes (the `asksUser` gate, evidence, deadlines from the quote), on an
+M-series Mac (`eval/results/*-v7-final.json`):
+
+| Engine | F1 | Empty-specificity | Deadline | Median latency |
+| --- | --- | --- | --- | --- |
+| `qwen2.5:3b` | 100% | 100% | 71% | 0.2 s |
+| `qwen3:4b-instruct-2507-q4_K_M` | 100% | 100% | 57% | 0.2 s |
+| `gemma3n:e4b` | 100% | 100% | 57% | 0.5 s |
+| Apple on-device | 86% | 100% | 67% | 0.8 s |
 
 Every one of those numbers comes from a corpus small enough that a single
 message changes the second digit. They are useful for catching regressions —
@@ -647,7 +743,9 @@ timestamp. Outlives the task itself.
 | `workHoursStart` / `End` | `9` / `18` | Used when resolving vague deadlines |
 | `syncIntervalMinutes` | `15` | Background sync cadence |
 | `maxTasksVisible` | `7` | Before "+N more · show all" |
-| `ollamaModel` | `qwen2.5:3b` | Extraction and chat model |
+| `aiEngine` | `auto` | `auto`, `apple` or `ollama` (§3.1a) |
+| `ollamaModel` | `qwen2.5:3b` | Ollama's extraction and chat model |
+| `autoAcceptAbove` | `null` | Off, or 0.7–1: confident mail tasks with a verified quote skip Suggested (§3.2a) |
 | `embeddingModel` | `nomic-embed-text` | RAG embeddings |
 | `whisperModel` | `Xenova/whisper-base.en` | Speech-to-text size |
 | `launchAtLogin` | `true` | Start with Windows |
@@ -691,13 +789,15 @@ the desktop to settle.
    `Auto-Submitted`, no-reply sender patterns, bodies under 40 characters or
    over 20,000.
 6. **Retrieve** up to five nearest past examples from sqlite-vec.
-7. **Extract** against Qwen under the extraction schema.
+7. **Extract** through the router (§3.1a) under the extraction schema, then
+   check every quote against the message (§3.2a).
 8. **Record** the outcome, store the example and its embedding.
 9. **Deduplicate** against existing tasks — Dice similarity ≥ 0.72 with
    deadlines within 24 hours catches mail and calendar describing the same
    work.
 10. **Suppress** anything the user has repeatedly deleted (§7.5).
-11. **Insert.**
+11. **Insert** as a suggestion with a Gmail link and the quote, or straight
+    into the list when auto-accept is on and the task clears it.
 
 The pass is capped at **15 extractions**, so one busy morning cannot peg the
 GPU. Extraction is strictly serialised: the model holds around 2 GB on a 4 GB
@@ -785,7 +885,14 @@ access first.
 
 Typed text is inserted **immediately**, then `enrichTask` upgrades the title,
 deadline and priority in place. The insert never waits on the model, so the
-palette stays instant and keeps working with Ollama stopped.
+palette stays instant and keeps working with no model running.
+
+The model is only asked when it could add something (`needsEnrichment` in
+`shared/capture.ts`): timing words the parser didn't understand are still in
+the title, or the line is long enough to need tidying. "Call mum tomorrow
+morning" is fully parsed (tomorrow at 09:00) and never reaches a model. The
+parser knows today, tonight, tomorrow, EOD, end of day/week/month, weekdays,
+morning/afternoon/evening, noon and clock times.
 
 Spoken audio follows §3.5. Phrases meaning "look at my screen"
 (`shared/voiceIntent.ts`) route to the screen capture path instead of creating
@@ -877,9 +984,11 @@ which task to do first, and cross-source deduplication.
 
 ### 7.3 Trust
 
-- **Health check** — is Ollama running, are the configured models actually
-  pulled (matching Ollama's implicit `:latest`), is Google connected, does the
-  calendar scope need a reconnect. The overlay names the reason the list is
+- **Health check** — which engine would answer right now, and if none, why
+  (Apple Intelligence off and with what reason, Ollama stopped); are the
+  models that engine needs actually pulled (matching Ollama's implicit
+  `:latest`; the extraction model isn't required while Apple answers); is
+  Google connected; does the calendar scope need a reconnect. The overlay names the reason the list is
   empty instead of showing a blank panel. Re-runs on a timer, because Ollama
   gets stopped on an 8 GB machine all the time.
 - **Sync summary** — last run, counts and errors, surviving long after the
@@ -1511,7 +1620,8 @@ electron/             main, overlay, tray, quickAdd, settings, chat, preload
 electron/native/      Swift helper process, client and attribution check
 native/mac-helper/    the Swift helper (SwiftPM)
 electron/services/    taskStore, ruleStore, suggestionStore, decisionStore,
-                      sync, calendarSync, ollama, chat, health, googleAuth,
+                      sync, calendarSync, ai (router), aiLog, appleModel,
+                      extract, ollama, chat, health, googleAuth,
                       vectorStore, speech, screenContext, corpusExport,
                       config, secrets, dedup, migrations
 electron/services/integrations/   gmail, gcalendar, gcalendarWrite
@@ -1521,7 +1631,7 @@ src/settings/         preferences, status, rules, profile, learned
 src/chat/             ask-about-your-tasks panel
 shared/               types, ipc, urgency, similarity, deadline, voiceIntent,
                       recurrence, recurrenceDetect, snooze, clash, decisions,
-                      calendarEvent, promptTime
+                      calendarEvent, promptTime, capture, evidence, aiStatus
 prompts/              taskExtraction, taskEnrichment, screenTask, chat
 db/migrations/        9 append-only SQL files
 eval/                 harness, corpus, unit tests, chat action eval

@@ -59,3 +59,12 @@ test('theme and shortcut overrides are checked, never trusted', () => {
   assert.deepEqual(sanitizeConfig({ shortcuts: 'nope' as never }).shortcuts, {})
   assert.equal(sanitizeConfig({ theme: 'light' }).theme, 'light')
 })
+
+test('AI engine and auto-accept only take values the app understands', () => {
+  assert.equal(sanitizeConfig({}).aiEngine, 'auto')
+  assert.equal(sanitizeConfig({ aiEngine: 'gpt' as never }).aiEngine, 'auto')
+  assert.equal(sanitizeConfig({ aiEngine: 'apple' }).aiEngine, 'apple')
+  assert.equal(sanitizeConfig({}).autoAcceptAbove, null)
+  assert.equal(sanitizeConfig({ autoAcceptAbove: 0.2 }).autoAcceptAbove, 0.7)
+  assert.equal(sanitizeConfig({ autoAcceptAbove: 'high' as never }).autoAcceptAbove, 0.9)
+})

@@ -10,7 +10,10 @@ let package = Package(
     .executableTarget(
       name: "ambientmind-helper",
       path: "Sources/Helper",
-      swiftSettings: [.swiftLanguageMode(.v5)]
+      swiftSettings: [.swiftLanguageMode(.v5)],
+      // FoundationModels ships with macOS 26; weak, so the helper still
+      // starts on 14 and 15 and simply reports the model unavailable.
+      linkerSettings: [.unsafeFlags(["-Xlinker", "-weak_framework", "-Xlinker", "FoundationModels"])]
     )
   ]
 )

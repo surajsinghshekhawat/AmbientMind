@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ExtractedTask } from './ollama'
+import type { ExtractedTask } from './extract'
 
 /** nomic-embed-text output width; must match the vec0 column in migration 002. */
 export const EMBEDDING_DIM = 768

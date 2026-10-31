@@ -17,7 +17,7 @@ import type { TaskPriority } from '@shared/types'
 import { SCREEN_TASK_SCHEMA, buildScreenTaskPrompt } from '../../prompts/screenTask'
 import { helperReady, helperRequest } from '../native/helper'
 import { accessStatus, isMac } from '../platform'
-import { chat } from './ollama'
+import { appleTextBudget, chooseEngine, generate } from './ai'
 
 /**
  * Reads the current screen and turns it into a task.
@@ -34,6 +34,8 @@ import { chat } from './ollama'
  * afterwards. Screens are overwhelmingly text, so OCR gets the same signal for
  * ~15MB and no VRAM at all.
  */
+
+const SCREEN_TOKENS = 300
 
 export interface ScreenTask {
   title: string
@@ -159,12 +161,12 @@ export async function readScreen(): Promise<ScreenReading> {
 
 export async function screenToTask(
   instruction: string,
-  options: { model?: string; userName?: string; aboutMe?: string } = {}
+  options: { userName?: string; aboutMe?: string } = {}
 ): Promise<ScreenTask | null> {
   const reading = await readScreen()
   if (reading.text.length < MIN_SCREEN_CHARS) return null
 
-  const { system, user } = buildScreenTaskPrompt({
+  const vars = {
     // Without a name the model cannot tell which of the people on screen is
     // the one being asked to do something, and it returns nothing.
     userName: options.userName?.trim() || 'the user',
@@ -174,14 +176,22 @@ export async function screenToTask(
     windowTitle: reading.windowTitle || 'unknown',
     screenText: reading.text,
     source: reading.source === 'accessibility' ? 'accessibility' : 'ocr'
-  })
+  } as const
+  // Apple's window holds about 6,000 characters of screen beside the prompt;
+  // past that, OCR text is mostly other windows and chrome anyway.
+  let screenText = reading.text
+  if ((await chooseEngine()) === 'apple') {
+    const empty = buildScreenTaskPrompt({ ...vars, screenText: '' })
+    screenText = screenText.slice(0, appleTextBudget(empty.system + empty.user, SCREEN_TASK_SCHEMA, SCREEN_TOKENS))
+  }
+  const { system, user } = buildScreenTaskPrompt({ ...vars, screenText })
 
-  const raw = await chat({
-    ...(options.model ? { model: options.model } : {}),
+  const { content: raw } = await generate({
+    purpose: 'screen',
     system,
     user,
-    format: SCREEN_TASK_SCHEMA,
-    numPredict: 300
+    schema: SCREEN_TASK_SCHEMA,
+    maxTokens: SCREEN_TOKENS
   })
 
   console.log('[screen] model returned:', raw.slice(0, 400))

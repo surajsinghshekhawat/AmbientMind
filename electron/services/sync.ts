@@ -4,14 +4,10 @@ import { rejectDuplicates } from './dedup'
 import { fetchPrepTasks } from './integrations/gcalendar'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
 import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
-import {
-  embed,
-  EMBED_VERSION,
-  extractTasks,
-  isAvailable,
-  OllamaUnavailableError,
-  type ExtractedTask
-} from './ollama'
+import { shouldAutoAccept } from '@shared/evidence'
+import { AiUnavailableError, chooseEngine } from './ai'
+import { extractTasks, type ExtractedTask } from './extract'
+import { embed, EMBED_VERSION } from './ollama'
 import {
   addTasksIgnoringDuplicates,
   forgetRecentGmail,
@@ -48,13 +44,14 @@ export interface SyncReport {
 }
 
 export interface SyncOptions {
-  model?: string
   embeddingModel?: string
   userName?: string
   userEmail?: string
   aboutMe?: string
   /** Re-read recent mail instead of skipping IDs already seen. Used by Sync now. */
   force?: boolean
+  /** Confidence at which a mail task skips the suggestion step; null keeps all as suggestions. */
+  autoAcceptAbove?: number | null
   maxExtractionsPerRun?: number
   onProgress?: (message: string) => void
 }
@@ -71,7 +68,7 @@ let running = false
 async function syncGmail(
   report: SyncReport,
   existing: Task[],
-  options: Required<Pick<SyncOptions, 'model' | 'maxExtractionsPerRun'>> & SyncOptions
+  options: Required<Pick<SyncOptions, 'maxExtractionsPerRun'>> & SyncOptions
 ): Promise<NewTask[]> {
   const userEmail = options.userEmail ?? connectedGoogleAccount() ?? 'me'
   const userName = options.userName ?? userEmail.split('@')[0] ?? 'the user'
@@ -118,7 +115,6 @@ async function syncGmail(
     try {
       const fewShotExamples = await retrieveFewShot(fetched.message, options.embeddingModel)
       const extracted = await extractTasks(fetched.message, {
-        model: options.model,
         userName,
         userEmail,
         ...(options.aboutMe ? { aboutMe: options.aboutMe } : {}),
@@ -140,17 +136,24 @@ async function syncGmail(
           // Ties the task back to the message so the same mail can never
           // produce it twice, even across app restarts.
           sourceId: `${id}:${task.title.slice(0, 40)}`,
+          sourceUrl: `https://mail.google.com/mail/u/0/#all/${id}`,
           people: task.people,
           rawContext: `${fetched.message.subject}\n\n${fetched.message.body.slice(0, 2000)}`,
-          confidence: task.confidence
+          confidence: task.confidence,
+          evidence: task.evidence,
+          // A model's reading of someone else's mail is a suggestion until
+          // the user says yes, unless they chose to trust confident ones.
+          status: shouldAutoAccept(task.confidence, task.verified ?? false, options.autoAcceptAbove ?? null)
+            ? 'pending'
+            : 'suggested'
         })
       }
     } catch (err) {
-      // Ollama going away mid-pass says nothing about this message or the ones
-      // behind it. Charging every remaining mail an attempt would spend the
-      // whole retry budget on a single restart, so the pass stops instead.
-      if (err instanceof OllamaUnavailableError) {
-        report.errors.push('Ollama stopped responding; the rest of this pass was left for later')
+      // The model going away mid-pass says nothing about this message or the
+      // ones behind it. Charging every remaining mail an attempt would spend
+      // the whole retry budget on a single restart, so the pass stops instead.
+      if (err instanceof AiUnavailableError) {
+        report.errors.push('The AI model stopped responding; the rest of this pass was left for later')
         break
       }
       const { willRetry } = markFailed('gmail', id)
@@ -201,7 +204,9 @@ async function rememberExtraction(
   try {
     const text = embeddingText(message)
     const vector = await embed(text, embedModel, 'document')
-    storeExample(getTaskStore(), text, tasks, vector, {
+    // Stored as the model writes them, so examples teach the output shape.
+    const shown = tasks.map(({ verified: _verified, ...task }) => task)
+    storeExample(getTaskStore(), text, shown, vector, {
       source: 'observed',
       // Lets a task rate the example it came from once the user acts on it.
       sourceId: message.id,
@@ -267,23 +272,22 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
     }
 
     const resolved = {
-      model: options.model ?? 'qwen2.5:3b',
       maxExtractionsPerRun: options.maxExtractionsPerRun ?? DEFAULT_MAX_EXTRACTIONS,
       ...options
     }
 
     const existing = listActive()
     // Calendar import is deterministic and needs no model, so it runs even
-    // when Ollama is down; only mail waits for it.
+    // when no model is available; only mail waits for one.
     const candidates = await syncCalendar(report)
-    if (await isAvailable()) {
+    if (await chooseEngine()) {
       try {
         candidates.push(...(await syncGmail(report, existing, resolved)))
       } catch (err) {
         report.errors.push(`gmail: ${(err as Error).message}`)
       }
     } else {
-      report.errors.push('Ollama is not running; mail was not read this pass')
+      report.errors.push('No AI model is available (Apple Intelligence off, Ollama not running); mail was not read this pass')
     }
 
     const { accepted, rejected } = rejectDuplicates(candidates, existing)

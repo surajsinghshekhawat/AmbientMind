@@ -1,3 +1,4 @@
+import { bucketFor } from './evidence'
 import type { Task, TaskSource } from './types'
 import { isDueToday, sortByUrgency } from './urgency'
 
@@ -66,10 +67,10 @@ export function allClearLine(lastRun: string | null, intervalMinutes: number, no
 }
 
 /** Confidence in words; a percentage claims a precision the model does not have. */
+/** Stored confidence already reflects whether the quote was the model's own; see parseExtraction. */
 export function confidenceLabel(confidence: number): 'High' | 'Medium' | 'Low' {
-  if (confidence >= 0.8) return 'High'
-  if (confidence >= 0.5) return 'Medium'
-  return 'Low'
+  const bucket = bucketFor(confidence, true)
+  return bucket === 'high' ? 'High' : bucket === 'medium' ? 'Medium' : 'Low'
 }
 
 export function isMeeting(source: TaskSource): boolean {

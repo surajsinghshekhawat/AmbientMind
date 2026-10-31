@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { ExtractedTask } from '../electron/services/ollama'
+import type { ExtractedTask } from '../electron/services/extract'
 import { aggregate, pair, scoreMessage, similarity } from './score'
 import type { GoldTask, LabelledMessage } from './types'
 

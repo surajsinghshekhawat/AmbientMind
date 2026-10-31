@@ -5,7 +5,7 @@ import { formatDeadline, sortByUrgency } from '@shared/urgency'
 import type { ChatReply, ChatTurn, Task } from '@shared/types'
 import { buildAboutBlock } from '../../prompts/taskExtraction'
 import { CHAT_SCHEMA, buildChatSystem } from '../../prompts/chat'
-import { chat } from './ollama'
+import { generate } from './ai'
 import { addRule } from './ruleStore'
 import { addTask, deleteTask, listActive, setStatus, snoozeTask } from './taskStore'
 import { describeDecisions } from '@shared/decisions'
@@ -152,7 +152,6 @@ export function perform(action: Action): { observation: string; changed: boolean
 }
 
 export interface ChatOptions {
-  model?: string
   userName?: string
   aboutMe?: string
   rules?: { title: string; weekdays: number[]; time: string; enabled: boolean }[]
@@ -195,12 +194,12 @@ export async function runChat(
         : ''
     })
 
-    const raw = await chat({
+    const { content: raw } = await generate({
+      purpose: 'chat',
       system,
       user: renderHistory(history, message),
-      ...(options.model ? { model: options.model } : {}),
-      format: CHAT_SCHEMA,
-      numPredict: 400,
+      schema: CHAT_SCHEMA,
+      maxTokens: 400,
       ...(options.signal ? { signal: options.signal } : {})
     })
 

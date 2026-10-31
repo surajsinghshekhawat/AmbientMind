@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { enrichTask, listModels } from '../electron/services/ollama'
+import { enrichTask } from '../electron/services/extract'
+import { listModels } from '../electron/services/ollama'
 
 /** A server that accepts the connection and never answers. */
 function hangingFetch(): () => void {

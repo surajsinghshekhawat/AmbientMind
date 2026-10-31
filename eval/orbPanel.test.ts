@@ -121,6 +121,6 @@ test('the all-clear line says when the next check is', () => {
 
 test('confidence is a word, not a percentage', () => {
   assert.equal(confidenceLabel(0.94), 'High')
-  assert.equal(confidenceLabel(0.6), 'Medium')
-  assert.equal(confidenceLabel(0.2), 'Low')
+  assert.equal(confidenceLabel(0.75), 'Medium')
+  assert.equal(confidenceLabel(0.65), 'Low')
 })

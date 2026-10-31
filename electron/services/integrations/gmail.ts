@@ -1,5 +1,5 @@
 import { googleFetch } from '../googleAuth'
-import type { MessageInput } from '../ollama'
+import type { MessageInput } from '../extract'
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 

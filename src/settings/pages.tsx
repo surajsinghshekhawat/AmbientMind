@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
+import { describeAppleReason } from '@shared/aiStatus'
 import { describePause, isAiPaused, pauseAiForHours } from '@shared/pauseAi'
 import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
   ABOUT_ME_MAX_CHARS,
+  DEFAULT_CONFIG,
   WHISPER_MODELS,
+  type AiEngine,
+  type AiEnginePreference,
   type AppleSourcesStatus,
   type Config,
   type HealthReport,
@@ -70,6 +74,20 @@ const CORNERS: { value: OverlayCorner; label: string }[] = [
   { value: 'bottom-right', label: 'Bottom right' },
   { value: 'bottom-left', label: 'Bottom left' }
 ]
+
+const ENGINES: { value: AiEnginePreference; label: string }[] = [
+  { value: 'auto', label: 'Automatic' },
+  { value: 'apple', label: 'Apple' },
+  { value: 'ollama', label: 'Ollama' }
+]
+
+const AUTO_ACCEPT_THRESHOLD = 0.9
+
+function engineName(engine: AiEngine | null, ollamaModel: string): string {
+  if (engine === 'apple') return 'Apple Intelligence'
+  if (engine === 'ollama') return `Ollama · ${ollamaModel}`
+  return 'Nothing available'
+}
 
 const THEMES: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'Auto' },
@@ -334,6 +352,14 @@ export function AiModels({ data: { config, health, ragCount, account }, actions:
           ) : undefined
         }
       >
+        {health?.ai.apple && (
+          <Row
+            label="Apple Intelligence"
+            description={health.ai.apple.available ? 'On this Mac, private and fast.' : describeAppleReason(health.ai.apple.reason)}
+          >
+            <Pill tone={health.ai.apple.available ? 'ok' : 'warn'}>{health.ai.apple.available ? 'Ready' : 'Off'}</Pill>
+          </Row>
+        )}
         <Row label="Ollama" description={health?.ollama.url ?? 'Checking…'}>
           {health && <Pill tone={health.ollama.running ? 'ok' : 'bad'}>{health.ollama.running ? 'Running' : 'Not reachable'}</Pill>}
           <Button variant="ghost" size="sm" onClick={() => void run('Checking…', refresh)}>
@@ -349,18 +375,38 @@ export function AiModels({ data: { config, health, ragCount, account }, actions:
             <Pill tone={model.present ? 'ok' : 'warn'}>{model.present ? 'Ready' : 'Not downloaded'}</Pill>
           </Row>
         ))}
-        <Row label="Apple Intelligence" description="Used first when this Mac has it, with Ollama as the fallback.">
-          <Pill tone="soon">Coming soon</Pill>
-        </Row>
+        {health && (
+          <Row label="Answering now" description="What reads your mail and answers chat at the moment.">
+            <Pill tone={health.ai.engine ? 'ok' : 'bad'}>{engineName(health.ai.engine, config.ollamaModel)}</Pill>
+          </Row>
+        )}
       </Group>
 
-      <Group title="Model" footer="Any model you have pulled into the project’s Ollama. Smaller is faster; qwen2.5:3b is the tested default.">
+      {health?.ai.apple && (
+        <Group title="Engine" footer="Automatic uses Apple Intelligence when it’s ready and Ollama otherwise, including for mail too long for Apple’s model.">
+          <Row label="Use">
+            <Segmented label="AI engine" value={config.aiEngine} options={ENGINES} onChange={(aiEngine) => void patch({ aiEngine })} />
+          </Row>
+        </Group>
+      )}
+
+      <Group title="Model" footer={`Any model you have pulled into the project’s Ollama. ${DEFAULT_CONFIG.ollamaModel} is the tested default.`}>
         <Row label="Ollama model" htmlFor="ollama-model">
           <DraftInput
             id="ollama-model"
             value={config.ollamaModel}
             onCommit={(ollamaModel) => patch({ ollamaModel })}
-            className={cn(fieldClass, 'w-48 font-mono text-small')}
+            className={cn(fieldClass, 'w-56 font-mono text-small')}
+          />
+        </Row>
+      </Group>
+
+      <Group title="Suggestions" footer="Tasks found in mail wait in Suggested until you say yes. Each shows the words from the message it came from.">
+        <Row label="Add confident tasks straight away" description="Only when the model is sure and its quote is really in the message.">
+          <Toggle
+            label="Add confident tasks straight away"
+            checked={config.autoAcceptAbove !== null}
+            onChange={(on) => void patch({ autoAcceptAbove: on ? AUTO_ACCEPT_THRESHOLD : null })}
           />
         </Row>
       </Group>

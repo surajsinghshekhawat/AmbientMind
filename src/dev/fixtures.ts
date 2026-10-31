@@ -104,6 +104,7 @@ export function healthyReport(): HealthReport {
       { name: 'qwen2.5:3b', role: 'extraction', present: true },
       { name: 'nomic-embed-text', role: 'embedding', present: true }
     ],
+    ai: { preference: 'auto', engine: 'apple', apple: { available: true, reason: null } },
     google: { connected: true, credentialsConfigured: true },
     problems: [],
     ok: true

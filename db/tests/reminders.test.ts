@@ -225,3 +225,14 @@ test('migration 013 admits the new sources and keeps updated_at current', () => 
   const after = db.prepare<[string], { updated_at: string }>(`SELECT updated_at FROM tasks WHERE id = ?`).get(task.id)!
   assert.ok(after.updated_at > '2000-01-02')
 })
+
+test('a mail suggestion reaches Reminders only once accepted', async () => {
+  freshStore()
+  const remote = new FakeReminders()
+  const suggestion = addTask({ title: 'Send the W-9', source: 'gmail', status: 'suggested', evidence: 'Could you send the W-9?' })
+  assert.equal(getTask(suggestion.id)?.status, 'suggested')
+
+  assert.equal((await syncReminders(remote, LIST)).pushed, 0)
+  setStatus(suggestion.id, 'pending')
+  assert.equal((await syncReminders(remote, LIST)).pushed, 1)
+})

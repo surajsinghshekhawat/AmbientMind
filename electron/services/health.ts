@@ -1,5 +1,8 @@
 import type { HealthReport, ModelHealth } from '@shared/types'
 import { describePause, isAiPaused } from '@shared/pauseAi'
+import { describeAppleReason } from '@shared/aiStatus'
+import type { AiEnginePreference } from '@shared/types'
+import { aiPreference, appleModelStatus, chooseEngine } from './ai'
 import { OLLAMA_URL, listModels } from './ollama'
 import { hasCalendarWriteScope, isGoogleConnected, loadCredentials } from './googleAuth'
 
@@ -22,6 +25,7 @@ export interface HealthInput {
   /** Checked only when the user has asked for calendar write-back. */
   calendarWriteBack?: boolean
   pauseAiUntil?: string | null
+  aiEngine?: AiEnginePreference
 }
 
 /**
@@ -58,12 +62,27 @@ export async function checkHealth(config: HealthInput): Promise<HealthReport> {
   if (isAiPaused(config.pauseAiUntil) && config.pauseAiUntil) {
     problems.push(describePause(config.pauseAiUntil))
   }
-  if (!running) {
-    problems.push(`Ollama is not reachable at ${OLLAMA_URL}. Start it, then re-check.`)
-  } else {
+  const preference = config.aiEngine ?? aiPreference()
+  const apple = await appleModelStatus(true)
+  const engine = await chooseEngine()
+  if (!engine) {
+    problems.push(
+      preference === 'apple'
+        ? describeAppleReason(apple?.reason)
+        : preference === 'ollama'
+          ? `Ollama is not reachable at ${OLLAMA_URL}. Start it, then re-check.`
+          : 'No AI model is available: turn on Apple Intelligence, or start Ollama.'
+    )
+  }
+  // With Apple answering, Ollama only holds the memory of past mail, which is
+  // optional; its task model doesn't matter at all.
+  if (running) {
     for (const model of models) {
-      if (!model.present) problems.push(`Model "${model.name}" is not pulled. Run: ollama pull ${model.name}`)
+      if (model.present || (engine === 'apple' && model.role === 'extraction')) continue
+      problems.push(`Model "${model.name}" is not pulled. Run: ./dev ollama pull ${model.name}`)
     }
+  } else if (engine === 'ollama') {
+    problems.push(`Ollama is not reachable at ${OLLAMA_URL}. Start it, then re-check.`)
   }
   if (!credentialsConfigured) {
     problems.push('No Google OAuth client. See docs/google-setup.md.')
@@ -82,6 +101,7 @@ export async function checkHealth(config: HealthInput): Promise<HealthReport> {
     checkedAt: new Date().toISOString(),
     ollama: { running, url: OLLAMA_URL },
     models,
+    ai: { preference, engine, apple: apple ? { available: apple.available, reason: apple.reason } : null },
     google: { connected: googleConnected, credentialsConfigured },
     problems,
     // Extraction can run without Google; Google cannot produce tasks without a

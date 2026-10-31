@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
 import { connectedGoogleAccount } from './googleAuth'
-import { extractTasks } from './ollama'
+import { extractTasks } from './extract'
 
 /**
  * The extraction numbers in docs/SYSTEM.md come from Enron mail, which is not
@@ -16,7 +16,6 @@ import { extractTasks } from './ollama'
  * add what was missed. An empty goldTasks array is a real label, not a gap.
  */
 export interface CorpusExportOptions {
-  model?: string
   userName?: string
   aboutMe?: string
   limit?: number
@@ -80,7 +79,6 @@ export async function exportCorpus(
     }
 
     const extracted = await extractTasks(fetched.message, {
-      ...(options.model ? { model: options.model } : {}),
       userName,
       userEmail,
       ...(options.aboutMe ? { aboutMe: options.aboutMe } : {})

@@ -163,6 +163,32 @@ export interface HelperMethods {
   'reminders.delete': { params: { id: string; expectedModifiedAt?: string | null }; result: { deleted: boolean } }
   'hotkey.set': { params: { name: string; keyCode: number; modifiers: number }; result: { name: string } }
   'hotkey.clear': { params: { name: string }; result: { name: string } }
+  'llm.status': { params: Record<string, never>; result: AppleModelStatus }
+  'llm.generate': { params: AppleGenerate; result: { content: string; ms: number } }
+}
+
+export type AppleModelUnavailable =
+  | 'os_too_old'
+  | 'device_not_eligible'
+  | 'not_enabled'
+  | 'model_not_ready'
+  | 'unknown'
+
+export interface AppleModelStatus {
+  available: boolean
+  reason: AppleModelUnavailable | null
+  contextTokens: number
+}
+
+export interface AppleGenerate {
+  system?: string
+  prompt: string
+  /** The same JSON Schema Ollama gets as `format`. */
+  schema?: unknown
+  maxTokens?: number
+  temperature?: number
+  /** Greedy decoding unless false. */
+  greedy?: boolean
 }
 
 export type HelperMethod = keyof HelperMethods
@@ -201,6 +227,13 @@ export type HelperErrorCode =
   | 'list_missing'
   | 'no_source'
   | 'save_failed'
+  | 'bad_schema'
+  | 'context_overflow'
+  | 'guardrail'
+  | 'refusal'
+  | 'unsupported_language'
+  | 'busy'
+  | 'generation_failed'
   | (string & {})
 
 export class HelperError extends Error {
