@@ -23,6 +23,8 @@ export function makeTask(partial: Partial<Task> = {}): Task {
     createdAt: new Date(EPOCH + sequence * 60_000).toISOString(),
     completedAt: null,
     snoozedUntil: null,
+    sourceUrl: null,
+    evidence: null,
     ...partial
   }
 }
@@ -37,15 +39,19 @@ export function sampleTasks(now: number): Task[] {
       deadline: inHours(-5, now),
       priority: 'urgent',
       source: 'gmail',
-      people: ['Priya'],
-      confidence: 0.94
+      people: ['Priya Shah'],
+      confidence: 0.94,
+      sourceUrl: 'https://mail.google.com/mail/u/0/#all/18c2f',
+      evidence: 'Could you get back to me on the vendor contract before end of day? Legal is waiting on us.'
     }),
     makeTask({
       title: 'Prepare slides for the design review',
       deadline: inHours(1.5, now),
       priority: 'high',
       source: 'gcalendar',
-      confidence: 0.88
+      people: ['Design team'],
+      confidence: 0.88,
+      sourceUrl: 'https://calendar.google.com/calendar/event?eid=abc'
     }),
     makeTask({
       title: 'Send the Q3 budget report to Sarah',
@@ -64,6 +70,28 @@ export function sampleTasks(now: number): Task[] {
       title: 'Follow up with the landlord',
       status: 'snoozed',
       snoozedUntil: inHours(3, now)
+    })
+  ]
+}
+
+/** Tasks the model found and is waiting for a yes on. */
+export function sampleSuggestedTasks(now: number): Task[] {
+  return [
+    makeTask({
+      title: 'Send the signed W-9 to accounting',
+      status: 'suggested',
+      source: 'gmail',
+      people: ['Ravi Menon'],
+      confidence: 0.86,
+      deadline: inHours(52, now),
+      evidence: 'Whenever you get a chance this week, please send over the signed W-9.'
+    }),
+    makeTask({
+      title: 'Review the onboarding checklist draft',
+      status: 'suggested',
+      source: 'gmail',
+      people: ['Mei'],
+      confidence: 0.58
     })
   ]
 }

@@ -8,10 +8,10 @@ const secondDisplay = { x: 1512, y: 25, width: 1920, height: 1055 }
 
 test('the collapsed orb sits in its corner of the given display', () => {
   const topRight = overlayBounds({ workArea: secondDisplay, corner: 'top-right', width: 380, expanded: false })
-  assert.deepEqual(topRight, { x: 1512 + 1920 - 70 - 24, y: 25 + 24, width: 70, height: 70 })
+  assert.deepEqual(topRight, { x: 1512 + 1920 - 64 - 16, y: 25 + 16, width: 64, height: 64 })
 
   const bottomLeft = overlayBounds({ workArea: secondDisplay, corner: 'bottom-left', width: 380, expanded: false })
-  assert.deepEqual(bottomLeft, { x: 1512 + 24, y: 25 + 1055 - 70 - 24, width: 70, height: 70 })
+  assert.deepEqual(bottomLeft, { x: 1512 + 16, y: 25 + 1055 - 64 - 16, width: 64, height: 64 })
 })
 
 test('the expanded panel stays on the same display and inside its work area', () => {
@@ -26,8 +26,22 @@ test('the expanded panel stays on the same display and inside its work area', ()
 test('a panel wider than a small display is clamped to it', () => {
   const small = { x: 0, y: 0, width: 300, height: 500 }
   const bounds = overlayBounds({ workArea: small, corner: 'top-left', width: 380, expanded: true })
-  assert.ok(bounds.width <= 300 - 48)
+  assert.ok(bounds.width <= 300 - 32)
   assert.ok(bounds.x >= 0)
+})
+
+test('the open panel is as tall as its content and grows away from its corner', () => {
+  const top = overlayBounds({ workArea: secondDisplay, corner: 'top-right', width: 380, expanded: true, contentHeight: 300 })
+  assert.deepEqual({ y: top.y, height: top.height }, { y: 25 + 16, height: 300 })
+
+  const bottom = overlayBounds({ workArea: secondDisplay, corner: 'bottom-left', width: 380, expanded: true, contentHeight: 300 })
+  assert.equal(bottom.height, 300)
+  assert.equal(bottom.y + bottom.height, 25 + 1055 - 16)
+})
+
+test('a panel taller than the screen is capped at the work area', () => {
+  const bounds = overlayBounds({ workArea: secondDisplay, corner: 'top-left', width: 380, expanded: true, contentHeight: 5000 })
+  assert.equal(bounds.height, 1055 - 32)
 })
 
 test('the Dock icon shows while any window needs it and hides after the last closes', () => {

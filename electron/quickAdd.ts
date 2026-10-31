@@ -81,7 +81,12 @@ export function toggleQuickAdd() {
     hideQuickAdd()
     return
   }
+  showQuickAdd()
+}
 
+export function showQuickAdd() {
+  const win = quickAddWindow
+  if (!win) return
   centerOnActiveDisplay(win)
   bringToFront(win)
   win.webContents.send(IPC.QuickAddOpened)

@@ -87,13 +87,14 @@ app.on('child-process-gone', (_event, details) => {
 import {
   applyOverlayConfig,
   createOverlayWindow,
-  setMouseCapture,
+  setPanelHeight,
   setOverlayExpanded
 } from './overlay'
 import {
   createQuickAddWindow,
   hideQuickAdd,
   setQuickAddRecording,
+  showQuickAdd,
   toggleQuickAdd
 } from './quickAdd'
 import { showSettingsWindow } from './settings'
@@ -109,6 +110,7 @@ import {
   listActive,
   listSyncStates,
   openTaskStore,
+  reopenTask,
   setStatus,
   snoozeTask,
   updateTask,
@@ -289,7 +291,8 @@ function onScheduledSync(report: SyncReport) {
 }
 
 function registerIpc() {
-  onIpc(IPC.SetMouseCapture, (_event, capture: boolean) => setMouseCapture(capture))
+  onIpc(IPC.SetPanelHeight, (_event, height: number) => setPanelHeight(Number(height)))
+  onIpc(IPC.OpenQuickAdd, () => showQuickAdd())
 
   ipcMain.handle(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
     setOverlayExpanded(expanded)
@@ -328,6 +331,21 @@ function registerIpc() {
       recordDecision({ kind: 'deleted', title: task.title, source: task.source })
       rateSourceExample(task, -1)
     }
+    broadcastTasks()
+    trayHandle?.refresh()
+    return listActive()
+  })
+
+  ipcMain.handle(IPC.ReopenTask, (_event, id: string) => {
+    reopenTask(id)
+    broadcastTasks()
+    trayHandle?.refresh()
+    return listActive()
+  })
+
+  ipcMain.handle(IPC.AcceptTask, (_event, id: string) => {
+    const task = getTask(id)
+    if (task?.status === 'suggested') setStatus(id, 'pending')
     broadcastTasks()
     trayHandle?.refresh()
     return listActive()

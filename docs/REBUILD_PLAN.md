@@ -597,9 +597,9 @@ Exit check: build, typecheck, `./dev npm test` (152 logic + 27 db + 11
 component tests), the smoke test, `test:packaged`, `smoke:sqlite`,
 `smoke:vec`, `check:migration`, and `./dev doctor` all pass. A second build
 has a different code hash and the same designated requirement, and
-`codesign -R` confirms it satisfies the first build's. A real grant surviving a
-rebuild still needs one manual check: allow the microphone once, rebuild, and
-confirm macOS does not ask again. The Windows packaging block was updated but
+`codesign -R` confirms it satisfies the first build's. Checked by hand: the
+microphone grant survives a rebuild. Screen Recording needs an admin account to
+grant and is untested. The Windows packaging block was updated but
 not built here, since cross-building would replace the Mac native modules in
 `node_modules`.
 

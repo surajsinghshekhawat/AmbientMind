@@ -14,7 +14,7 @@ import type { MediaKind, PermissionState } from '@shared/permissions'
 import type { ShortcutStatus } from '@shared/shortcuts'
 
 const api = {
-  setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
+  setPanelHeight: (height: number) => ipcRenderer.send(IPC.SetPanelHeight, height),
   setOverlayExpanded: (expanded: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.SetOverlayExpanded, expanded),
   onOverlayExpanded: (handler: (expanded: boolean) => void): (() => void) => {
@@ -34,6 +34,8 @@ const api = {
     patch: { title?: string; deadline?: string | null; priority?: Task['priority'] }
   ): Promise<Task[]> => ipcRenderer.invoke(IPC.UpdateTask, id, patch),
   /** `until` is ISO-8601; the task returns to pending on its own. */
+  reopenTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.ReopenTask, id),
+  acceptTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.AcceptTask, id),
   snoozeTask: (id: string, until: string): Promise<Task[]> =>
     ipcRenderer.invoke(IPC.SnoozeTask, id, until),
 
@@ -149,6 +151,7 @@ const api = {
   openSettings: () => ipcRenderer.send(IPC.OpenSettings),
 
   quickAdd: {
+    open: () => ipcRenderer.send(IPC.OpenQuickAdd),
     submit: (title: string) => ipcRenderer.send(IPC.QuickAddSubmit, title),
     cancel: () => ipcRenderer.send(IPC.QuickAddCancel),
     setRecording: (recording: boolean) =>

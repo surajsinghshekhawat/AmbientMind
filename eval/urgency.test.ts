@@ -16,7 +16,9 @@ const task = (deadline: Date | null): Task => ({
   status: 'pending',
   createdAt: new Date(0).toISOString(),
   completedAt: null,
-  snoozedUntil: null
+  snoozedUntil: null,
+  sourceUrl: null,
+  evidence: null
 })
 
 /** Local wall-clock, so "today" means the user's day, not UTC's. */

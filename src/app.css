@@ -1,10 +1,12 @@
 @import 'tailwindcss';
+@import './ui/tokens.css';
 
-@theme {
-  --color-urgency-neutral: #e8eaed;
-  --color-urgency-approaching: #f5c26b;
-  --color-urgency-urgent: #ff8a65;
-  --color-urgency-overdue: #ff5c5c;
+/* Legacy names still used by screens not yet on the new primitives. */
+@theme inline {
+  --color-urgency-neutral: var(--ink-2);
+  --color-urgency-approaching: var(--soon);
+  --color-urgency-urgent: var(--warning);
+  --color-urgency-overdue: var(--danger);
 }
 
 html,
@@ -16,7 +18,23 @@ body,
   overflow: hidden;
   user-select: none;
   cursor: default;
-  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--ink-1);
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+textarea,
+select,
+[contenteditable] {
+  user-select: text;
+  cursor: text;
+}
+
+button {
+  cursor: default;
 }
 
 html.overlay-window,
@@ -25,37 +43,10 @@ html.overlay-window #root {
   background: transparent !important;
 }
 
-input,
-textarea,
-select {
-  user-select: text;
-  cursor: text;
-}
-
-@keyframes overdue-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
-
-.animate-overdue-pulse {
-  animation: overdue-pulse 2.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-overdue-pulse {
-    animation: none;
-  }
-}
-
 html.settings-window,
 html.settings-window body,
 html.settings-window #root {
-  background: #141414;
+  background: var(--window);
   overflow: auto;
   user-select: text;
   cursor: auto;

@@ -52,6 +52,7 @@ export default defineConfig({
     plugins: [react(), tailwindcss(), cspMeta()],
     build: {
       outDir: 'out/renderer',
+      minify: true,
       rollupOptions: {
         input: {
           overlay: resolve(__dirname, 'src/overlay/index.html'),

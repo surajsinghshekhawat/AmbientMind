@@ -46,7 +46,30 @@ test('launches and opens every window', async () => {
 
   try {
     const overlay = await windowNamed(app, 'overlay')
-    await expect(overlay.getByRole('button', { name: /^Show tasks, \d+ due today$|^Minimize/ })).toBeVisible()
+    const orb = overlay.getByRole('button', { name: /^AmbientMind: / })
+    await expect(orb).toBeVisible()
+
+    const overlayState = () =>
+      app.evaluate(({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('/overlay/'))
+        return win ? { ...win.getBounds(), focusable: win.isFocusable() } : null
+      })
+    expect(await overlayState()).toMatchObject({ width: 64, height: 64, focusable: false })
+
+    // Open: the window becomes the panel, sized to its content, and takes keys.
+    await orb.click()
+    const panel = overlay.getByRole('listbox', { name: 'Tasks' })
+    await expect(panel).toBeVisible()
+    await expect.poll(async () => (await overlayState())?.focusable).toBe(true)
+    await expect.poll(async () => (await overlayState())?.width).toBe(380)
+    // offsetHeight, not the bounding box: the opening animation scales the card.
+    const panelHeight = await panel.evaluate((el) => (el as HTMLElement).offsetHeight)
+    await expect.poll(async () => (await overlayState())?.height).toBe(Math.ceil(panelHeight) + 2)
+    await overlay.screenshot({ path: join(ROOT, '.local', 'shots', 'overlay-panel.png') })
+
+    await panel.press('Escape')
+    await expect(orb).toBeVisible()
+    await expect.poll(overlayState).toMatchObject({ width: 64, height: 64, focusable: false })
 
     await expect.poll(() => openWindows(app)).toEqual(['overlay', 'quickadd'])
     await overlay.evaluate(() => window.ambient.openSettings())

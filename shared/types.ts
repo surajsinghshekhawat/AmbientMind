@@ -32,6 +32,10 @@ export interface Task {
   completedAt: string | null
   /** Set only while status is 'snoozed'; the sweep restores it to pending. */
   snoozedUntil: string | null
+  /** Opens the thread or event the task came from. */
+  sourceUrl: string | null
+  /** The sentence that produced the task, quoted as-is. */
+  evidence: string | null
 }
 
 export type Urgency = 'neutral' | 'approaching' | 'urgent' | 'overdue'

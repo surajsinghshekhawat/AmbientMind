@@ -24,7 +24,9 @@ function task(
     status: extra.status ?? 'pending',
     createdAt: extra.createdAt ?? '2026-03-01T09:00:00.000Z',
     completedAt: null,
-    snoozedUntil: null
+    snoozedUntil: null,
+    sourceUrl: null,
+    evidence: null
   }
 }
 

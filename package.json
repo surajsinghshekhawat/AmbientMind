@@ -8,6 +8,7 @@
     "dev": "electron-vite dev",
     "dev:seed": "electron-vite dev -- --seed",
     "gallery": "vite --config gallery.config.ts",
+    "gallery:shots": "electron scripts/gallery-shots.cjs",
     "build": "tsc --noEmit && electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
@@ -33,6 +34,7 @@
     "postinstall": "node scripts/require-isolation.cjs && electron-builder install-app-deps"
   },
   "devDependencies": {
+    "@base-ui/react": "1.9.0",
     "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.1.11",
     "@testing-library/dom": "^10.4.2",
@@ -46,9 +48,11 @@
     "electron-builder": "^26.18.1",
     "electron-vite": "^4.0.0",
     "happy-dom": "^21.0.4",
+    "lucide-react": "1.66.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tailwindcss": "^4.1.11",
+    "thinking-orbs": "0.3.2",
     "tsx": "^4.23.13",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",

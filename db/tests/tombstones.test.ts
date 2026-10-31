@@ -11,6 +11,7 @@ import {
   listActive,
   markProcessed,
   purgeTombstones,
+  reopenTask,
   setStatus,
   snoozeTask,
   updateTask
@@ -76,4 +77,46 @@ test('forced sync reopens only recent messages that produced no tasks', () => {
   assert.equal(forgetRecentGmail(48), 1)
   assert.equal(isProcessed('gmail', 'empty'), false)
   assert.equal(isProcessed('gmail', 'productive'), true)
+})
+
+test('undo brings a completed, snoozed or deleted task back exactly as an open task', () => {
+  freshStore()
+  const done = addTask({ title: 'done' })
+  const snoozed = addTask({ title: 'snoozed' })
+  const deleted = addTask({ title: 'deleted', source: 'gmail', sourceId: 'm9:deleted' })
+  setStatus(done.id, 'done')
+  snoozeTask(snoozed.id, new Date(Date.now() + 3_600_000).toISOString())
+  deleteTask(deleted.id)
+
+  for (const task of [done, snoozed, deleted]) reopenTask(task.id)
+
+  for (const task of [done, snoozed, deleted]) {
+    const back = getTask(task.id)
+    assert.equal(back?.status, 'pending')
+    assert.equal(back?.completedAt, null)
+    assert.equal(back?.snoozedUntil, null)
+  }
+  assert.equal(listActive().length, 3)
+})
+
+test('undo leaves archived tasks archived', () => {
+  freshStore()
+  const task = addTask({ title: 'old' })
+  setStatus(task.id, 'archived')
+  reopenTask(task.id)
+  assert.equal(getTask(task.id)?.status, 'archived')
+})
+
+test('provenance round-trips through the store', () => {
+  freshStore()
+  const task = addTask({
+    title: 'Send the deck',
+    source: 'gmail',
+    sourceId: 'm2:Send the deck',
+    sourceUrl: 'https://mail.google.com/mail/u/0/#all/m2',
+    evidence: 'Could you send the deck by Friday?'
+  })
+  const back = getTask(task.id)
+  assert.equal(back?.sourceUrl, 'https://mail.google.com/mail/u/0/#all/m2')
+  assert.equal(back?.evidence, 'Could you send the deck by Friday?')
 })

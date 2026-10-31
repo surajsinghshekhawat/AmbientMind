@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, screen, type Display, type Rectangle } from 'electron'
 import { IPC } from '@shared/ipc'
-import { overlayBounds } from '@shared/overlayGeometry'
+import { overlayBounds, PANEL_START_HEIGHT } from '@shared/overlayGeometry'
 import { DEFAULT_CONFIG, type Config } from '@shared/types'
 import { overlayWindowOptions, prepareOverlay, shapesOverlay } from './platform'
 
@@ -12,6 +12,8 @@ let currentConfig: Config = DEFAULT_CONFIG
 /** The display the overlay lives on; it moves to the cursor's display when opened. */
 let displayId: number | null = null
 let quitting = false
+/** Reported by the renderer: the panel is exactly as tall as its content. */
+let panelHeight = PANEL_START_HEIGHT
 
 function cursorDisplay(): Display {
   return screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
@@ -29,7 +31,8 @@ function boundsFor(followCursor = false) {
     workArea: currentDisplay(followCursor).workArea,
     corner: currentConfig.overlayCorner,
     width: currentConfig.overlayWidth,
-    expanded
+    expanded,
+    contentHeight: panelHeight
   })
 }
 
@@ -88,7 +91,6 @@ export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWin
   overlayWindow.setHasShadow(false)
   overlayWindow.removeMenu()
   overlayWindow.setMenuBarVisibility(false)
-  applyMouseIgnore()
   applyWindowShape()
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -134,29 +136,31 @@ export function setOverlayExpanded(next: boolean) {
     // Opened from the tray or a shortcut, the list belongs where you are looking.
     reposition(next)
   }
-  applyMouseIgnore(true)
+  applyFocus()
   overlayWindow?.webContents.send(IPC.OverlayExpandedChanged, expanded)
+}
+
+/**
+ * The open panel takes keys so rows can be driven and edited from the
+ * keyboard; the orb never does, so it cannot steal focus from your work.
+ */
+function applyFocus() {
+  if (!overlayWindow) return
+  overlayWindow.setFocusable(expanded)
+  if (expanded) overlayWindow.focus()
+  else overlayWindow.blur()
+}
+
+export function setPanelHeight(height: number) {
+  if (!Number.isFinite(height) || height <= 0) return
+  const next = Math.ceil(height)
+  if (next === panelHeight) return
+  panelHeight = next
+  if (expanded) reposition()
 }
 
 export function isOverlayExpanded() {
   return expanded
-}
-
-let wantCapture = false
-
-function applyMouseIgnore(forceCapture = false) {
-  if (!overlayWindow) return
-  if (!expanded) {
-    overlayWindow.setIgnoreMouseEvents(false)
-    return
-  }
-  if (forceCapture) wantCapture = true
-  overlayWindow.setIgnoreMouseEvents(!wantCapture, { forward: true })
-}
-
-export function setMouseCapture(capture: boolean) {
-  wantCapture = capture
-  applyMouseIgnore()
 }
 
 export function getOverlayWindow() {

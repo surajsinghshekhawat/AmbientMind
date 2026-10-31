@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { findClashes } from '@shared/clash'
-import type { HealthReport, OverlayCorner, RecurrenceSuggestion, Task } from '@shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import { orbLook, type Activity } from '@shared/orb'
+import type { ShortcutStatus } from '@shared/shortcuts'
+import type { HealthReport, RecurrenceSuggestion, Task } from '@shared/types'
 import { DEFAULT_CONFIG } from '@shared/types'
-import { HealthBanner } from './HealthBanner'
-import { Orb } from './Orb'
-import { SuggestionCard } from './SuggestionCard'
-import { TaskList } from './TaskList'
-import { INTERACTIVE_ATTR, useMouseCapture } from './useMouseCapture'
+import { Orb } from '@/ui/Orb'
+import { ToastProvider } from '@/ui/Toast'
+import { Panel } from './Panel'
 
 const CLOCK_TICK_MS = 30_000
 /** Ollama gets started after the app often enough to be worth re-checking. */
@@ -15,29 +14,24 @@ const HEALTH_POLL_MS = 60_000
 export function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [maxVisible, setMaxVisible] = useState(DEFAULT_CONFIG.maxTasksVisible)
-  const [corner, setCorner] = useState<OverlayCorner>(DEFAULT_CONFIG.overlayCorner)
+  const [interval, setIntervalMinutes] = useState<number>(DEFAULT_CONFIG.syncIntervalMinutes)
   const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [reading, setReading] = useState(false)
   const [health, setHealth] = useState<HealthReport | null>(null)
-  const [suggestions, setSuggestions] = useState<RecurrenceSuggestion[]>([])
-  // Recomputed from the same tasks the list renders, so the advice can never
-  // disagree with what is on screen.
-  const clash = useMemo(() => findClashes(tasks, { now })[0] ?? null, [tasks, now])
-  const [connecting, setConnecting] = useState(false)
-
-  useMouseCapture()
+  const [recurrence, setRecurrence] = useState<RecurrenceSuggestion[]>([])
+  const [lastRun, setLastRun] = useState<string | null>(null)
+  const [shortcuts, setShortcuts] = useState<ShortcutStatus[]>([])
 
   useEffect(() => {
-    void window.ambient.getConfig().then((config) => {
+    const apply = (config: typeof DEFAULT_CONFIG) => {
       setMaxVisible(config.maxTasksVisible)
-      setCorner(config.overlayCorner)
-    })
-    return window.ambient.onConfigChanged((config) => {
-      setMaxVisible(config.maxTasksVisible)
-      setCorner(config.overlayCorner)
-    })
+      setIntervalMinutes(config.syncIntervalMinutes)
+    }
+    void window.ambient.getConfig().then(apply)
+    void window.ambient.getShortcuts().then(setShortcuts)
+    return window.ambient.onConfigChanged(apply)
   }, [])
 
   useEffect(() => {
@@ -45,8 +39,18 @@ export function App() {
     return window.ambient.onTasksChanged(setTasks)
   }, [])
 
-  useEffect(() => window.ambient.onSyncStatus((s) => setSyncing(s.state === 'running')), [])
-  useEffect(() => window.ambient.onScreenStatus((s) => setReading(s.state === 'running')), [])
+  useEffect(
+    () =>
+      window.ambient.onSyncStatus((status) => {
+        setSyncing(status.state === 'running')
+        if (status.state === 'idle') void window.ambient.getSyncSummary().then((s) => setLastRun(s.lastRun))
+      }),
+    []
+  )
+  useEffect(() => window.ambient.onScreenStatus((status) => setReading(status.state === 'running')), [])
+  useEffect(() => {
+    void window.ambient.getSyncSummary().then((summary) => setLastRun(summary.lastRun))
+  }, [])
 
   const refreshHealth = useCallback(() => {
     void window.ambient.getHealth().then(setHealth)
@@ -65,139 +69,62 @@ export function App() {
 
   useEffect(() => window.ambient.onOverlayExpanded(setExpanded), [])
 
-  const setOpen = useCallback((next: boolean) => {
-    void window.ambient.setOverlayExpanded(next)
-  }, [])
-
-  const onComplete = useCallback((id: string) => {
-    void window.ambient.completeTask(id).then(setTasks)
-  }, [])
-
-  const onEdit = useCallback((id: string, title: string) => {
-    void window.ambient.updateTask(id, { title }).then(setTasks)
-  }, [])
-
-  const onSnooze = useCallback((id: string, until: string) => {
-    void window.ambient.snoozeTask(id, until).then(setTasks)
-  }, [])
-
-  const onDelete = useCallback((id: string) => {
-    void window.ambient.deleteTask(id).then(setTasks)
-  }, [])
-
-  // Only asked about while the list is open; a suggestion is not urgent enough
-  // to interrupt anything.
+  // Only asked about while the panel is open; a pattern is never urgent.
   useEffect(() => {
     if (!expanded) return
-    void window.ambient.rules.suggestions().then(setSuggestions)
+    setNow(Date.now())
+    void window.ambient.rules.suggestions().then(setRecurrence)
   }, [expanded])
 
-  const acceptSuggestion = useCallback((id: string) => {
-    void window.ambient.rules.acceptSuggestion(id).then((result) => {
-      setSuggestions(result.suggestions)
-      void window.ambient.getTasks().then(setTasks)
-    })
-  }, [])
-
-  const dismissSuggestion = useCallback((id: string) => {
-    void window.ambient.rules.dismissSuggestion(id).then(setSuggestions)
-  }, [])
-
   const connectGoogle = useCallback(async () => {
-    setConnecting(true)
     try {
       await window.ambient.accounts.connect()
-      refreshHealth()
     } catch (err) {
       console.error(err)
     } finally {
-      setConnecting(false)
+      refreshHealth()
     }
   }, [refreshHealth])
 
-  const orbAtBottom = corner.startsWith('bottom')
-  const orbAtRight = corner.endsWith('right')
-
-  const orb = (
-    <Orb
-      tasks={tasks}
-      now={now}
-      expanded={expanded}
-      onToggle={() => setOpen(!expanded)}
-    />
-  )
+  const activity: Activity = reading ? 'reading' : syncing ? 'syncing' : 'idle'
 
   if (!expanded) {
-    return <div className="flex h-full w-full items-center justify-center">{orb}</div>
+    const look = orbLook({ tasks, now, activity, attention: Boolean(health && !health.ok) })
+    return (
+      <div className="grid h-full w-full place-items-center">
+        <button
+          type="button"
+          onClick={() => void window.ambient.setOverlayExpanded(true)}
+          aria-label={`AmbientMind: ${look.peek}`}
+          title={look.peek}
+          className="rounded-full outline-none transition-transform duration-300 ease-[var(--ease-spring)] hover:scale-[1.06] active:scale-95"
+        >
+          <Orb look={look} />
+        </button>
+      </div>
+    )
   }
 
   return (
-    <div className={`flex h-full flex-col ${orbAtBottom ? 'flex-col-reverse' : ''}`}>
-      <div
-        className={`flex shrink-0 p-2 ${orbAtRight ? 'justify-end' : 'justify-start'}`}
-      >
-        {orb}
-      </div>
-      <div
-        {...{ [INTERACTIVE_ATTR]: '' }}
-        className="flex min-h-0 flex-1 flex-col gap-2 px-1 pb-2"
-      >
-        <div className="flex items-center gap-2 px-3">
-          <header className="min-w-0 flex-1 text-[10px] font-medium tracking-[0.18em] text-white/35 uppercase">
-            AmbientMind
-            {(syncing || reading) && (
-              <span className="ml-2 font-normal tracking-normal text-urgency-approaching normal-case">
-                · {reading ? 'reading screen' : 'syncing'}
-              </span>
-            )}
-          </header>
-          <button
-            type="button"
-            onClick={() => window.ambient.openChat()}
-            title="Ask about your tasks"
-            className="rounded px-1.5 text-[11px] text-white/35 hover:text-white/70"
-          >
-            ✳
-          </button>
-          <button
-            type="button"
-            onClick={() => window.ambient.openSettings()}
-            title="Settings"
-            className="rounded px-1.5 text-[11px] text-white/35 hover:text-white/70"
-          >
-            ⚙
-          </button>
-        </div>
-        {health && !health.ok && (
-          <HealthBanner
-            health={health}
-            connecting={connecting}
-            onConnectGoogle={() => void connectGoogle()}
-            onRecheck={refreshHealth}
-          />
-        )}
-        {clash && (
-          <p className="mx-2 rounded-lg border border-urgency-urgent/35 bg-black/50 px-3 py-2 text-[11.5px] leading-relaxed text-white/85">
-            {clash.explanation}
-          </p>
-        )}
-        {suggestions[0] && (
-          <SuggestionCard
-            suggestion={suggestions[0]}
-            onAccept={acceptSuggestion}
-            onDismiss={dismissSuggestion}
-          />
-        )}
-        <TaskList
+    <ToastProvider>
+      <div className="p-px">
+        <Panel
           tasks={tasks}
           now={now}
+          activity={activity}
+          health={health}
+          recurrence={recurrence}
+          lastRun={lastRun}
+          syncIntervalMinutes={interval}
           maxVisible={maxVisible}
-          onComplete={onComplete}
-          onEdit={onEdit}
-          onSnooze={onSnooze}
-          onDelete={onDelete}
+          shortcuts={shortcuts}
+          onTasks={setTasks}
+          onRecurrence={setRecurrence}
+          onCollapse={() => void window.ambient.setOverlayExpanded(false)}
+          onRecheckHealth={refreshHealth}
+          onConnectGoogle={() => void connectGoogle()}
         />
       </div>
-    </div>
+    </ToastProvider>
   )
 }

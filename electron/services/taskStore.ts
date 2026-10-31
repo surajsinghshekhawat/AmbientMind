@@ -25,6 +25,8 @@ interface TaskRow {
   created_at: string
   completed_at: string | null
   snoozed_until: string | null
+  source_url: string | null
+  evidence: string | null
 }
 
 export interface NewTask {
@@ -36,6 +38,8 @@ export interface NewTask {
   people?: string[]
   rawContext?: string | null
   confidence?: number
+  sourceUrl?: string | null
+  evidence?: string | null
 }
 
 function toTask(row: TaskRow): Task {
@@ -52,7 +56,9 @@ function toTask(row: TaskRow): Task {
     status: row.status,
     createdAt: row.created_at,
     completedAt: row.completed_at,
-    snoozedUntil: row.snoozed_until
+    snoozedUntil: row.snoozed_until,
+    sourceUrl: row.source_url ?? null,
+    evidence: row.evidence ?? null
   }
 }
 
@@ -96,7 +102,7 @@ export function closeTaskStore() {
 export function listActive(): Task[] {
   return handle()
     .prepare<[], TaskRow>(
-      `SELECT * FROM tasks WHERE status IN ('pending', 'done', 'snoozed') ORDER BY created_at DESC`
+      `SELECT * FROM tasks WHERE status IN ('pending', 'done', 'snoozed', 'suggested') ORDER BY created_at DESC`
     )
     .all()
     .map(toTask)
@@ -116,13 +122,15 @@ export function addTask(input: NewTask): Task {
     status: 'pending',
     created_at: new Date().toISOString(),
     completed_at: null,
-    snoozed_until: null
+    snoozed_until: null,
+    source_url: input.sourceUrl ?? null,
+    evidence: input.evidence ?? null
   }
 
   handle()
     .prepare(
-      `INSERT INTO tasks (id, title, deadline, priority, source, source_id, people, raw_context, confidence, status, created_at, completed_at, snoozed_until)
-       VALUES (@id, @title, @deadline, @priority, @source, @source_id, @people, @raw_context, @confidence, @status, @created_at, @completed_at, @snoozed_until)`
+      `INSERT INTO tasks (id, title, deadline, priority, source, source_id, people, raw_context, confidence, status, created_at, completed_at, snoozed_until, source_url, evidence)
+       VALUES (@id, @title, @deadline, @priority, @source, @source_id, @people, @raw_context, @confidence, @status, @created_at, @completed_at, @snoozed_until, @source_url, @evidence)`
     )
     .run(row)
 
@@ -320,6 +328,19 @@ export function deleteTask(id: string): void {
       `UPDATE tasks SET status = 'deleted', deleted_at = ?, snoozed_until = NULL WHERE id = ?`
     )
     .run(new Date().toISOString(), id)
+}
+
+/**
+ * Undo for complete, snooze and delete: the row comes back exactly as an open
+ * task. Archived rows are left alone; they aged out, nobody just acted on them.
+ */
+export function reopenTask(id: string): void {
+  handle()
+    .prepare(
+      `UPDATE tasks SET status = 'pending', completed_at = NULL, snoozed_until = NULL, deleted_at = NULL
+        WHERE id = ? AND status IN ('done', 'snoozed', 'deleted')`
+    )
+    .run(id)
 }
 
 export function purgeTombstones(now = Date.now(), days = KEEP_TOMBSTONE_DAYS): number {

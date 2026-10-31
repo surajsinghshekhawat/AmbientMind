@@ -81,27 +81,31 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
   const overlayExpanded = channel<boolean>()
   const quickAddOpened = channel<void>()
 
+  const visible = () => state.tasks.filter((task) => task.status !== 'deleted' && task.status !== 'archived')
   const setTasks = (next: Task[]) => {
     state.tasks = next
-    tasksChanged.emit([...next])
-    return [...next]
+    tasksChanged.emit(visible())
+    return visible()
   }
   const patchTask = (id: string, patch: Partial<Task>) =>
     setTasks(state.tasks.map((task) => (task.id === id ? { ...task, ...patch } : task)))
 
   const api = {
-    setMouseCapture: (capture: boolean) => record('setMouseCapture', capture),
+    setPanelHeight: (height: number) => record('setPanelHeight', height),
     setOverlayExpanded: async (expanded: boolean) => {
       record('setOverlayExpanded', expanded)
       overlayExpanded.emit(expanded)
     },
     onOverlayExpanded: overlayExpanded.on,
 
-    getTasks: async () => [...state.tasks],
+    getTasks: async () => visible(),
     addTask: async (title: string) => setTasks([...state.tasks, makeTask({ title })]),
     completeTask: async (id: string) =>
       patchTask(id, { status: 'done', completedAt: new Date().toISOString() }),
-    deleteTask: async (id: string) => setTasks(state.tasks.filter((task) => task.id !== id)),
+    deleteTask: async (id: string) => patchTask(id, { status: 'deleted', snoozedUntil: null }),
+    reopenTask: async (id: string) =>
+      patchTask(id, { status: 'pending', completedAt: null, snoozedUntil: null }),
+    acceptTask: async (id: string) => patchTask(id, { status: 'pending' }),
     updateTask: async (
       id: string,
       patch: { title?: string; deadline?: string | null; priority?: Task['priority'] }
@@ -224,6 +228,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     openSettings: () => record('openSettings'),
 
     quickAdd: {
+      open: () => record('quickAdd.open'),
       submit: (title: string) => record('quickAdd.submit', title),
       cancel: () => record('quickAdd.cancel'),
       setRecording: (recording: boolean) => record('quickAdd.setRecording', recording),
