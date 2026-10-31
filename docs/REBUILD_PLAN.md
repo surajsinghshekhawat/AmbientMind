@@ -44,7 +44,10 @@ Set up and verified on 31 October 2026. Rules for agents are in
   login keychain. Electron scripts do the same through `scripts/isolation.cjs`.
   Login items are never registered by isolated runs.
 - **Packaged builds** run only through `./dev packaged`, which applies the same
-  isolation. Opening the `.app` from Finder writes to `~/Library`.
+  isolation. Opening the `.app` from Finder writes to `~/Library`. It launches
+  through LaunchServices (`open --env …`) so macOS asks for permissions on
+  AmbientMind's behalf, not the terminal's; output goes to
+  `.local/logs/packaged.log`.
 - **Ollama.** `./dev ollama start` runs a separate server on port 11435 with
   models and keys in `.local/`; the app reads `OLLAMA_URL` from the wrapper.
   The global `~/.ollama` is never used. The `ollama` CLI starts the global app

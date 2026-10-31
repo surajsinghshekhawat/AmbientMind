@@ -519,7 +519,8 @@ let go. Next it will read Calendar and Reminders.
   responsible for it, so prompts name AmbientMind and one grant in System
   Settings covers both. `test:packaged` checks this on every build with
   `--helper-check`. Run from a terminal, the terminal is responsible
-  instead, which is why dev runs see the terminal's permissions.
+  instead, which is why dev runs see the terminal's permissions and why
+  `./dev packaged` launches through `open` rather than the binary.
 - **Events.** Besides replies, the helper pushes `speech.partial`,
   `speech.level`, `speech.error`, `speech.install` and `hotkey` (down/up).
   It runs an `NSApplication` loop with the `.prohibited` activation policy

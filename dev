@@ -266,7 +266,22 @@ cmd_packaged() {
   local app
   app="$(ls -d "$ROOT"/release/mac*/AmbientMind.app 2>/dev/null | head -1 || true)"
   [ -n "$app" ] || { echo "No macOS build in release/." >&2; exit 1; }
-  "$app/Contents/MacOS/AmbientMind" "$@"
+  # Through LaunchServices, not the binary: run from a terminal, macOS holds
+  # the terminal's app responsible, so Calendar, Reminders and the rest would
+  # be asked for (and refused) on its behalf instead of AmbientMind's.
+  local name envs=() log="$LOCAL/logs/packaged.log"
+  for name in AMBIENTMIND_ISOLATED AMBIENTMIND_ROOT AMBIENTMIND_REAL_HOME AMBIENTMIND_DATA_DIR \
+    HOME CFFIXED_USER_HOME TMPDIR XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME \
+    OLLAMA_HOST OLLAMA_URL; do
+    envs+=(--env "$name=${!name}")
+  done
+  : > "$log"
+  echo "Logs: $log"
+  tail -f "$log" &
+  PACKAGED_TAIL=$!
+  trap 'kill "$PACKAGED_TAIL" 2>/dev/null; sweep_os_traces' EXIT
+  open -n -W -a "$app" --stdout "$log" --stderr "$log" "${envs[@]}" --args "$@"
+  kill "$PACKAGED_TAIL" 2>/dev/null || true
 }
 
 cmd="${1:-help}"
