@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- V8 compiles JavaScript at runtime. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- better-sqlite3, sqlite-vec, onnxruntime and sharp load native code that
+       a self-signed certificate has no Team ID to vouch for. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Voice capture. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

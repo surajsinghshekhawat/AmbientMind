@@ -50,6 +50,7 @@ OUTSIDE_PATHS=(
   ".npm/_prebuilds"
 )
 KEYCHAIN_SERVICES=("ambientmind Safe Storage" "AmbientMind Safe Storage")
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 BUNDLE_IDS=(com.ambientmind.app com.ambientmind.dev com.github.Electron)
 
 isolate() {
@@ -204,9 +205,19 @@ cmd_doctor() {
   fi
 }
 
+# Any .app that runs is recorded in the LaunchServices database. These point
+# into the repo (release/, .local/install, node_modules/electron).
+registered_apps() {
+  [ "$(uname -s)" = Darwin ] && [ -x "$LSREGISTER" ] || return 0
+  "$LSREGISTER" -dump 2>/dev/null \
+    | sed -n 's/^path: *\(.*\.app\) (0x[0-9a-f]*)$/\1/p' \
+    | grep -F "$ROOT/" | sort -u || true
+}
+
 cmd_clean_system() {
-  local leaks
+  local leaks apps
   leaks="$(found_outside)"
+  apps="$(registered_apps)"
   if [ "${1:-}" != --yes ]; then
     if [ -n "$leaks" ]; then
       echo "Would remove:"
@@ -215,6 +226,7 @@ cmd_clean_system() {
       echo "No files or keychain items to remove."
     fi
     [ "$(uname -s)" = Darwin ] && echo "Would reset privacy permissions (microphone, screen, etc.) for: ${BUNDLE_IDS[*]}"
+    [ -n "$apps" ] && echo "Would unregister from LaunchServices:" && echo "$apps" | sed 's/^/  /'
     echo "Re-run with --yes to do it."
     return
   fi
@@ -236,6 +248,12 @@ cmd_clean_system() {
     local id
     for id in "${BUNDLE_IDS[@]}"; do tccutil reset All "$id" >/dev/null 2>&1 || true; done
     echo "  reset privacy permissions for: ${BUNDLE_IDS[*]}"
+    if [ -n "$apps" ]; then
+      echo "$apps" | while IFS= read -r app; do
+        "$LSREGISTER" -u "$app" >/dev/null 2>&1 || true
+        echo "  unregistered from LaunchServices: $app"
+      done
+    fi
   fi
 }
 

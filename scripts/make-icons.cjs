@@ -65,7 +65,8 @@ function chunk(type, data) {
  */
 function renderPng(size, variant = 'tray') {
   const app = variant === 'app'
-  const padding = app ? 0.06 : 0
+  // macOS icons leave about a tenth of the canvas clear on each side.
+  const padding = app ? 0.1 : 0
   const raw = Buffer.alloc(size * (size * 4 + 1))
   let offset = 0
   for (let y = 0; y < size; y++) {
@@ -110,8 +111,9 @@ const root = join(__dirname, '..')
 const buildDir = join(root, 'build')
 mkdirSync(buildDir, { recursive: true })
 
-// The installer wants a large square; electron-builder downscales from it.
-writeFileSync(join(buildDir, 'icon.png'), renderPng(256, 'app'))
+// electron-builder downscales from this for the .icns and .ico; macOS wants
+// a 1024px source for the Retina 512pt size.
+writeFileSync(join(buildDir, 'icon.png'), renderPng(1024, 'app'))
 
 const tray16 = renderPng(16).toString('base64')
 const tray32 = renderPng(32).toString('base64')

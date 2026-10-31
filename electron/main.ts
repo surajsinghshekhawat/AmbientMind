@@ -168,6 +168,7 @@ import { showChatWindow } from './chat'
 import { runChat } from './services/chat'
 import { describeRule, parseRecurrence, type NewRecurrenceRule } from '@shared/recurrence'
 import { seedIfEmpty } from './seedTasks'
+import { runSelfTest } from './services/selfTest'
 
 const ARCHIVE_SWEEP_MS = 15 * 60_000
 const SNOOZE_SWEEP_MS = 30_000
@@ -763,7 +764,14 @@ function registerShortcuts(handlers: Record<ShortcutAction, () => void>) {
  * is created. Labelling is a repeatable chore, and the Gmail path touches no
  * database, so this can run while the app itself stays up.
  */
-if (process.argv.includes('--sync-now')) {
+if (process.argv.includes('--selftest')) {
+  void app.whenReady().then(async () => {
+    const result = await runSelfTest()
+    console.log(JSON.stringify(result, null, 2))
+    closeTaskStore()
+    app.exit(result.ok ? 0 : 1)
+  })
+} else if (process.argv.includes('--sync-now')) {
   // Headless sync, for scripting and for checking a change against real mail
   // without waiting for the scheduler's next tick. Opens the store, so the
   // app should not be running at the same time.
