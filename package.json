@@ -34,12 +34,12 @@
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^22.15.3",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
-    "electron": "^37.2.0",
-    "electron-builder": "^26.0.12",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.1",
     "electron-vite": "^4.0.0",
     "happy-dom": "^21.0.4",
     "tailwindcss": "^4.1.11",
@@ -58,13 +58,13 @@
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true,
-    "electron@37.10.3": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "fsevents@2.3.3": true,
     "protobufjs@6.11.6": true,
     "sharp@0.32.6": true,
-    "tesseract.js": false
+    "tesseract.js": false,
+    "electron@45.2.1": true
   }
 }
