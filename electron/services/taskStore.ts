@@ -181,6 +181,32 @@ export function updateTask(id: string, patch: TaskPatch): void {
     .run(...params)
 }
 
+/**
+ * Writes a background model result onto a task the user just added. Skipped
+ * once the user has edited it or acted on it: the model answers seconds
+ * later, and its guess must not replace what the user typed meanwhile.
+ * Returns whether anything was written.
+ */
+export function applyEnrichment(
+  id: string,
+  enriched: { title: string; deadline: string | null; priority: TaskPriority; people: string[] }
+): boolean {
+  return (
+    handle()
+      .prepare(
+        `UPDATE tasks SET title = ?, deadline = ?, priority = ?, people = ?
+          WHERE id = ? AND user_edited_at IS NULL AND status = 'pending'`
+      )
+      .run(
+        enriched.title.trim(),
+        enriched.deadline,
+        enriched.priority,
+        JSON.stringify(enriched.people),
+        id
+      ).changes > 0
+  )
+}
+
 export interface CalendarReconcile {
   /** Meetings with no task yet; they still go through dedup and suppression. */
   fresh: NewTask[]

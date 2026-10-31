@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { addRule, materialiseRules, MISSED_GRACE_HOURS, updateRule } from '../../electron/services/ruleStore'
 import { deleteTask, listActive, setStatus } from '../../electron/services/taskStore'
-import { freshStore } from './helpers'
+import { freshStore, ruleInput } from './helpers'
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -15,7 +15,7 @@ const ruleTasks = () => listActive().filter((task) => task.source === 'rule' && 
 
 test('a rule shows only its next occurrence, not two weeks of them', () => {
   freshStore()
-  addRule({ title: 'Take vitamins', weekdays: ALL_DAYS, time: '09:00' })
+  addRule(ruleInput({ title: 'Take vitamins', weekdays: ALL_DAYS, time: '09:00' }))
   materialiseRules(at(2, 8))
 
   const tasks = ruleTasks()
@@ -25,7 +25,7 @@ test('a rule shows only its next occurrence, not two weeks of them', () => {
 
 test('completing an occurrence brings up the following one', () => {
   freshStore()
-  addRule({ title: 'Take vitamins', weekdays: ALL_DAYS, time: '09:00' })
+  addRule(ruleInput({ title: 'Take vitamins', weekdays: ALL_DAYS, time: '09:00' }))
   materialiseRules(at(2, 8))
   setStatus(ruleTasks()[0]!.id, 'done')
 
@@ -37,7 +37,7 @@ test('completing an occurrence brings up the following one', () => {
 
 test('deleting an occurrence skips it for good and brings up the following one', () => {
   freshStore()
-  addRule({ title: 'Tuition', weekdays: [2, 4], time: '17:00' })
+  addRule(ruleInput({ title: 'Tuition', weekdays: [2, 4], time: '17:00' }))
   materialiseRules(at(2, 8))
   const skipped = ruleTasks()[0]!
   deleteTask(skipped.id)
@@ -52,7 +52,7 @@ test('deleting an occurrence skips it for good and brings up the following one',
 
 test('a missed occurrence stays overdue for a while, then gives way to the next one', () => {
   freshStore()
-  addRule({ title: 'Take vitamins', weekdays: ALL_DAYS, time: '09:00' })
+  addRule(ruleInput({ title: 'Take vitamins', weekdays: ALL_DAYS, time: '09:00' }))
   materialiseRules(at(2, 8))
 
   materialiseRules(at(2, 12))
@@ -68,7 +68,7 @@ test('a missed occurrence stays overdue for a while, then gives way to the next 
 
 test('retiming a rule replaces its pending occurrence', () => {
   freshStore()
-  const rule = addRule({ title: 'Stand-up', weekdays: ALL_DAYS, time: '09:00' })
+  const rule = addRule(ruleInput({ title: 'Stand-up', weekdays: ALL_DAYS, time: '09:00' }))
   materialiseRules(at(2, 7))
   updateRule(rule.id, { weekdays: [4] })
 

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { after } from 'node:test'
+import type { NewRecurrenceRule } from '../../shared/recurrence'
 import { closeTaskStore, openTaskStore } from '../../electron/services/taskStore'
 
 const root = mkdtempSync(join(process.env.TMPDIR ?? join(process.cwd(), '.local', 'tmp'), 'am-db-'))
@@ -19,6 +20,14 @@ export function freshStore() {
   process.env.AM_TEST_USERDATA = dir
   return openTaskStore(join(dir, 'ambientmind.db'))
 }
+
+export const ruleInput = (rule: { title: string; weekdays: number[]; time: string }): NewRecurrenceRule => ({
+  priority: 'medium',
+  leadMinutes: 0,
+  enabled: true,
+  source: 'explicit',
+  ...rule
+})
 
 type FetchHandler = (url: string, init?: RequestInit) => Response | Promise<Response>
 

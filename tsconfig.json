@@ -30,6 +30,7 @@
     "src",
     "shared",
     "e2e",
+    "db/tests",
     "electron.vite.config.ts",
     "vitest.config.ts",
     "gallery.config.ts",

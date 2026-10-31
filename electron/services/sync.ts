@@ -324,11 +324,19 @@ let timer: NodeJS.Timeout | null = null
  */
 export function startScheduler(
   intervalMinutes: number,
-  options: SyncOptions = {},
+  /** Called on every run, so profile and model changes apply without a restart. */
+  getOptions: () => SyncOptions,
   onReport?: (report: SyncReport) => void
 ) {
   stopScheduler()
   const run = () => {
+    let options: SyncOptions
+    try {
+      options = getOptions()
+    } catch (err) {
+      console.warn('[sync] could not read options:', (err as Error).message)
+      return
+    }
     void runSync(options)
       .then((report) => onReport?.(report))
       .catch(() => undefined)

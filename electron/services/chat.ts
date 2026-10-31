@@ -76,7 +76,7 @@ function findTask(tasks: Task[], query: string): Task | null {
  * Runs one action. Returns the line shown back to the model, and whether the
  * task list changed, so the caller knows when to tell the overlay.
  */
-function perform(action: Action): { observation: string; changed: boolean } {
+export function perform(action: Action): { observation: string; changed: boolean } {
   const tasks = listActive()
 
   switch (action.action) {

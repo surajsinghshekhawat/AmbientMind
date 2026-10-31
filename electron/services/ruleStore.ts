@@ -28,6 +28,32 @@ interface RuleRow {
   gcal_event_id?: string | null
 }
 
+export type RuleChange =
+  | { kind: 'added' | 'updated'; id: string }
+  | { kind: 'deleted'; id: string; eventId: string | null }
+
+const listeners = new Set<(change: RuleChange) => void>()
+
+/**
+ * Rules are created from Settings, Quick Add, chat and accepted suggestions.
+ * Follow-up work (materialising, the calendar mirror) subscribes here once
+ * instead of being repeated, and forgotten, at each of those call sites.
+ */
+export function onRuleChange(listener: (change: RuleChange) => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function announce(change: RuleChange) {
+  for (const listener of listeners) {
+    try {
+      listener(change)
+    } catch (err) {
+      console.warn('[rules] change listener failed:', (err as Error).message)
+    }
+  }
+}
+
 /**
  * The calendar link is storage detail, not part of the rule as the rest of the
  * app understands it, so it is read and written on its own rather than being
@@ -99,6 +125,7 @@ export function addRule(input: NewRecurrenceRule): RecurrenceRule {
     )
     .run(row)
 
+  announce({ kind: 'added', id: row.id })
   return toRule(row)
 }
 
@@ -131,9 +158,10 @@ export function updateRule(id: string, patch: RulePatch): void {
   if (assignments.length === 0) return
 
   params.push(id)
-  getTaskStore()
+  const { changes } = getTaskStore()
     .prepare(`UPDATE recurrence_rules SET ${assignments.join(', ')} WHERE id = ?`)
     .run(...params)
+  if (changes > 0) announce({ kind: 'updated', id })
 }
 
 /** Returns the calendar event that was mirroring the rule, so it can be removed. */
@@ -149,6 +177,7 @@ export function deleteRule(id: string): { eventId: string | null } {
       )
       .run(`${id}:%`)
   })()
+  announce({ kind: 'deleted', id, eventId })
   return { eventId }
 }
 

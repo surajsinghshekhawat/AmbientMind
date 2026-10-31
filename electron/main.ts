@@ -74,6 +74,7 @@ import { showSettingsWindow } from './settings'
 import { createTray } from './tray'
 import {
   addTask,
+  applyEnrichment,
   archiveStaleCompleted,
   closeTaskStore,
   deleteTask,
@@ -95,7 +96,9 @@ import {
   deleteRule,
   listRules,
   materialiseRules,
+  onRuleChange,
   updateRule,
+  type RuleChange,
   type RulePatch
 } from './services/ruleStore'
 import {
@@ -210,14 +213,20 @@ function applyLiveConfig(config: Config, previous?: Config) {
       console.log(`[calendar] backfilled ${result.pushed} rule(s)`, result.errors)
     })
   }
-  if (
-    !previous ||
-    previous.syncIntervalMinutes !== config.syncIntervalMinutes ||
-    previous.ollamaModel !== config.ollamaModel ||
-    previous.embeddingModel !== config.embeddingModel
-  ) {
-    startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)
+  if (!previous || previous.syncIntervalMinutes !== config.syncIntervalMinutes) {
+    startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)
   }
+}
+
+/** Every rule change, from any entry point, reaches the list and the calendar mirror. */
+function handleRuleChange(change: RuleChange) {
+  applyRules()
+  broadcastTasks()
+  trayHandle?.refresh()
+  // Not awaited: the calendar is a mirror, and a slow or unreachable Google
+  // must never delay the rule appearing in the app.
+  if (change.kind === 'deleted') void removeRuleFromCalendar(change.eventId)
+  else void syncRuleToCalendar(change.id)
 }
 
 /** Rules only become visible once their next occurrences exist as tasks. */
@@ -337,11 +346,7 @@ function registerIpc() {
         enabled: true,
         source: 'explicit'
       })
-      const { created } = applyRules()
-      new Notification({
-        title: `Recurring: ${rule.title}`,
-        body: `${describeRule(rule)} · ${created} upcoming added`
-      }).show()
+      new Notification({ title: `Recurring: ${rule.title}`, body: describeRule(rule) }).show()
       return
     }
 
@@ -350,16 +355,11 @@ function registerIpc() {
     const task = addTask({ title: trimmed, source: 'manual' })
     broadcastTasks()
 
-    void enrichTask(trimmed).then((enriched) => {
-      if (isAiPaused(loadConfig().pauseAiUntil)) return
+    const config = loadConfig()
+    if (isAiPaused(config.pauseAiUntil)) return
+    void enrichTask(trimmed, { model: config.ollamaModel }).then((enriched) => {
       if (enriched.title === trimmed && enriched.deadline === null) return
-      updateTask(task.id, {
-        title: enriched.title,
-        deadline: enriched.deadline,
-        priority: enriched.priority,
-        people: enriched.people
-      })
-      broadcastTasks()
+      if (applyEnrichment(task.id, enriched)) broadcastTasks()
     })
   })
 
@@ -410,9 +410,7 @@ function registerIpc() {
   ipcMain.handle(IPC.GetSuggestions, () => listPendingSuggestions())
 
   ipcMain.handle(IPC.AcceptSuggestion, (_event, id: string) => {
-    const rule = acceptSuggestion(id)
-    applyRules()
-    if (rule) void syncRuleToCalendar(rule.id)
+    acceptSuggestion(id)
     return {
       suggestions: listPendingSuggestions(),
       rules: listRules()
@@ -439,25 +437,16 @@ function registerIpc() {
 
   ipcMain.handle(IPC.AddRule, (_event, input: NewRecurrenceRule) => {
     const rule = addRule(input)
-    applyRules()
-    // Not awaited: the calendar is a mirror, and a slow or unreachable Google
-    // must never delay the rule appearing in the app.
-    void syncRuleToCalendar(rule.id)
     return { rule, rules: listRules() }
   })
 
   ipcMain.handle(IPC.UpdateRule, (_event, id: string, patch: RulePatch) => {
     updateRule(id, patch)
-    applyRules()
-    void syncRuleToCalendar(id)
     return listRules()
   })
 
   ipcMain.handle(IPC.DeleteRule, (_event, id: string) => {
-    const { eventId } = deleteRule(id)
-    void removeRuleFromCalendar(eventId)
-    broadcastTasks()
-    trayHandle?.refresh()
+    deleteRule(id)
     return listRules()
   })
 
@@ -764,6 +753,7 @@ if (process.argv.includes('--sync-now')) {
     materialiseRules()
     refreshSuggestions()
     runRetention()
+    onRuleChange(handleRuleChange)
     registerIpc()
 
     const config = loadConfig()
@@ -789,7 +779,7 @@ if (process.argv.includes('--sync-now')) {
       chat: registerShortcut(CHAT_SHORTCUT, () => showChatWindow())
     }
     console.log('[shortcuts]', JSON.stringify(registered))
-    startScheduler(config.syncIntervalMinutes, syncOptions(config), onScheduledSync)
+    startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)
 
     // First mic use would otherwise stall on a model download/load.
     setSpeechModel(config.whisperModel)
