@@ -22,6 +22,7 @@
     "test": "npm run test:logic && npm run test:ui",
     "test:logic": "node --import tsx --test \"eval/**/*.test.ts\"",
     "test:ui": "vitest run",
+    "test:smoke": "electron-vite build && playwright test",
     "eval": "tsx eval/evaluate.ts",
     "eval:prepare": "tsx eval/prepare-enron.ts",
     "postinstall": "node scripts/require-isolation.cjs && electron-builder install-app-deps"

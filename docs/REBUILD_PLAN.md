@@ -457,19 +457,22 @@ Each phase lands on its own branch as small reviewable PRs. Each has an exit
 check that must pass before the next phase starts. Estimates are focused working
 days with agents doing most of the typing.
 
-### Phase 0 — Set up (1 day)
+### Phase 0 — Set up (1 day) — done 1 November 2026, branch `phase-0-setup`
 
-- Done: isolation (§0). Dev data is separate from real data (`.local/data`).
-- Fix the type error so `npm run build` passes.
-- Add the Cursor tooling in §7 and project rules for the design system and
-  Electron-on-Mac conventions.
-- Seed sample tasks only in dev.
-- Add Vitest with happy-dom and a mock `window.ambient` bridge, and a
-  `/gallery` dev route that renders every component in every state.
-- Add a Playwright Electron smoke test that launches the app and opens each
-  window.
+- Isolation (§0). Dev data is separate from real data (`.local/data`).
+- The type error is fixed; `npm run build` passes.
+- Cursor tooling from §7 in `.cursor/`, plus `design-system.mdc` and
+  `electron-mac.mdc` rules.
+- Sample tasks are opt-in: `./dev npm run dev:seed`.
+- Vitest with happy-dom and an in-memory bridge (`src/dev/mockAmbient.ts`,
+  fixtures in `src/dev/fixtures.ts`). `./dev npm run gallery` serves
+  `http://localhost:5199/gallery/index.html`: every overlay component in every
+  state, on dark and light wallpaper, without Electron.
+- `./dev npm run test:smoke` builds, launches the app with Playwright, opens all
+  four windows and fails on any page error.
 
-Exit: build, typecheck, 110 tests, the smoke test and the gallery all run.
+Exit check passed: build, typecheck, `./dev npm test` (110 logic + 8 component
+tests), the smoke test, `smoke:sqlite`, `smoke:vec`, and `./dev doctor`.
 
 ### Phase 1 — Fix the logic that survives the redesign (3–4 days)
 
