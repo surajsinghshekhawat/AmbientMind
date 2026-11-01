@@ -55,6 +55,9 @@ OUTSIDE_PATHS=(
   "Library/Caches/clang"
 )
 KEYCHAIN_SERVICES=("ambientmind Safe Storage" "AmbientMind Safe Storage")
+# macOS writes these for any app that crashes, and hides the app's path in
+# them. "Electron" is every dev run, this repo's or another Electron project's.
+CRASH_PREFIXES=(AmbientMind ambientmind-helper Electron)
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 BUNDLE_IDS=(com.ambientmind.app com.ambientmind.dev com.github.Electron)
 
@@ -172,13 +175,18 @@ cmd_ollama() {
 }
 
 found_outside() {
-  local p s
+  local p s f
   for p in "${OUTSIDE_PATHS[@]}"; do
     [ -e "$REAL_HOME/$p" ] && echo "path	$REAL_HOME/$p"
   done
   if [ "$(uname -s)" = Darwin ]; then
     for s in "${KEYCHAIN_SERVICES[@]}"; do
       security find-generic-password -s "$s" >/dev/null 2>&1 && echo "keychain	$s"
+    done
+    for p in "${CRASH_PREFIXES[@]}"; do
+      for f in "$REAL_HOME/Library/Logs/DiagnosticReports/$p"-*; do
+        [ -f "$f" ] && echo "crash report	$f"
+      done
     done
   fi
   return 0
@@ -200,6 +208,9 @@ cmd_doctor() {
   leaks="$(found_outside)"
   if [ -n "$leaks" ]; then
     echo "$leaks" | while IFS=$'\t' read -r kind what; do echo "  LEAK  $kind: $what"; done
+    case "$leaks" in
+      *DiagnosticReports/Electron-*) echo "        (Electron-* reports may also come from another Electron project you run)" ;;
+    esac
     bad=1
   else
     echo "  ok    nothing from this project outside the repo"
@@ -245,6 +256,7 @@ cmd_clean_system() {
           rm -rf "$what"
           ;;
         keychain) security delete-generic-password -s "$what" >/dev/null 2>&1 || true ;;
+        "crash report") rm -f "$what" ;;
       esac
       echo "  removed $kind: $what"
     done

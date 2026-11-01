@@ -66,7 +66,9 @@ a place where an attempt shows up.
   plus `config.json`, `ai-calls.jsonl`, `secrets.json` and
   `google-credentials.json`. In the copied config, recurring rules on Google
   Calendar are switched off. The copied tokens can only be used through the
-  QA network filter (G2).
+  QA network filter (G2), and only launches that read your real mail
+  (`liveGoogle: true`: M3b and the export check) get a copy of them; every
+  other launch of the snapshot starts signed out.
 - **The app refuses the real folder.** QA mode (G2) only starts when
   `AMBIENTMIND_DATA_DIR` is inside `.local/qa/runs/`; anything else exits with
   an error before a single file is opened. A unit test proves this.

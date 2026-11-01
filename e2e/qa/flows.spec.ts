@@ -227,7 +227,7 @@ test('F8 settings changes are saved', async () => {
 })
 
 test('F9 export writes JSON with your tasks and no tokens', async () => {
-  const app = await open({ profile: 'snapshot', variant: 'export' })
+  const app = await open({ profile: 'snapshot', variant: 'export', liveGoogle: true })
   await app.action('settings', 'data')
   const page = await app.window('settings')
   watch = new PageWatch(page)

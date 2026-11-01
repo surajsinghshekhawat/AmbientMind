@@ -58,6 +58,9 @@ async function enumerate(page: Page): Promise<Control[]> {
   return page.evaluate(() => {
     const selector =
       'button, a[href], input, select, textarea, [role=switch], [role=radio], [role=tab], [role=menuitem], [role=checkbox], [role=option], [tabindex]:not([tabindex="-1"])'
+    // Marks from an earlier pass stay on elements that are now hidden, so a
+    // number could match two elements and the click lands on neither.
+    for (const old of Array.from(document.querySelectorAll<HTMLElement>('[data-qa-idx]'))) delete old.dataset.qaIdx
     const seen = new Set<Element>()
     const out: Control[] = []
     let idx = 0

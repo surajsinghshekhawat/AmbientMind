@@ -56,6 +56,17 @@ const events = [
   { id: 'qa-ev-3', iCalUID: 'qa-ev-3@google.com', status: 'cancelled', summary: 'Cancelled sync', start: { dateTime: hour(10) }, end: { dateTime: hour(11) } }
 ]
 
+/** As a mail client writes it: local time and offset ("Mon, 3 Nov 2026 09:14:00 +0530"), not GMT. */
+function mailDate(iso) {
+  const d = new Date(iso)
+  const pad = (n) => String(n).padStart(2, '0')
+  const offset = -d.getTimezoneOffset()
+  const zone = `${offset >= 0 ? '+' : '-'}${pad(Math.floor(Math.abs(offset) / 60))}${pad(Math.abs(offset) % 60)}`
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]
+  return `${day}, ${d.getDate()} ${month} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${zone}`
+}
+
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
 function full(m) {
@@ -63,7 +74,7 @@ function full(m) {
     { name: 'From', value: m.sender },
     { name: 'To', value: m.recipients },
     { name: 'Subject', value: m.subject },
-    { name: 'Date', value: new Date(m.sentAt).toUTCString() }
+    { name: 'Date', value: mailDate(m.sentAt) }
   ]
   if (/unsubscribe/i.test(m.body)) headers.push({ name: 'List-Unsubscribe', value: '<mailto:unsubscribe@example.com>' })
   return {

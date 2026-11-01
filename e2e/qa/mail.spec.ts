@@ -127,6 +127,7 @@ test('M3b your real mail, read-only', async () => {
       mission: 'm3',
       profile: 'snapshot',
       variant,
+      liveGoogle: true,
       ...(variant === 'fresh'
         ? { prepare: (dataDir: string) => seed(dataDir, "delete from processed_messages; delete from sync_state; delete from tasks where source = 'gmail' and status in ('pending','suggested');") }
         : {})

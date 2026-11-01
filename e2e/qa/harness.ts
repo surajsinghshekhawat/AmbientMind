@@ -36,6 +36,8 @@ export interface LaunchOptions {
   prepare?: (dataDir: string) => void
   /** Starts again on this launch's data instead of a fresh copy. */
   reuse?: QaApp
+  /** Copies the snapshot's Google sign-in; every other launch has none to leak. */
+  liveGoogle?: boolean
 }
 
 export interface QaApp {
@@ -73,7 +75,10 @@ const SAFE = {
 
 function prepareData(run: string, options: LaunchOptions, dataDir: string) {
   if (existsSync(dataDir)) throw new Error(`${dataDir} already used; give the launch a variant`)
-  cpSync(join(run, 'profiles', options.profile), dataDir, { recursive: true, filter: (src) => !src.endsWith('/whisper') })
+  cpSync(join(run, 'profiles', options.profile), dataDir, {
+    recursive: true,
+    filter: (src) => !src.endsWith('/whisper') && (options.liveGoogle === true || !src.endsWith('/secrets.json'))
+  })
   // Every profile is "set up": the OAuth client (not a token) and the speech
   // model come from the snapshot. The model is shared, not copied per launch.
   const snapshot = join(run, 'profiles', 'snapshot')
