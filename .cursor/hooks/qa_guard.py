@@ -37,7 +37,8 @@ ALWAYS = [
 DURING_RUN = [
     (r'\b(pkill|killall)\b[^;&|]*(AmbientMind|ambientmind|Electron)', 'Your running AmbientMind is off limits.'),
     (r'\bnpm\s+run\s+dist(:mac|:win)?\b', 'Packaged builds for QA go to .local/qa/build via npm run qa:build.'),
-    (r'\belectron-builder\b(?![^;&|]*\.local/qa/build)', 'Packaged builds for QA go to .local/qa/build.'),
+    # Only as a command (bare, via npx or a path), so reading its config is fine.
+    (r'(^|[;&|(]\s*|\bnpx\s+|/)electron-builder(\s|$)(?![^;&|]*\.local/qa/build)', 'Packaged builds for QA go to .local/qa/build.'),
     (r'\bgit\s+(commit|checkout|switch|reset|stash|rebase|merge|cherry-pick|restore|clean|tag|am|apply)\b', 'Fixes are proposed as patches during a run, not applied.'),
     (r'\b(defaults\s+write|launchctl|osascript|tccutil|sfltool)\b', 'System settings are outside the repo.'),
     (r'(^|[;&|]\s*)security\s', 'The keychain is off limits.'),
@@ -207,6 +208,10 @@ def selftest():
         ('rm -rf release/mac-arm64', True, True),
         ('./dev npm run qa -- --mission m1', True, False),
         ('rg -n "open" src', True, False),
+        ('./dev run npx electron-builder --mac', True, True),
+        ('node_modules/.bin/electron-builder --mac', True, True),
+        ('electron-builder --mac --config.directories.output=.local/qa/build', True, False),
+        ('rg -n identity package.json electron-builder.yml', True, False),
     ]
     edits = [
         ('.local/data/config.json', False, True),
