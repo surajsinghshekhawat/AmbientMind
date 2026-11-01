@@ -35,6 +35,8 @@ export function createModelCache<T>(load: (model: string) => Promise<T>, initial
   return {
     get,
     model: () => model,
+    /** Whether anything has asked for the model since the last switch. */
+    inUse: () => ready !== null || loading !== null,
     /** Returns whether the model actually changed. */
     setModel(next: string): boolean {
       if (next === model) return false

@@ -43,33 +43,23 @@ function forward(channel: string, payload: unknown) {
 }
 
 /**
- * Starts tracking the helper. Whisper is only loaded when it will be used:
- * at 150 MB-plus it is not worth holding when Apple's model is there.
+ * Starts tracking the helper. Whisper is only loaded when it will be used: it
+ * costs about half a gigabyte, so it waits until Quick Capture opens (the
+ * only place that talks) and is never loaded when Apple's model is there.
  */
 export function initLiveSpeech(): void {
-  if (!isMac) {
+  getQuickAddWindow()?.on('show', () => {
+    if (speechEngine().engine !== 'whisper') return
     void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
-    return
-  }
+  })
+  if (!isMac) return
   onHelperEvent('speech.partial', (data) => forward(IPC.SpeechPartial, data))
   onHelperEvent('speech.level', (data) => forward(IPC.SpeechLevel, data.rms))
   onHelperEvent('speech.error', (data) => console.warn('[speech] apple:', data.message))
   onHelperEvent('speech.install', (data) => (installing = data.fraction))
-  let warmed = false
-  const decide = async () => {
-    await refresh()
-    if (speechEngine().engine === 'whisper' && !warmed) {
-      warmed = true
-      void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
-    }
-  }
   onHelperState((state) => {
-    if (state === 'ready') void decide()
+    if (state === 'ready') void refresh()
   })
-  // No helper at all (not built, or it never comes up): Whisper it is.
-  setTimeout(() => {
-    if (!helperReady()) void decide()
-  }, 8000)
 }
 
 /** Names and recent task words, so "Priya" is not heard as "pre-ah". */

@@ -20,6 +20,7 @@ import { app } from 'electron'
  * before sending, so this module never touches the microphone.
  */
 
+import { cleanTranscript } from '@shared/transcript'
 import { DEFAULT_CONFIG } from '@shared/types'
 import { createModelCache } from './modelCache'
 
@@ -45,11 +46,13 @@ const getTranscriber = () => transcribers.get()
 
 /**
  * Switching models drops the cached pipeline so the next transcription loads
- * the new one. The first download can be a few hundred megabytes, so the warm
- * is fired immediately rather than left to surprise the user mid-sentence.
+ * the new one. The first download can be a few hundred megabytes, so if
+ * Whisper is in use the new one is fetched now rather than left to surprise
+ * the user mid-sentence. If it isn't (launch, or Apple's speech), it waits.
  */
 export function setSpeechModel(model: string): void {
-  if (!transcribers.setModel(model)) return
+  const inUse = transcribers.inUse()
+  if (!transcribers.setModel(model) || !inUse) return
   void warmSpeechModel().catch((err) => console.warn('[speech] warm failed:', err))
 }
 
@@ -72,7 +75,7 @@ export async function transcribePcm(samples: Float32Array): Promise<string> {
 
   const pipe = await getTranscriber()
   const result = await pipe(samples, { sampling_rate: 16_000 })
-  return (result.text ?? '').trim()
+  return cleanTranscript(result.text ?? '')
 }
 
 export function disposeSpeech() {

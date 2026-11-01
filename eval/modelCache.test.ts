@@ -53,3 +53,19 @@ test('a failed load is retried on the next call', async () => {
   await assert.rejects(cache.get(), /offline/)
   assert.equal(await cache.get(), 'pipe')
 })
+
+test('a model nobody has asked for is not in use, so switching to another one loads nothing', async () => {
+  const loads: string[] = []
+  const cache = createModelCache(async (model: string) => {
+    loads.push(model)
+    return `pipe:${model}`
+  }, 'tiny')
+  assert.equal(cache.inUse(), false)
+  cache.setModel('base')
+  assert.equal(cache.inUse(), false)
+  assert.deepEqual(loads, [])
+  await cache.get()
+  assert.equal(cache.inUse(), true)
+  cache.setModel('small')
+  assert.equal(cache.inUse(), false, 'the switch dropped the old pipeline')
+})
