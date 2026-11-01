@@ -1,3 +1,4 @@
+import { describeGoogleError } from '@shared/googleError'
 import { googleFetch } from '../googleAuth'
 import type { MessageInput } from '../extract'
 
@@ -107,7 +108,7 @@ export function shouldSkip(message: GmailMessage, payload: GmailPayload | undefi
 async function json<T>(url: string): Promise<T> {
   const response = await googleFetch(url)
   if (!response.ok) {
-    throw new Error(`Gmail ${response.status}: ${(await response.text()).slice(0, 200)}`)
+    throw new Error(describeGoogleError('Gmail', response.status, await response.text()))
   }
   return (await response.json()) as T
 }

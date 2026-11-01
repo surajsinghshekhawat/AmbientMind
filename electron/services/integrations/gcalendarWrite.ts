@@ -1,4 +1,5 @@
 import { ruleToEvent } from '@shared/calendarEvent'
+import { describeGoogleError } from '@shared/googleError'
 import type { RecurrenceRule } from '@shared/recurrence'
 import { googleFetch, hasCalendarWriteScope } from '../googleAuth'
 
@@ -26,7 +27,7 @@ export class CalendarScopeError extends Error {
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await googleFetch(`${API}${path}`, init)
   if (!response.ok) {
-    throw new Error(`Calendar ${response.status}: ${(await response.text()).slice(0, 200)}`)
+    throw new Error(describeGoogleError('Calendar', response.status, await response.text()))
   }
   return (await response.json()) as T
 }

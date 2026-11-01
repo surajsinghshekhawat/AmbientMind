@@ -57,10 +57,7 @@ export function hasReadScopes(): boolean {
   return scope === undefined || missingReadScopes(scope).length === 0
 }
 
-/** A 403 for missing scopes, from either API. */
-export function isScopeError(message: string): boolean {
-  return /insufficient authentication scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(message)
-}
+export { isScopeError } from '@shared/googleError'
 
 interface StoredTokens {
   accessToken: string

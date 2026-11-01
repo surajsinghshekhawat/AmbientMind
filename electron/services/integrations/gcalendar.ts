@@ -1,4 +1,5 @@
 import { PREP_LOOKAHEAD_HOURS, prepTaskFor, type CalendarEvent } from '@shared/calendarPrep'
+import { describeGoogleError } from '@shared/googleError'
 import { googleFetch } from '../googleAuth'
 import type { NewTask } from '../taskStore'
 
@@ -32,7 +33,7 @@ export async function fetchPrepTasks(now = new Date()): Promise<{ tasks: NewTask
     if (page === MAX_PAGES) throw new Error('Calendar: too many events to list')
     const response = await googleFetch(`${API}/calendars/primary/events?${params.toString()}`)
     if (!response.ok) {
-      throw new Error(`Calendar ${response.status}: ${(await response.text()).slice(0, 200)}`)
+      throw new Error(describeGoogleError('Calendar', response.status, await response.text()))
     }
     const data = (await response.json()) as { items?: CalendarEvent[]; nextPageToken?: string }
     events.push(...(data.items ?? []))
