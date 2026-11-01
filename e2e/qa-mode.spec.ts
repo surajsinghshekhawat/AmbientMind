@@ -84,6 +84,20 @@ test('records every reach outside the app instead of doing it', async () => {
     const fromWindow = await page.evaluate(() => fetch('https://example.com/').then(() => 'reached', () => 'blocked'))
     expect(fromWindow).toBe('blocked')
 
+    const mic = await page.evaluate(async () => {
+      const state = (await navigator.permissions.query({ name: 'microphone' as PermissionName })).state
+      const request = await navigator.mediaDevices.getUserMedia({ audio: true }).then(
+        (stream) => {
+          stream.getTracks().forEach((track) => track.stop())
+          return 'granted'
+        },
+        (err: Error) => err.name
+      )
+      return { state, request }
+    })
+    expect(mic).toEqual({ state: 'denied', request: 'NotAllowedError' })
+    expect(await app.evaluate(() => globalThis.__qa!.attempts.map((a) => a.kind))).toContain('permission.media')
+
     const logged = readFileSync(join(RUN, 'attempts-app.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string })
     expect(logged[0]!.kind).toBe('qa.start')
     expect(logged.some((a) => a.kind === 'notification')).toBe(true)

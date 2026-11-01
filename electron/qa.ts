@@ -190,6 +190,32 @@ export function installQaMode(): QaControl | null {
     return []
   }
 
+  // Pages ask Chromium for the microphone directly (Quick Capture's Whisper
+  // fallback, the onboarding mic test). Fake devices mean no real one opens
+  // even if a grant slipped through; the handlers below refuse it anyway.
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  const DENIED_PERMISSIONS = new Set(['media', 'display-capture'])
+  void app.whenReady().then(() => {
+    const ses = session.defaultSession
+    const setRequest = ses.setPermissionRequestHandler.bind(ses)
+    const setCheck = ses.setPermissionCheckHandler.bind(ses)
+    ses.setPermissionRequestHandler = (handler) =>
+      setRequest((wc, permission, callback, details) => {
+        if (DENIED_PERMISSIONS.has(permission)) {
+          const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+          record(`permission.${permission}`, { mediaTypes, url: details.requestingUrl ?? wc.getURL() })
+          callback(false)
+        } else if (handler) handler(wc, permission, callback, details)
+        else callback(true)
+      })
+    ses.setPermissionCheckHandler = (handler) =>
+      setCheck((wc, permission, origin, details) =>
+        DENIED_PERMISSIONS.has(permission) ? false : handler ? handler(wc, permission, origin, details) : true
+      )
+    ses.setPermissionRequestHandler(null)
+    ses.setPermissionCheckHandler(null)
+  })
+
   // Windows exist and render (Playwright drives them, capturePage reads
   // them) but are never seen, clicked or focused on the user's screen.
   const proto = BrowserWindow.prototype

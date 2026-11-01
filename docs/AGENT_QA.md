@@ -93,6 +93,7 @@ main process swaps every outside-world call for a recorder that appends to
 | `app.setLoginItemSettings` | Recorded; no login item is added |
 | `globalShortcut.register` | Recorded; your shortcuts stay with your running app |
 | `askForMediaAccess`, `isTrustedAccessibilityClient(true)`, `desktopCapturer` | Recorded; no system prompt appears and the screen isn't captured |
+| A page's `getUserMedia` (Quick Capture's Whisper fallback, the onboarding mic test) | Refused and recorded as `permission.media`; Chromium also gets fake devices, so the real microphone never opens |
 | Swift helper | `AMBIENTMIND_HELPER` points at `eval/fixtures/fake-helper.cjs`: no EventKit, mic or screen access |
 | Network | Allowed: Ollama on `127.0.0.1` (directly or through the fault proxy, §6), the local fake Google, and these Google calls only: `GET gmail.googleapis.com/gmail/v1/…`, `GET www.googleapis.com/calendar/v3/…`, `GET www.googleapis.com/oauth2/v3/userinfo`, and `POST oauth2.googleapis.com/token` with `grant_type=refresh_token`. Everything else (calendar writes, revoke, a new sign-in, any other host) is rejected in a `fetch` wrapper and the session's `webRequest`, and recorded. |
 | Windows | Created hidden and never focused; captured with `capturePage`. Tray and Dock icon are skipped. |
