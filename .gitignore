@@ -30,4 +30,17 @@ Thumbs.db
 *.amb
 secrets.json
 google-credentials.json
+client_secret*.json
 chat-history.json
+helper-check.json
+corpus-*.jsonl
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.mobileprovision
+*.provisionprofile

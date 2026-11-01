@@ -281,8 +281,8 @@ Each prompt is assembled from named blocks:
   needs to know it is reading *Suraj's* mail to decide whether "can you send
   this over?" is addressed to him. Identity uses an explicit display name from
   Settings, falling back to the OS username — never the Gmail local part.
-  Extracting as `firstnamelastname08` made the model miss messages opening
-  "Hi Suraj".
+  Extracting as a handle like `firstnamelastname08` made the model miss
+  messages opening "Hi Suraj".
 - **About-me block.** Optional free text describing the user's life, injected
   into the **system** prompt beside the identity. Labelled as background that
   must never itself become a task. When the field is empty it contributes
@@ -1119,6 +1119,12 @@ parser. Guards around the model:
   "not" in the message reopens it.
 - A reply that claims a change it didn't list is asked once more, then
   replaced by "I didn't change anything".
+- Done, delete, snooze and move only touch a task the user's own words (or
+  the reply they are answering) point at, by a distinctive word of its title
+  or "all"/"everything" (`referencedByUser`). Titles and mail can carry
+  instructions; a plan aimed at a task nobody mentioned is refused.
+- Suggestions are listed for context but are never a target: their titles
+  come straight from mail.
 - The confirmation shown is written by code from what really changed.
 
 In Automatic, chat goes to Ollama while it is running and to Apple's model
@@ -1145,7 +1151,8 @@ and everything learned is listed in Settings with an undo.
 A `.app` signed with a local identity on the Mac (Developer ID comes with a public release) (menu-bar resident, no Dock icon
 except while Settings or Chat is open) and a per-user NSIS installer on
 Windows. Launch at login, tray icon rendered from code, global shortcuts, and
-two headless CLI modes:
+two headless CLI modes, which a release build (`npm run dist:release`, see
+SECURITY.md) compiles out along with every developer environment override:
 
 ```powershell
 npm run corpus:export -- --days=30 --limit=120
