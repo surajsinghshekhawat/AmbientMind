@@ -20,6 +20,7 @@ import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
 import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
 import { accountFullName, hideDock, installAppMenu, os, permissionState, requestAccess, setAppIdentity } from './platform'
+import type { HelperMethod } from '@shared/helperProtocol'
 import { helperReady, helperRequest, onHelperEvent, onHelperState, startHelper, stopHelper } from './native/helper'
 import { runHelperCheck } from './native/helperCheck'
 
@@ -176,6 +177,7 @@ import {
   connectGoogle,
   connectedGoogleAccount,
   disconnectGoogle,
+  googleFetch,
   isGoogleConnected,
   loadCredentials
 } from './services/googleAuth'
@@ -1397,7 +1399,16 @@ if (process.argv.includes('--selftest')) {
         onboarding: () => showOnboardingWindow(),
         expand: (on = true) => setOverlayExpanded(on),
         capture: () => captureScreenAsTask(),
-        dueAlerts: () => sendDueAlerts()
+        dueAlerts: () => sendDueAlerts(),
+        // Live runs check Reminders, Calendar and the QA Google calendar from
+        // outside the UI. The helper's QA guard and the QA network policy
+        // limit both to things named "AmbientMind QA".
+        helper: (method: string, params: unknown = {}) => helperRequest(method as HelperMethod, params as never, { timeoutMs: 30_000 }),
+        googleCalendar: async (path: string, method = 'GET') => {
+          const response = await googleFetch(`https://www.googleapis.com/calendar/v3${path}`, { method })
+          return { status: response.status, body: response.status === 204 ? null : await response.json().catch(() => null) }
+        },
+        quit: () => setTimeout(() => app.quit(), 100)
       }
     }
     startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)

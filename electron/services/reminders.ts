@@ -1,4 +1,5 @@
 import { HelperError, type AppleReminder, type ReminderWrite } from '@shared/helperProtocol'
+import { QA_LIVE_TITLE } from '@shared/qaPolicy'
 import { planReminderSync, reminderFields, taskFields } from '@shared/remindersSync'
 import {
   applyReminderFields,
@@ -10,7 +11,8 @@ import {
 } from './reminderStore'
 import { addTasksIgnoringDuplicates, deleteTask, getTask, reopenTask } from './taskStore'
 
-export const REMINDERS_LIST_TITLE = 'AmbientMind'
+/** A QA instance's helper refuses any other list, so yours is never touched. */
+export const REMINDERS_LIST_TITLE = process.env.AMBIENTMIND_QA === '1' ? QA_LIVE_TITLE : 'AmbientMind'
 
 export interface ReminderList {
   id: string

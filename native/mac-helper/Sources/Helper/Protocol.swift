@@ -81,7 +81,7 @@ final class Server {
       Output.shared.reply(id, .failure(HelperError("bad_request", "Missing method")))
       return
     }
-    guard let handler = Methods.table[method] else {
+    guard let handler = QaGuard.handler(for: method) else {
       Output.shared.reply(id, .failure(HelperError("unknown_method", "No method \(method)")))
       return
     }

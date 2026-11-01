@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { qaFolderAllowed, qaRequestAllowed } from '../shared/qaPolicy'
+import { QA_LIVE_TITLE, qaFolderAllowed, qaRequestAllowed } from '../shared/qaPolicy'
 
 const ROOT = '/Users/me/AmbientMind'
 
@@ -47,4 +47,25 @@ test('only this machine and the read calls are reachable', () => {
   assert.equal(qaRequestAllowed({ url: 'https://example.com/' }).allowed, false)
   assert.equal(qaRequestAllowed({ url: 'https://gmail.googleapis.com.evil.example/gmail/v1/' }).allowed, false)
   assert.equal(qaRequestAllowed({ url: 'not a url' }).allowed, false)
+})
+
+test('a live run writes only to the QA calendar it made', () => {
+  const api = 'https://www.googleapis.com/calendar/v3/calendars'
+  const live = { calendars: new Set(['qa123@group.calendar.google.com']) }
+  const qa = encodeURIComponent('qa123@group.calendar.google.com')
+  const allowed = (url: string, method: string, body?: string) => qaRequestAllowed({ url, method, body }, live).allowed
+
+  assert.equal(allowed(api, 'POST', JSON.stringify({ summary: QA_LIVE_TITLE })), true)
+  assert.equal(allowed(api, 'POST', JSON.stringify({ summary: 'AmbientMind' })), false, 'not your real AmbientMind calendar')
+  assert.equal(allowed(api, 'POST', 'not json'), false)
+  assert.equal(allowed(`${api}/${qa}/events`, 'POST'), true)
+  assert.equal(allowed(`${api}/${qa}/events/ev1`, 'PUT'), true)
+  assert.equal(allowed(`${api}/${qa}/events/ev1`, 'DELETE'), true)
+  assert.equal(allowed(`${api}/${qa}`, 'DELETE'), true)
+  assert.equal(allowed(`${api}/primary/events`, 'POST'), false)
+  assert.equal(allowed(`${api}/primary`, 'DELETE'), false)
+  assert.equal(allowed(`${api}/${qa}/acl`, 'POST'), false, 'sharing it is not a test')
+  assert.equal(allowed(`${api}/${qa}/events/ev1/move`, 'POST'), false)
+  assert.equal(qaRequestAllowed({ url: `${api}/${qa}/events`, method: 'POST' }).allowed, false, 'only in a live run')
+  assert.equal(qaRequestAllowed({ url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/1/trash', method: 'POST' }, live).allowed, false)
 })

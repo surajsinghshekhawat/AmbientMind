@@ -31,14 +31,28 @@ export interface QaRequest {
 
 export type QaVerdict = { allowed: true } | { allowed: false; reason: string }
 
+/**
+ * What a live QA run (AMBIENTMIND_QA_LIVE=1) may create and then delete: a
+ * Reminders list, an Apple calendar and a Google calendar by this name, and
+ * nothing else of yours.
+ */
+export const QA_LIVE_TITLE = 'AmbientMind QA'
+
+/** Google calendars this run may write to: the ones titled QA_LIVE_TITLE. */
+export interface QaLiveGoogle {
+  calendars: ReadonlySet<string>
+}
+
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+const CALENDARS = '/calendar/v3/calendars'
 
 /**
  * Your real Gmail and Calendar may be read and the access token refreshed;
  * nothing may be written, revoked or signed in again, and no other host is
  * reachable. Pages the app loads itself (file:, data:, devtools:) pass.
+ * A live run may also create a QA_LIVE_TITLE calendar and write to it alone.
  */
-export function qaRequestAllowed(request: QaRequest): QaVerdict {
+export function qaRequestAllowed(request: QaRequest, live?: QaLiveGoogle): QaVerdict {
   let url: URL
   try {
     url = new URL(request.url)
@@ -63,10 +77,32 @@ export function qaRequestAllowed(request: QaRequest): QaVerdict {
       ? { allowed: true }
       : { allowed: false, reason: 'only a token refresh may reach Google’s token endpoint' }
   }
+  if (live && host === 'www.googleapis.com' && liveCalendarWrite(method, path, request.body, live)) return { allowed: true }
   if (host.endsWith('googleapis.com') || host.endsWith('google.com')) {
     return { allowed: false, reason: `${method} to Google is not a read` }
   }
   return { allowed: false, reason: `${host} is off this machine and not on the QA allow list` }
+}
+
+function liveCalendarWrite(method: string, path: string, body: string | undefined, live: QaLiveGoogle): boolean {
+  if (method === 'POST' && path === CALENDARS) {
+    try {
+      return (JSON.parse(body ?? '') as { summary?: unknown }).summary === QA_LIVE_TITLE
+    } catch {
+      return false
+    }
+  }
+  if (!path.startsWith(`${CALENDARS}/`)) return false
+  const [rawId, ...rest] = path.slice(CALENDARS.length + 1).split('/')
+  let id: string
+  try {
+    id = decodeURIComponent(rawId ?? '')
+  } catch {
+    return false
+  }
+  if (!live.calendars.has(id)) return false
+  if (rest.length === 0) return method === 'DELETE'
+  return rest[0] === 'events' && rest.length <= 2 && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
 }
 
 /** The body of a fetch, when it's something we can read without consuming a stream. */

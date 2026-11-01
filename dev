@@ -44,6 +44,13 @@ OUTSIDE_PATHS=(
   "Library/Preferences/com.github.Electron.plist"
   "Library/Saved Application State/com.ambientmind.app.savedState"
   "Library/Saved Application State/com.github.Electron.savedState"
+  # The live QA build (docs/AGENT_QA.md), a separate identity from the app.
+  "Library/Application Support/AmbientMind QA"
+  "Library/Caches/com.ambientmind.qa"
+  "Library/HTTPStorages/com.ambientmind.qa"
+  "Library/Logs/AmbientMind QA"
+  "Library/Preferences/com.ambientmind.qa.plist"
+  "Library/Saved Application State/com.ambientmind.qa.savedState"
   ".electron-gyp"
   ".electron-rebuild-cache"
   ".npm/_libvips"
@@ -59,7 +66,7 @@ KEYCHAIN_SERVICES=("ambientmind Safe Storage" "AmbientMind Safe Storage")
 # them. "Electron" is every dev run, this repo's or another Electron project's.
 CRASH_PREFIXES=(AmbientMind ambientmind-helper Electron)
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-BUNDLE_IDS=(com.ambientmind.app com.ambientmind.dev com.github.Electron)
+BUNDLE_IDS=(com.ambientmind.app com.ambientmind.dev com.ambientmind.qa com.github.Electron)
 
 isolate() {
   mkdir -p "$LOCAL"/{home,tmp,data,logs,run,ollama/models} \

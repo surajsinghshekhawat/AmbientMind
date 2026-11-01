@@ -1,4 +1,7 @@
-import { appendFileSync, mkdirSync, realpathSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { appendFileSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { basename, dirname, join } from 'node:path'
 import {
   app,
@@ -12,7 +15,7 @@ import {
   systemPreferences,
   type MessageBoxOptions
 } from 'electron'
-import { qaFolderAllowed, qaRequestAllowed, readableBody } from '@shared/qaPolicy'
+import { QA_LIVE_TITLE, qaFolderAllowed, qaRequestAllowed, readableBody, type QaLiveGoogle } from '@shared/qaPolicy'
 import { setJson } from './services/secrets'
 
 /**
@@ -49,6 +52,10 @@ declare global {
 }
 
 export const qaEnabled = process.env.AMBIENTMIND_QA === '1'
+/** Real helper, real Reminders and Calendar, Google writes to QA_LIVE_TITLE only. */
+export const qaLive = qaEnabled && process.env.AMBIENTMIND_QA_LIVE === '1'
+const liveCalendars = new Set<string>()
+const liveGoogle: QaLiveGoogle | undefined = qaLive ? { calendars: liveCalendars } : undefined
 
 const GOOGLE_HOSTS = new Set(['oauth2.googleapis.com', 'gmail.googleapis.com', 'www.googleapis.com'])
 
@@ -273,24 +280,90 @@ export function installQaMode(): QaControl | null {
       }
     }
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
-    const verdict = qaRequestAllowed({ url, method, body: readableBody(init?.body) })
+    const verdict = qaRequestAllowed({ url, method, body: readableBody(init?.body) }, liveGoogle)
     if (!verdict.allowed) {
       record('network', { url: url.split('?')[0], method, reason: verdict.reason })
       throw new TypeError(`QA mode blocked ${method} ${url.split('?')[0]}: ${verdict.reason}`)
     }
-    return original(input, init)
+    const response = await original(input, init)
+    if (liveGoogle && response.ok) learnQaCalendars(url, method, response.clone())
+    return response
   }) as typeof fetch
+
+  // The QA calendar's id is only known once Google has listed or created it.
+  function learnQaCalendars(url: string, method: string, response: Response) {
+    const path = new URL(url).pathname
+    const listing = method === 'GET' && path === '/calendar/v3/users/me/calendarList'
+    const creating = method === 'POST' && path === '/calendar/v3/calendars'
+    if (!listing && !creating) return
+    void response
+      .json()
+      .then((data: { id?: string; summary?: string; items?: { id: string; summary?: string }[] }) => {
+        for (const entry of creating ? [data] : (data.items ?? [])) {
+          if (entry.id && entry.summary === QA_LIVE_TITLE && !liveCalendars.has(entry.id)) {
+            liveCalendars.add(entry.id)
+            record('qa.liveCalendar', { id: entry.id }, false)
+          }
+        }
+      })
+      .catch(() => {})
+  }
+
+  if (process.env.AMBIENTMIND_QA_CONTROL) startControl(process.env.AMBIENTMIND_QA_CONTROL, control, record)
 
   void app.whenReady().then(() => {
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-      const verdict = qaRequestAllowed({ url: details.url, method: details.method })
+      const verdict = qaRequestAllowed({ url: details.url, method: details.method }, liveGoogle)
       if (!verdict.allowed) record('network.window', { url: details.url.split('?')[0], method: details.method, reason: verdict.reason })
       callback({ cancel: !verdict.allowed })
     })
   })
 
-  console.log(`[qa] QA mode on; attempts go to ${control.logPath}`)
+  console.log(`[qa] QA mode on${qaLive ? ' (live)' : ''}; attempts go to ${control.logPath}`)
   return control
+}
+
+/**
+ * For a run opened through LaunchServices, which Playwright can't launch: a
+ * loopback endpoint that runs the registered QA actions, nothing else. Its
+ * port and a one-time token go to `file`, inside the run folder.
+ */
+function startControl(file: string, control: QaControl, record: (kind: string, detail: Record<string, unknown>, blocked?: boolean) => void) {
+  if (!qaFolderAllowed(dirname(file))) {
+    console.error(`[qa] no control endpoint: ${file} is not inside a run folder`)
+    return
+  }
+  const token = randomBytes(24).toString('hex')
+  const server = createServer((req, res) => {
+    const reply = (status: number, body: unknown) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (req.method !== 'POST' || req.url !== '/action' || req.headers.authorization !== `Bearer ${token}`) return reply(403, { error: 'no' })
+    let body = ''
+    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { name, args = [] } = JSON.parse(body) as { name: string; args?: unknown[] }
+          if (name === 'attempts') return reply(200, { result: control.attempts })
+          const fn = control.actions[name]
+          if (!fn) return reply(404, { error: `QA action ${name} is not registered` })
+          const result = await fn(...args)
+          const plain = result !== null && typeof result === 'object' && result.constructor !== Object && !Array.isArray(result) ? null : (result ?? null)
+          reply(200, { result: plain })
+        } catch (err) {
+          reply(500, { error: (err as Error).message })
+        }
+      })()
+    })
+  })
+  server.listen(0, '127.0.0.1', () => {
+    const { port } = server.address() as AddressInfo
+    writeFileSync(file, JSON.stringify({ port, token, pid: process.pid }), { mode: 0o600 })
+    record('qa.control', { port }, false)
+  })
+  app.on('will-quit', () => server.close())
 }
 
 // Like isolation.ts, applied on import: main.ts imports this second, before
