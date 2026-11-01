@@ -42,6 +42,7 @@ export interface ExtractOptions {
   /** Tasks scoring below this are treated as noise and dropped. */
   minConfidence?: number
   signal?: AbortSignal
+  timeoutMs?: number
   engine?: AiEngine
 }
 
@@ -52,6 +53,11 @@ const DEFAULTS = {
 }
 
 const EXTRACT_TOKENS = 800
+/**
+ * One message takes seconds; a minute covers a slow Mac loading the model
+ * cold. Past that the server is stuck, and the sync stops rather than wait.
+ */
+const EXTRACT_TIMEOUT_MS = 60_000
 /** Quick Add shows the raw text at once; a slower answer is not worth waiting for. */
 const ENRICH_TIMEOUT_MS = 30_000
 
@@ -198,6 +204,7 @@ export async function extractTasks(message: MessageInput, options: ExtractOption
     schema: EXTRACTION_SCHEMA,
     maxTokens: EXTRACT_TOKENS,
     numCtx: 8192,
+    timeoutMs: options.timeoutMs ?? EXTRACT_TIMEOUT_MS,
     ...(options.signal ? { signal: options.signal } : {})
   })
   return parseExtraction(result.content, `${message.subject}\n\n${message.body}`, config.minConfidence, message.sentAt)
