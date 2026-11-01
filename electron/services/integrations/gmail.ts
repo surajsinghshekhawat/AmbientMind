@@ -1,32 +1,24 @@
 import { describeGoogleError } from '@shared/googleError'
+import { header, type MailPayload as GmailPayload } from '@shared/mailTriage'
 import { googleFetch } from '../googleAuth'
 import type { MessageInput } from '../extract'
+
+export { shouldSkip } from '@shared/mailTriage'
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 export interface GmailMessage extends MessageInput {
   id: string
   threadId: string
-}
-
-interface GmailPayload {
-  mimeType?: string
-  filename?: string
-  headers?: { name: string; value: string }[]
-  body?: { data?: string; size?: number }
-  parts?: GmailPayload[]
+  labels?: string[]
 }
 
 interface GmailFull {
   id: string
   threadId: string
   internalDate?: string
+  labelIds?: string[]
   payload?: GmailPayload
-}
-
-function header(payload: GmailPayload | undefined, name: string): string {
-  const found = payload?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())
-  return found?.value ?? ''
 }
 
 function decode(data: string | undefined): string {
@@ -86,23 +78,6 @@ function stripQuotedReplies(body: string): string {
     if (match && match.index < cut) cut = match.index
   }
   return body.slice(0, cut).trim()
-}
-
-const BULK_SENDER = /(no-?reply|do-?not-?reply|notification|newsletter|mailer|bounce)@/i
-
-/**
- * Cheap header-based triage. Bulk mail is the overwhelming majority of an inbox
- * and none of it contains tasks, so filtering here rather than in the prompt
- * removes most of the model's work before it starts.
- */
-export function shouldSkip(message: GmailMessage, payload: GmailPayload | undefined): string | null {
-  if (header(payload, 'List-Unsubscribe')) return 'bulk: List-Unsubscribe'
-  if (/^(bulk|list|junk|auto_reply)$/i.test(header(payload, 'Precedence'))) return 'bulk: Precedence'
-  if (header(payload, 'Auto-Submitted').startsWith('auto-')) return 'bulk: Auto-Submitted'
-  if (BULK_SENDER.test(message.sender)) return 'bulk: sender address'
-  if (message.body.length < 40) return 'too short to contain a task'
-  if (message.body.length > 20_000) return 'too long; likely a digest'
-  return null
 }
 
 async function json<T>(url: string): Promise<T> {
@@ -168,7 +143,8 @@ export async function fetchMessage(id: string): Promise<{
       recipients: [header(payload, 'To'), header(payload, 'Cc')].filter(Boolean).join('; '),
       sentAt: header(payload, 'Date') || new Date(Number(full.internalDate ?? 0)).toISOString(),
       subject: header(payload, 'Subject'),
-      body
+      body,
+      ...(full.labelIds ? { labels: full.labelIds } : {})
     }
   }
 }
