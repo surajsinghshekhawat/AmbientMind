@@ -271,6 +271,44 @@ Six to eight hours on the typical profile with background timers sped up:
 memory and handle growth, log and `ai-calls.jsonl` trimming, timers that
 drift or stack, and whether the orb still settles to idle.
 
+### M10. Spoken capture
+
+`e2e/qa/voice.spec.ts`. Phrases made with `say` (with a breath of silence
+first) play through Chromium's fake microphone via
+`AMBIENTMIND_QA_FAKE_MIC_FILE`, a WAV inside the run folder, into Quick
+Capture's Whisper path. Checks the words heard, the task and its deadline.
+
+### Live mission
+
+Attended only: someone at the Mac clicks Allow once each for Reminders and
+Calendar. It reads your real Gmail and calendars, and writes only to a
+Reminders list, an Apple calendar and a Google calendar all named
+"AmbientMind QA", deleted at the end and checked again.
+
+- **Its own identity.** Built as "AmbientMind QA" (`com.ambientmind.qa`), so
+  macOS keeps its permissions apart from the installed app's.
+- **Opened through LaunchServices** (`open -g -n`), so macOS asks on its
+  behalf rather than Cursor's; driven over QA mode's loopback control
+  endpoint (`AMBIENTMIND_QA_CONTROL`, a port and one-time token in the run
+  folder), with no debugging port.
+- **Two locks.** With `AMBIENTMIND_QA=1` the helper refuses the microphone,
+  screen, Contacts and hotkeys and only touches the QA list and calendar
+  (`native/mac-helper/Sources/Helper/QA.swift`); `AMBIENTMIND_QA_LIVE=1`
+  lets Google calendar writes through only for the QA calendar
+  (`shared/qaPolicy.ts`).
+- **A fresh database**, with only the sign-in and OAuth client copied from the
+  snapshot; delete `secrets.json` copies afterwards.
+
+```sh
+./dev npm run helper && ./dev run npx electron-vite build
+./dev run npx electron-builder --mac --dir --config.directories.output=.local/qa/build/live \
+  --config.appId=com.ambientmind.qa "--config.productName=AmbientMind QA"
+QA_RUN=$PWD/.local/qa/runs/<run> QA_LIVE=1 QA_LIVE_TAG=<new name per rerun> \
+  ./dev run npx playwright test e2e/qa/live.spec.ts --workers=1
+```
+
+`tccutil reset All com.ambientmind.qa` forgets its permissions afterwards.
+
 ## 7. The mission prompt
 
 ```text
