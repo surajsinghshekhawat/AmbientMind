@@ -48,12 +48,17 @@ for (const phrase of phrases) {
       const box = page.getByRole('textbox', { name: 'What needs doing?' })
       const started = Date.now()
       await page.getByRole('button', { name: /^Talk/ }).click()
-      // The clip is about two seconds; then silence, as the file doesn't loop.
-      // A short one may already have stopped on the silence; pressing again would start over.
-      await new Promise((r) => setTimeout(r, 3500))
-      const stop = page.getByRole('button', { name: /^Stop listening/ })
-      if (await stop.isVisible()) await stop.click()
-      const transcript = (await until(async () => (await box.inputValue()).trim(), 90_000, 500)) || ''
+      // The clip is about two seconds; then silence, as the file doesn't loop,
+      // and listening usually stops on the silence by itself. Stop is pressed
+      // only if no words came: pressing it just as listening ends hits Talk
+      // and starts over.
+      const typed = async () => (await box.inputValue()).trim()
+      let transcript = (await until(typed, 10_000, 250)) || ''
+      if (!transcript) {
+        const stop = page.getByRole('button', { name: /^Stop listening/ })
+        if (await stop.isVisible()) await stop.click()
+        transcript = (await until(typed, 90_000, 500)) || ''
+      }
       const ms = Date.now() - started
       const heard = phrase.words.every((w) => transcript.toLowerCase().includes(w))
 

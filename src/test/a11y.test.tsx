@@ -67,7 +67,9 @@ describe('axe finds nothing in', () => {
 
   it('the orb, with tasks due', async () => {
     const now = Date.now()
-    installMockAmbient({ tasks: [makeTask({ title: 'Pay rent', deadline: inHours(-1, now) }), makeTask({ title: 'Call Sam', deadline: inHours(1, now) })] })
+    // An hour from now is tomorrow after 23:00; the end of today never is.
+    const tonight = new Date(new Date(now).setHours(23, 59, 0, 0)).toISOString()
+    installMockAmbient({ tasks: [makeTask({ title: 'Pay rent', deadline: inHours(-1, now) }), makeTask({ title: 'Call Sam', deadline: tonight })] })
     const { container } = render(<Overlay />)
     await act(async () => {})
     expect(screen.getByRole('button', { name: /^AmbientMind, 2 due today: / })).toBeTruthy()
