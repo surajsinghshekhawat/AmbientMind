@@ -234,6 +234,8 @@ async function exploreScreen(qa: QaApp, screen: Screen, label: string) {
       }
       // Put the screen back: the control may have closed, collapsed or navigated it.
       await page.keyboard.press('Escape').catch(() => {})
+      // Reopening a window mid-close from the inspector crashes Electron (M9).
+      await page.waitForEvent('close', { timeout: 500 }).catch(() => {})
       await screen.open(qa)
       await new Promise((r) => setTimeout(r, 300))
       const again = await qa.window(screen.kind)
