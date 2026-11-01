@@ -83,8 +83,16 @@ const RawEnrichment = z.object({
 /** Models sometimes answer "no task" with a task saying so. */
 const NOT_A_TASK = /^(?:no (?:action|task|follow[- ]?up)s?(?: (?:is )?(?:required|needed))?|none|n\/?a|nothing(?: to do)?)\.?$/i
 
+/** "ASAP" says how urgent, not when: as a deadline it is overdue on arrival. */
+const ASAP = /\b(?:asap|a\.s\.a\.p\b|immediately|right away|urgently)/i
+
 function priorityOf(value: string | null | undefined): TaskPriority {
   return PRIORITIES.includes(value as TaskPriority) ? (value as TaskPriority) : 'medium'
+}
+
+/** A deadline at the very minute the message was sent is the model echoing its date. */
+function echoesSentTime(deadline: string | null, sent: Date): boolean {
+  return !!deadline && Math.abs(Date.parse(deadline) - sent.getTime()) < 60_000
 }
 
 /**
@@ -130,10 +138,12 @@ export function parseExtraction(
     const evidence = findEvidence(task.data.evidence, source, task.data.title)
     // Nothing in the message supports it: the model made it up.
     if (!evidence.quote) continue
+    const deadline = deadlineFor(task.data.deadline, evidence, anchor, sent)
+    const asap = ASAP.test(evidence.quote) || ASAP.test(task.data.deadline ?? '')
     tasks.push({
       title: task.data.title,
-      deadline: deadlineFor(task.data.deadline, evidence, anchor, sent),
-      priority: priorityOf(task.data.priority),
+      deadline: echoesSentTime(deadline, sent) ? null : deadline,
+      priority: asap ? 'urgent' : priorityOf(task.data.priority),
       people: task.data.people ?? [],
       confidence: evidence.verified ? confidence : Math.min(confidence, UNVERIFIED_CEILING),
       evidence: evidence.quote,

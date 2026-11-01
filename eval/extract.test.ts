@@ -74,3 +74,35 @@ test('a deadline in the wrong year is moved next to the message', () => {
 test('malformed JSON yields nothing rather than throwing', () => {
   assert.deepEqual(parseExtraction('{"tasks": [', SOURCE, 0.6, SENT), [])
 })
+
+test('"ASAP" makes a task urgent, not due the minute the email was sent', () => {
+  const source = 'Sign-off\n\nI need your sign-off on the vendor contract ASAP, legal is waiting.'
+  const [task] = parseExtraction(
+    json([
+      {
+        evidence: 'I need your sign-off on the vendor contract ASAP',
+        title: 'Sign off vendor contract',
+        deadline: new Date(SENT).toISOString(),
+        priority: 'high',
+        confidence: 0.9
+      }
+    ]),
+    source,
+    0.6,
+    SENT
+  )
+  assert.equal(task?.deadline, null)
+  assert.equal(task?.priority, 'urgent')
+})
+
+test('"ASAP" with a real date keeps the date', () => {
+  const [task] = parseExtraction(
+    json([{ evidence: 'for the East desk by Friday? ASAP please', title: 'Send Q1 numbers', deadline: 'friday', confidence: 0.9 }]),
+    SOURCE.replace('by Friday?', 'by Friday? ASAP please.'),
+    0.6,
+    SENT
+  )
+  assert.ok(task?.deadline)
+  assert.equal(new Date(task.deadline).getDay(), 5)
+  assert.equal(task.priority, 'urgent')
+})
