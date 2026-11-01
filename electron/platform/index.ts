@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import {
   app,
   Menu,
@@ -23,6 +24,30 @@ import { DockPresence } from './dockPresence'
 export const os: Os =
   process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
 export const isMac = os === 'mac'
+
+/**
+ * Windows files notifications and taskbar entries under this id. Without it a
+ * reminder's Done and Snooze buttons belong to "electron.app.AmbientMind".
+ * Matches `appId` in electron-builder.yml.
+ */
+export function setAppIdentity() {
+  if (os === 'win') app.setAppUserModelId('com.ambientmind.app')
+}
+
+/** System Settings layout on the Mac: the traffic lights sit inside the window. */
+export const insetTitleBarOptions: BrowserWindowConstructorOptions = isMac
+  ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 18 } }
+  : {}
+
+/** The account's full name, where the OS keeps one cheaply. */
+export function accountFullName(): string | null {
+  if (!isMac) return null
+  try {
+    return execFileSync('/usr/bin/id', ['-F'], { encoding: 'utf8', timeout: 1000 }).trim() || null
+  } catch {
+    return null
+  }
+}
 
 /**
  * On the Mac a panel floats above normal windows without activating the app.

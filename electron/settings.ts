@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { BrowserWindow, nativeTheme } from 'electron'
 import { IPC } from '@shared/ipc'
-import { bringToFront, prepareUtilityWindow, utilityWindowOptions } from './platform'
+import { bringToFront, insetTitleBarOptions, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let settingsWindow: BrowserWindow | null = null
 
@@ -21,7 +21,7 @@ export function showSettingsWindow(section?: string) {
     title: 'AmbientMind settings',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1f' : '#fbfbfc',
     // System Settings layout: the traffic lights sit in the sidebar.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 18 } } : {}),
+    ...insetTitleBarOptions,
     ...utilityWindowOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),

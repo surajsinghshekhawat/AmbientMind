@@ -33,8 +33,11 @@ Version 0.2.0. Last updated: 16 September 2026.
 
 ## 1. What this product is
 
-AmbientMind is a **Windows desktop overlay** that keeps a short, urgency-sorted
-todo list on screen at all times. The list is meant to fill *itself*: a local
+AmbientMind is a **desktop overlay for macOS and Windows** that keeps a short,
+urgency-sorted todo list on screen at all times. The Mac is the primary
+platform: a menu-bar app with a Swift helper for Apple's on-device model,
+speech, Calendar, Reminders and screen reading. Windows runs the same app
+without the helper. The list is meant to fill *itself*: a local
 language model reads Gmail and Google Calendar, extracts only the things the
 user personally has to do, and writes them into a local SQLite database. Tasks
 can also arrive by typing, by speaking, by asking the app to read whatever is
@@ -537,8 +540,8 @@ which they did, twice — and useless as an absolute claim of quality.
     │              │               │              │
     ▼              ▼               ▼              ▼
 SQLite +        Ollama         Google APIs     OS APIs
-sqlite-vec      localhost      Gmail,          safeStorage/DPAPI,
-%APPDATA%       :11434         Calendar        desktopCapturer, mic
+sqlite-vec      127.0.0.1      Gmail,          safeStorage (Keychain/DPAPI),
+userData        :11434         Calendar        Swift helper (Mac), mic
 ```
 
 ### 4.1 Windows
@@ -643,14 +646,16 @@ let go. Next it will read Calendar and Reminders.
 
 ## 5. Data model
 
-Everything lives under `%APPDATA%\ambientmind\`, not the generic Electron
-folder:
+Everything lives in Electron's `userData` folder: `~/Library/Application
+Support/AmbientMind/` on an installed Mac, `%APPDATA%\AmbientMind\` on
+Windows, and `.local/data/` in the repo for any run through `./dev`
+(`electron/isolation.ts`), so development never touches the real folders:
 
 | File | Contents |
 | --- | --- |
 | `ambientmind.db` | Tasks, RAG examples and vectors, processed message ids, sync cursors, rules, suggestions, decisions. WAL mode. |
 | `config.json` | All user preferences (§5.3). |
-| `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (DPAPI on Windows). |
+| `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (Keychain on macOS, DPAPI on Windows; a mock keychain under `./dev`). |
 | `google-credentials.json` | Desktop OAuth client JSON from Google Cloud Console. |
 | `corpus-*.jsonl` | Optional export of the user's own mail for accuracy measurement. |
 | `whisper/` | Cached ONNX weights and tokenizer for the selected Whisper size. |
@@ -678,6 +683,7 @@ them from a path would fail.
 | 12 | `012_example_dedupe.sql` | Unique `examples (source, source_id)` |
 | 13 | `013_apple_sources.sql` | Rebuild of `tasks` so `source` admits `acalendar` and `reminders`; `updated_at` kept by triggers; `task_links` |
 | 14 | `014_screen_chat_sources.sql` | Rebuild of `tasks` so `source` admits `screen` and `chat`, which were saved as `manual` before |
+| 15 | `015_due_alerts.sql` | `tasks.reminded_at` (the due-soon notification went out) and `tasks.remind_at` (snoozed from that notification); both reset when the deadline changes |
 
 Migration 005 is the interesting one. SQLite cannot alter a `CHECK`
 constraint, so adding `'rule'` to the allowed task sources required copying the
@@ -763,13 +769,14 @@ timestamp. Outlives the task itself.
 | `screenReading` | `false` | The capture shortcut and screen intent may read the front window (opt-in) |
 | `excludedApps` | `[]` | App names or bundle ids never read, on top of the built-in password managers |
 | `contentProtection` | `false` | Windows are blank in screenshots, recordings and screen sharing |
-| `quietMode` | `true` | On a call or in a full-screen app, the orb hides and sync notifications wait (Mac) |
+| `quietMode` | `true` | On a call or in a full-screen app, the orb hides and notifications wait (Mac) |
+| `remindBeforeMinutes` | `15` | Due-soon notification lead: `null` (off), 0, 5, 15, 30 or 60 minutes |
 
 ### 5.4 Background timers
 
 | Sweep | Interval | Work |
 | --- | --- | --- |
-| Snooze | 30 s | Wake due tasks, top up rule occurrences |
+| Snooze | 30 s | Wake due tasks, top up rule occurrences, send due-soon notifications |
 | Archive | 15 min | Archive stale completed tasks, refresh habit suggestions |
 | Sync | 15 min (configurable) | Gmail and Calendar, first run delayed 60 s after launch |
 | Resume | on wake | Everything above, immediately |
@@ -995,6 +1002,19 @@ delete, complete, derived urgency colours, hover for full title and context,
 "+N more · show all" for the complete scrollable list, clash warnings naming
 which task to do first, and cross-source deduplication.
 
+**Due-soon notifications** (`shared/dueAlerts.ts`). A task with a deadline
+raises one system notification `remindBeforeMinutes` before it (Settings →
+General → Remind me), with **Done** and **Snooze 1 hour** buttons on both
+platforms. A deadline already more than an hour gone is not announced after
+the fact, at most three go out at once, and moving the deadline re-arms it.
+Snoozing from the notification hides the task and alerts again when it comes
+back. They are not AI, so Pause AI doesn't hold them; quiet mode does. The
+banner style is macOS's default; switching AmbientMind to *Alerts* in System
+Settings → Notifications keeps them on screen until answered.
+
+The sync notification only reports news: tasks added, or an error it hasn't
+already shown. A pass that found nothing says so in the panel, not on screen.
+
 ### 7.3 Trust
 
 - **Health check** — which engine would answer right now, and if none, why
@@ -1029,6 +1049,24 @@ which task to do first, and cross-source deduplication.
   current extractions, so labelling is correcting a draft rather than authoring
   one. Pre-filtered mail is written to a *separate* audit file with its skip
   reason.
+
+### 7.3a Accessibility and idle cost
+
+- Every text colour in `src/ui/tokens.css` meets WCAG AA (4.5:1) on the
+  window, sidebar and panel glass in both themes; placeholders meet 3:1.
+  `eval/contrast.test.ts` computes this from the tokens, so a colour change
+  that breaks it fails the build. Filled buttons use `--accent-fill`, a darker
+  blue than the accent used for text.
+- `src/test/a11y.test.tsx` runs axe on every Settings section, every
+  onboarding step, the task panel, Quick Capture and Chat.
+- The task panel is a labelled region of real lists; the keyboard cursor is
+  `aria-current` on the row and spoken through a polite live region. Chat is
+  a `log`, onboarding moves focus to each new step's heading, and a toast
+  stays up while the pointer or focus is on it.
+- At rest the orb draws one frame and stops after 8 s of calm; hovering wakes
+  it. The collapsed overlay polls the clock every minute and health every five.
+  Measured idle (`./dev npm run measure:idle`): 0.06% CPU across all
+  processes, down from 2.96%, with a budget of 2%.
 
 ### 7.4 Brain
 
@@ -1075,8 +1113,10 @@ and everything learned is listed in Settings with an undo.
 
 ### 7.6 Platform
 
-Per-user NSIS installer, launch at login, tray icon rendered from code, global
-shortcuts, and two headless CLI modes:
+A `.app` signed with a local identity on the Mac (Developer ID comes with a public release) (menu-bar resident, no Dock icon
+except while Settings or Chat is open) and a per-user NSIS installer on
+Windows. Launch at login, tray icon rendered from code, global shortcuts, and
+two headless CLI modes:
 
 ```powershell
 npm run corpus:export -- --days=30 --limit=120

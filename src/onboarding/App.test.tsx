@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { installMockAmbient } from '../dev/mockAmbient'
+import { THIS_DEVICE } from '@/ui/device'
 import { App } from './App'
 
 const flush = () => act(async () => {})
@@ -12,7 +13,7 @@ describe('Onboarding', () => {
     await flush()
     expect(screen.getByRole('heading', { name: 'Meet AmbientMind' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Get started' }))
-    expect(screen.getByRole('heading', { name: 'It stays on this Mac' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: `It stays on ${THIS_DEVICE}` })).toBeTruthy()
     for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole('button', { name: /Continue|Skip for now/ }))
     expect(screen.getByRole('heading', { name: 'You’re set' })).toBeTruthy()
     expect(screen.getByText('⌃⌥Space')).toBeTruthy()
@@ -26,7 +27,7 @@ describe('Onboarding', () => {
     render(<App applyTheme={false} />)
     await flush()
     fireEvent.keyDown(document.body, { key: 'Enter' })
-    expect(screen.getByRole('heading', { name: 'It stays on this Mac' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: `It stays on ${THIS_DEVICE}` })).toBeTruthy()
   })
 
   it('Back returns to the previous step', async () => {
@@ -34,7 +35,7 @@ describe('Onboarding', () => {
     render(<App initialStep="sources" applyTheme={false} />)
     await flush()
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(screen.getByRole('heading', { name: 'It stays on this Mac' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: `It stays on ${THIS_DEVICE}` })).toBeTruthy()
   })
 
   it('asks for the microphone only when macOS has not asked yet', async () => {

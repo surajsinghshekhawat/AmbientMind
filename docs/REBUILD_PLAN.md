@@ -982,7 +982,7 @@ Not done yet, and why:
 - The start-at-login reboot test from BACKLOG Phase F needs a real reboot.
 - Quiet mode needs the helper, so it does nothing on Windows.
 
-### Phase 8 — Polish and release readiness (3–5 days)
+### Phase 8 — Polish and release readiness (3–5 days) — done, branch `phase-8-polish`
 
 - Idle budget: no CPU when nothing changes, orb paused when hidden, memory
   measured with only the overlay running.
@@ -993,6 +993,43 @@ Not done yet, and why:
 - When going public: Apple Developer ID, notarization, electron-updater with
   signed releases, and Gmail restricted-scope verification (unverified apps are
   capped at 100 users).
+
+What landed:
+
+- Idle budget, measured by `./dev npm run measure:idle` (Playwright samples
+  every process for 20 s after the app settles and fails above 2% CPU). The
+  orb's dots kept animating while calm: 2.96%. They now draw one frame and
+  stop after 8 s of calm, waking on hover or any change; the collapsed overlay
+  polls less, and quiet mode's poll stops when it's switched off. Result:
+  0.06% CPU, 786 MB across the five Electron processes and the helper in the
+  dev build; 0.07% and 723 MB packaged.
+- Due-soon notifications with **Done** and **Snooze 1 hour** buttons (Mac and
+  Windows), set in General → Remind me (off, at the deadline, or 5–60 minutes
+  before; 15 by default). Migration 015 records when each went out, so one
+  fires once per deadline. The sync notification now only says something new.
+- Accessibility: every text colour passes WCAG AA in both themes, enforced by
+  a test that reads `tokens.css` (light `ink-3`, accent and status colours were
+  darkened; filled buttons got their own darker blue). axe runs on all 20
+  screens. The task panel stopped pretending to be a listbox, Chat is a log,
+  onboarding moves focus to each step's heading, the Settings attention dot
+  is spoken, recurring day buttons have full names, toasts wait while hovered.
+- Windows parity: the remaining `process.platform` checks moved into the
+  platform layer; the app sets its AppUserModelID so reminder buttons work in
+  Windows toasts; copy says "this PC", "Ctrl+L" and "Show in Explorer" there;
+  the Mac-only quiet-mode switch is hidden.
+- Docs: `google-setup.md` (scopes including `calendar.app.created`, the
+  untick-by-default checkboxes, real folders), `voice.md` (⌘L, ⌘Enter, the 2.5 s
+  cut-off, the voice-model picker and its cache), `SYSTEM.md`.
+
+Not done yet, and why:
+
+- Developer ID signing, notarization, electron-updater and Gmail verification
+  need an Apple Developer account and a Google review; nothing to do until
+  going public.
+- The Windows changes are typechecked and unit-tested on the Mac but not run
+  on a Windows machine.
+- Contrast is checked against the window colour under the panel glass; over a
+  bright wallpaper the real backdrop can differ.
 
 Total: roughly 35–50 focused days.
 

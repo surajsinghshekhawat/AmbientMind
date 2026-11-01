@@ -4,6 +4,7 @@ import { parseCapture } from '@shared/capture'
 import type { OrbLook } from '@shared/orb'
 import { describeRule } from '@shared/recurrence'
 import { cn } from '@/ui/cn'
+import { modKey } from '@/ui/device'
 import { IconButton } from '@/ui/IconButton'
 import { Kbd } from '@/ui/Kbd'
 import { Orb } from '@/ui/Orb'
@@ -358,7 +359,7 @@ export function App({
           )}
           {phase !== 'saved' && (
             <IconButton
-              label={listening ? 'Stop listening (⌘L)' : 'Talk (⌘L)'}
+              label={listening ? `Stop listening (${modKey('L')})` : `Talk (${modKey('L')})`}
               active={listening}
               onClick={toggleMic}
               disabled={phase === 'transcribing'}

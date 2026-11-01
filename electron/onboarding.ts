@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { BrowserWindow, nativeTheme } from 'electron'
-import { bringToFront, prepareUtilityWindow, utilityWindowOptions } from './platform'
+import { bringToFront, insetTitleBarOptions, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let onboardingWindow: BrowserWindow | null = null
 
@@ -19,7 +19,7 @@ export function showOnboardingWindow() {
     center: true,
     title: 'Welcome to AmbientMind',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1f' : '#fbfbfc',
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 18 } } : {}),
+    ...insetTitleBarOptions,
     ...utilityWindowOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),

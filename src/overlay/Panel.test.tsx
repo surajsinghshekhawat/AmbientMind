@@ -38,7 +38,7 @@ function Harness({ initial, ...overrides }: { initial: Task[] } & Partial<PanelP
 function setup(tasks: Task[], overrides: Partial<PanelProps> = {}) {
   const mock = installMockAmbient({ tasks })
   render(<Harness initial={tasks} {...overrides} />)
-  const panel = screen.getByRole('listbox', { name: 'Tasks' })
+  const panel = screen.getByRole('region', { name: 'Tasks' })
   return { mock, panel }
 }
 
@@ -65,7 +65,7 @@ describe('Panel', () => {
     expect(mock.state.tasks.find((t) => t.id === first.id)?.status).toBe('done')
     expect(screen.getByText('Completed “First”')).toBeTruthy()
     // Selection moves on, so a second Space acts on the next task.
-    expect(panel.getAttribute('aria-activedescendant')).toBe(`row-${second.id}`)
+    expect(document.getElementById(`row-${second.id}`)?.getAttribute('aria-current')).toBe('true')
 
     fireEvent.keyDown(panel, { key: 'z', metaKey: true })
     await flush()
@@ -78,9 +78,9 @@ describe('Panel', () => {
     const { mock, panel } = setup([a, b])
 
     fireEvent.keyDown(panel, { key: 'j' })
-    expect(panel.getAttribute('aria-activedescendant')).toBe(`row-${b.id}`)
+    expect(document.getElementById(`row-${b.id}`)?.getAttribute('aria-current')).toBe('true')
     fireEvent.keyDown(panel, { key: 'k' })
-    expect(panel.getAttribute('aria-activedescendant')).toBe(`row-${a.id}`)
+    expect(document.getElementById(`row-${a.id}`)?.getAttribute('aria-current')).toBe('true')
 
     fireEvent.keyDown(panel, { key: 'Delete' })
     await flush()
@@ -159,6 +159,6 @@ describe('Overlay app', () => {
     fireEvent.click(orb)
     await flush()
     expect(mock.calls.some((c) => c.method === 'setOverlayExpanded' && c.args[0] === true)).toBe(true)
-    expect(screen.getByRole('listbox', { name: 'Tasks' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Tasks' })).toBeTruthy()
   })
 })

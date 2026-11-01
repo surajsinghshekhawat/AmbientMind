@@ -3,6 +3,7 @@ import { FORGET_AGES, INVENTORY_SOURCE_LABEL, isErasableSource, type DataInvento
 import { KEEP_EXAMPLES, KEEP_PROCESSED_DAYS, KEEP_TOMBSTONE_DAYS } from '@shared/retention'
 import { Button } from '@/ui/Button'
 import { cn } from '@/ui/cn'
+import { clientOs, THIS_DEVICE } from '@/ui/device'
 import { fieldClass, Group, Page, Pill, Row, Select } from './controls'
 import type { SettingsActions, SettingsData } from './pages'
 
@@ -30,7 +31,7 @@ function Backup({ actions: { run, busy } }: Pick<PageProps, 'actions'>) {
   return (
     <Group
       title="Backup"
-      footer="An encrypted copy of the database: tasks, recurring rules, decisions and learned examples. Without the passphrase nobody can open it. Settings and your Google sign-in stay on this Mac."
+      footer={`An encrypted copy of the database: tasks, recurring rules, decisions and learned examples. Without the passphrase nobody can open it. Settings and your Google sign-in stay on ${THIS_DEVICE}.`}
     >
       <Row label="Passphrase" htmlFor="backup-passphrase">
         <input
@@ -92,7 +93,7 @@ export function YourData({ data: { appInfo }, actions }: PageProps) {
     })
 
   return (
-    <Page title="Your data" description="Everything AmbientMind keeps, all of it on this Mac, and the ways to take it back.">
+    <Page title="Your data" description={`Everything AmbientMind keeps, all of it on ${THIS_DEVICE}, and the ways to take it back.`}>
       {inventory && (
         <>
           <Group
@@ -202,7 +203,7 @@ export function YourData({ data: { appInfo }, actions }: PageProps) {
       <Group>
         <Row label="Data folder" description={<span className="font-mono text-micro break-all">{inventory?.dataFolder ?? appInfo?.userData ?? '…'}</span>}>
           <Button size="sm" onClick={() => void window.ambient.openUserData()}>
-            Show in Finder
+            {clientOs === 'mac' ? 'Show in Finder' : 'Show in Explorer'}
           </Button>
         </Row>
       </Group>

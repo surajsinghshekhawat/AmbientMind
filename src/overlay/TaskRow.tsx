@@ -89,7 +89,7 @@ export function TaskRow({ task, now, view, selected, open, editing, snoozing, ac
   useEffect(() => {
     const row = rowRef.current
     // Only when driven from the keyboard; otherwise the host page would scroll.
-    if (selected && row?.closest('[role=listbox]')?.contains(document.activeElement)) {
+    if (selected && row?.closest('[data-task-panel]')?.contains(document.activeElement)) {
       row.scrollIntoView({ block: 'nearest' })
     }
   }, [selected, open])
@@ -116,9 +116,7 @@ export function TaskRow({ task, now, view, selected, open, editing, snoozing, ac
     <li
       ref={rowRef}
       id={`row-${task.id}`}
-      role="option"
-      aria-selected={selected}
-      aria-expanded={open}
+      aria-current={selected || undefined}
       onMouseDown={() => actions.select(task.id)}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button, input, select, a')) return

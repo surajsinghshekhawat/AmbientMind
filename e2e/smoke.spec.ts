@@ -97,7 +97,7 @@ test('launches and opens every window', async () => {
 
     // Open: the window becomes the panel, sized to its content, and takes keys.
     await orb.click()
-    const panel = overlay.getByRole('listbox', { name: 'Tasks' })
+    const panel = overlay.getByRole('region', { name: 'Tasks' })
     await expect(panel).toBeVisible()
     await expect.poll(async () => (await overlayState())?.focusable).toBe(true)
     await expect.poll(async () => (await overlayState())?.width).toBe(380)

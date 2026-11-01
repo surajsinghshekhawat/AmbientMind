@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Check as CheckIcon, MessageCircle, Plus, Search, Settings, TriangleAlert, X } from 'lucide-react'
 import { findClashes } from '@shared/clash'
 import { ACTIVITY_LINE, orbLook, type Activity } from '@shared/orb'
@@ -46,13 +46,16 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+  const headingId = useId()
   return (
     <section className="pt-2 first:pt-0">
       <div className="flex h-7 items-center justify-between px-2.5">
-        <h3 className="text-small font-medium text-ink-3">{title}</h3>
+        <h3 id={headingId} className="text-small font-medium text-ink-3">
+          {title}
+        </h3>
         {aside}
       </div>
-      <ul role="presentation" className="flex flex-col gap-px">
+      <ul aria-labelledby={headingId} className="flex flex-col gap-px">
         {children}
       </ul>
     </section>
@@ -300,6 +303,10 @@ export function Panel(props: PanelProps) {
     actions
   })
 
+  // Selection is a keyboard cursor, not focus, so it's spoken rather than focused.
+  const selectedIndex = rows.findIndex((task) => task.id === selectedId)
+  const announcement = selectedIndex >= 0 ? `${rows[selectedIndex]!.title}, ${selectedIndex + 1} of ${rows.length}` : ''
+
   const nothingOpen =
     view === 'open' && rows.length === 0 && recurrence.length === 0 && !attention && !clash
 
@@ -308,11 +315,15 @@ export function Panel(props: PanelProps) {
       ref={rootRef}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      role="listbox"
+      role="region"
       aria-label="Tasks"
-      aria-activedescendant={selectedId ? `row-${selectedId}` : undefined}
+      aria-keyshortcuts="ArrowUp ArrowDown Enter Space E S Delete /"
+      data-task-panel
       className="glass group/panel flex max-h-[calc(100vh-2px)] origin-top animate-pop flex-col overflow-hidden outline-none"
     >
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
       <div className="flex h-12 shrink-0 items-center gap-1.5 pr-2 pl-1.5">
         <button
           type="button"
@@ -528,7 +539,7 @@ export function Panel(props: PanelProps) {
                   )}
                 >
                   {VIEW_LABEL[option]}
-                  <span className="text-ink-4">{count}</span>
+                  <span className="text-ink-3">{count}</span>
                 </button>
               )
             })}

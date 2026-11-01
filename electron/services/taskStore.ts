@@ -4,6 +4,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import * as sqliteVec from 'sqlite-vec'
 import { PREP_LEAD_HOURS } from '@shared/calendarPrep'
+import { shouldAlert } from '@shared/dueAlerts'
 import { KEEP_TOMBSTONE_DAYS } from '@shared/retention'
 import type { Task, TaskPriority, TaskSource } from '@shared/types'
 import { migrate } from './migrations'
@@ -182,6 +183,8 @@ export function updateTask(id: string, patch: TaskPatch): void {
     params.push(key === 'people' ? JSON.stringify(patch.people ?? []) : patch[key])
   }
   if (assignments.length === 0) return
+  // A new deadline earns a new alert.
+  if ('deadline' in patch) assignments.push('reminded_at = NULL', 'remind_at = NULL')
 
   // Marks the row as the user's, so background refreshes stop rewriting it.
   assignments.push('user_edited_at = ?')
@@ -305,6 +308,28 @@ export function snoozeTask(id: string, until: string): void {
       `UPDATE tasks SET status = 'snoozed', snoozed_until = ? WHERE id = ? AND status != 'deleted'`
     )
     .run(until, id)
+}
+
+/** Pending tasks whose due-soon notification should go out now. */
+export function tasksToAlert(now: number, leadMinutes: number): Task[] {
+  const rows = handle()
+    .prepare<[], TaskRow & { reminded_at: string | null; remind_at: string | null }>(
+      `SELECT * FROM tasks
+        WHERE status = 'pending' AND (remind_at IS NOT NULL OR (deadline IS NOT NULL AND reminded_at IS NULL))`
+    )
+    .all()
+  return rows
+    .filter((row) => shouldAlert({ deadline: row.deadline, remindedAt: row.reminded_at, remindAt: row.remind_at }, now, leadMinutes))
+    .map(toTask)
+}
+
+export function markAlerted(id: string, at = new Date()): void {
+  handle().prepare(`UPDATE tasks SET reminded_at = ?, remind_at = NULL WHERE id = ?`).run(at.toISOString(), id)
+}
+
+/** "Snooze 1 hour" from an alert: out of sight until then, and announced again. */
+export function remindAgainAt(id: string, at: string): void {
+  handle().prepare(`UPDATE tasks SET remind_at = ? WHERE id = ?`).run(at, id)
 }
 
 export function wakeSnoozed(now = Date.now()): number {

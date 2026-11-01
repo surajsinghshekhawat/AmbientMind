@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { describeAppleReason } from '@shared/aiStatus'
+import { REMIND_CHOICES, type RemindBefore } from '@shared/dueAlerts'
 import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
   ABOUT_ME_MAX_CHARS,
@@ -17,6 +18,7 @@ import {
 } from '@shared/types'
 import { Button } from '@/ui/Button'
 import { cn } from '@/ui/cn'
+import { THIS_DEVICE } from '@/ui/device'
 import { Orb } from '@/ui/Orb'
 import { DraftInput, DraftTextarea } from './DraftField'
 import { areaClass, fieldClass, Group, Page, Pill, Row, Segmented, Select, Toggle } from './controls'
@@ -123,6 +125,19 @@ export function General({ data: { config }, actions: { patch } }: PageProps) {
             ))}
           </Select>
         </Row>
+        <Row label="Remind me" description="A notification before a task is due, with Done and Snooze 1 hour.">
+          <Select
+            aria-label="Remind me"
+            value={config.remindBeforeMinutes === null ? 'off' : String(config.remindBeforeMinutes)}
+            onChange={(e) => void patch({ remindBeforeMinutes: e.target.value === 'off' ? null : (Number(e.target.value) as RemindBefore) })}
+          >
+            {REMIND_CHOICES.map((choice) => (
+              <option key={choice.label} value={choice.minutes === null ? 'off' : choice.minutes}>
+                {choice.label}
+              </option>
+            ))}
+          </Select>
+        </Row>
         <Row label="Open at login" description="Adds AmbientMind to your login items. Off until you turn it on.">
           <Toggle label="Open at login" checked={config.launchAtLogin} onChange={(launchAtLogin) => void patch({ launchAtLogin })} />
         </Row>
@@ -130,7 +145,7 @@ export function General({ data: { config }, actions: { patch } }: PageProps) {
 
       <Group
         title="About you"
-        footer={`Background for the model when it reads your mail and screen. Never turned into a task, never leaves this Mac. ${config.aboutMe.length}/${ABOUT_ME_MAX_CHARS}`}
+        footer={`Background for the model when it reads your mail and screen. Never turned into a task, never leaves ${THIS_DEVICE}. ${config.aboutMe.length}/${ABOUT_ME_MAX_CHARS}`}
       >
         <Row label="Your name" description="How your mail addresses you." htmlFor="display-name">
           <DraftInput
@@ -216,7 +231,7 @@ export function Sources({ data: { config, account, sync, apple, permissions }, a
   // Accessibility is a Mac-only permission, so its row says which platform this is.
   const onMac = permissions.some((p) => p.kind === 'accessibility')
   return (
-    <Page title="Sources" description="Where tasks come from. Mail is read from this Mac; nothing passes through a server of ours.">
+    <Page title="Sources" description={`Where tasks come from. Mail is read from ${THIS_DEVICE}; nothing passes through a server of ours.`}>
       <Group
         title="Google"
         footer={
@@ -338,7 +353,7 @@ export function Sources({ data: { config, account, sync, apple, permissions }, a
 
 export function AiModels({ data: { config, health, ragCount, account }, actions: { patch, run, busy, refresh } }: PageProps) {
   return (
-    <Page title="AI & Models" description="Everything runs on this Mac. No prompt or email is sent anywhere.">
+    <Page title="AI & Models" description={`Everything runs on ${THIS_DEVICE}. No prompt or email is sent anywhere.`}>
       <Group
         title="Status"
         footer={
@@ -414,7 +429,7 @@ export function AiModels({ data: { config, health, ragCount, account }, actions:
         <Row label="Examples remembered" description="Similar past mail is shown to the model, so it learns how you work.">
           <span className="tabular text-body text-ink-2">{ragCount}</span>
         </Row>
-        <Row label="Measure accuracy on your mail" description="Exports recent mail with today’s answers filled in, for you to correct. Stays on this Mac.">
+        <Row label="Measure accuracy on your mail" description={`Exports recent mail with today’s answers filled in, for you to correct. Stays on ${THIS_DEVICE}.`}>
           <Button
             size="sm"
             disabled={!!busy || !account.google}
@@ -440,7 +455,7 @@ export const PERMISSION_NAMES: Record<PermissionKind, string> = {
 }
 
 export const PERMISSION_USE: Record<PermissionKind, string> = {
-  microphone: 'To talk to Quick Capture. Audio is transcribed on this Mac and never saved.',
+  microphone: `To talk to Quick Capture. Audio is transcribed on ${THIS_DEVICE} and never saved.`,
   screen: 'Only when you ask it to read your screen. Nothing is recorded or kept.',
   accessibility: 'Reads the text of the window in front when you capture it, with no screenshot. Password managers are never read.'
 }
@@ -519,7 +534,7 @@ function LiveWordsRow({ speech, onChange }: { speech: SpeechEngineInfo; onChange
   if (!apple?.available) return null
   if (apple.installed) {
     return (
-      <Row label="Live words" description={error ?? 'Words appear as you talk and land the moment you stop. Runs on this Mac.'}>
+      <Row label="Live words" description={error ?? `Words appear as you talk and land the moment you stop. Runs on ${THIS_DEVICE}.`}>
         <Pill tone="ok">On</Pill>
       </Row>
     )

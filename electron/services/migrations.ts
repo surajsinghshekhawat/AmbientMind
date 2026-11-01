@@ -13,6 +13,7 @@ import taskLifecycle from '../../db/migrations/011_task_lifecycle.sql?raw'
 import exampleDedupe from '../../db/migrations/012_example_dedupe.sql?raw'
 import appleSources from '../../db/migrations/013_apple_sources.sql?raw'
 import screenChatSources from '../../db/migrations/014_screen_chat_sources.sql?raw'
+import dueAlerts from '../../db/migrations/015_due_alerts.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
@@ -33,7 +34,8 @@ const MIGRATIONS: string[] = [
   taskLifecycle,
   exampleDedupe,
   appleSources,
-  screenChatSources
+  screenChatSources,
+  dueAlerts
 ]
 
 /** The schema version a fully migrated database reports. */

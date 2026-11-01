@@ -1,6 +1,25 @@
+import { useEffect, useState } from 'react'
 import { ThinkingOrb } from 'thinking-orbs'
 import type { OrbLook } from '@shared/orb'
 import { cn } from './cn'
+
+/**
+ * A calm orb breathes this long after anything changes, then holds still:
+ * an idle overlay should cost nothing. Any change, or the pointer, wakes it.
+ */
+export const SETTLE_MS = 8000
+
+function useSettled(look: OrbLook, wake: number): boolean {
+  const [settled, setSettled] = useState(false)
+  const key = `${look.motion}|${look.calm}|${look.arc}|${look.badge}|${look.attention}|${look.peek}`
+  useEffect(() => {
+    setSettled(false)
+    if (!look.calm) return
+    const timer = setTimeout(() => setSettled(true), SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [key, look.calm, wake])
+  return settled
+}
 
 const ARC_COLOR = {
   approaching: 'var(--soon)',
@@ -20,7 +39,8 @@ interface Props {
  * The orb is drawn at the library's tuned 64 px and scaled down, which keeps
  * the hand-tuned dot density instead of the interpolated 32 px preset.
  */
-function Dots({ look, px }: { look: OrbLook; px: number }) {
+function Dots({ look, px, wake }: { look: OrbLook; px: number; wake: number }) {
+  const settled = useSettled(look, wake)
   return (
     <span className="pointer-events-none relative block" style={{ width: px, height: px }}>
       <ThinkingOrb
@@ -28,6 +48,7 @@ function Dots({ look, px }: { look: OrbLook; px: number }) {
         size={64}
         theme="dark"
         speed={look.calm ? 0.55 : 1}
+        paused={settled}
         aria-hidden
         style={{
           position: 'absolute',
@@ -43,8 +64,9 @@ function Dots({ look, px }: { look: OrbLook; px: number }) {
 }
 
 export function Orb({ look, size = 48, bare }: Props) {
+  const [wake, setWake] = useState(0)
   const inner = Math.round(size * 0.86)
-  if (bare) return <Dots look={look} px={inner} />
+  if (bare) return <Dots look={look} px={inner} wake={wake} />
 
   const r = size / 2 + 3
   const box = size + 8
@@ -52,17 +74,17 @@ export function Orb({ look, size = 48, bare }: Props) {
   const arcLength = circumference / 3
 
   return (
-    <span className="relative grid place-items-center" style={{ width: box, height: box }}>
+    <span className="relative grid place-items-center" style={{ width: box, height: box }} onPointerEnter={() => setWake((n) => n + 1)}>
       <span
         className="grid place-items-center rounded-full bg-glass shadow-[inset_0_0_0_0.5px_var(--hairline-2),0_0_0_0.5px_var(--edge)]"
         style={{ width: size, height: size }}
       >
-        <Dots look={look} px={inner} />
+        <Dots look={look} px={inner} wake={wake} />
       </span>
       {look.arc && (
         <svg
           aria-hidden
-          className={cn('pointer-events-none absolute inset-0', look.arc === 'overdue' && 'animate-[arc-pulse_2.4s_ease-in-out_infinite]')}
+          className={cn('pointer-events-none absolute inset-0', look.arc === 'overdue' && 'animate-[arc-pulse_2.4s_ease-in-out_3]')}
           viewBox={`0 0 ${box} ${box}`}
         >
           <circle

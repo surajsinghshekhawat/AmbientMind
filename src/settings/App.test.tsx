@@ -148,7 +148,7 @@ describe('Settings', () => {
     expect(screen.getByText('Turn it on in System Settings.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Open System Settings' }))
     expect(mock.calls.some((c) => c.method === 'openPermissionSettings' && c.args[0] === 'screen')).toBe(true)
-    expect(screen.getByRole('button', { name: /Permissions/ }).querySelector('[aria-label="Needs attention"]')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Permissions (needs attention)' })).toBeTruthy()
   })
 
   it('Accessibility is off, not a problem, until allowed', async () => {
@@ -161,7 +161,7 @@ describe('Settings', () => {
     })
     await open('permissions')
     expect(screen.getByText('Off')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Permissions/ }).querySelector('[aria-label="Needs attention"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: /needs attention/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
     await flush()
     expect(mock.calls.some((c) => c.method === 'requestPermission' && c.args[0] === 'accessibility')).toBe(true)

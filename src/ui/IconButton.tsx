@@ -9,7 +9,7 @@ const TONE = {
   quiet: 'text-ink-3 hover:bg-fill hover:text-ink-1 active:bg-fill-2',
   pressed: 'bg-fill-2 text-ink-1 hover:bg-fill-3',
   accent: 'text-accent hover:bg-fill active:bg-fill-2',
-  primary: 'bg-accent text-on-accent hover:brightness-110 active:brightness-95'
+  primary: 'bg-accent-fill text-on-accent hover:brightness-110 active:brightness-95'
 }
 
 interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {

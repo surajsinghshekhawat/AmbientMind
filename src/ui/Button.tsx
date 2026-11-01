@@ -4,7 +4,7 @@ import { cn } from './cn'
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-accent text-on-accent hover:brightness-110 active:brightness-95',
+  primary: 'bg-accent-fill text-on-accent hover:brightness-110 active:brightness-95',
   secondary: 'bg-fill-2 text-ink-1 hairline hover:bg-fill-3',
   ghost: 'text-ink-2 hover:bg-fill hover:text-ink-1',
   danger: 'text-danger hover:bg-fill'

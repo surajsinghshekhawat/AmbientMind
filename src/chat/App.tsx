@@ -3,6 +3,7 @@ import { ArrowUp, Square, Trash2, X } from 'lucide-react'
 import type { OrbLook } from '@shared/orb'
 import type { ChatTurn } from '@shared/types'
 import { cn } from '@/ui/cn'
+import { THIS_DEVICE } from '@/ui/device'
 import { IconButton } from '@/ui/IconButton'
 import { Markdown } from '@/ui/Markdown'
 import { Orb } from '@/ui/Orb'
@@ -144,12 +145,14 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
 
         <div
           ref={threadRef}
+          role="log"
+          aria-label="Conversation"
           className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [mask-image:linear-gradient(to_bottom,transparent_0,#000_14px,#000_100%)] [scrollbar-width:none]"
         >
           {ready && entries.length === 0 && !busy && (
             <div className="flex animate-rise flex-col gap-1 pt-3">
               <p className="px-1 pb-2 text-small text-ink-3">
-                Ask about your tasks, or tell it what to change. It runs on this Mac.
+                Ask about your tasks, or tell it what to change. It runs on {THIS_DEVICE}.
               </p>
               {SUGGESTIONS.map((suggestion) => (
                 <button

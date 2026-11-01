@@ -1,3 +1,4 @@
+import { isRemindBefore } from './dueAlerts'
 import { normalizePauseAiUntil } from './pauseAi'
 import { isValidAccelerator, SHORTCUT_NAMES, type ShortcutAction, type ShortcutSet } from './shortcuts'
 import {
@@ -87,6 +88,7 @@ export function sanitizeConfig(raw: Partial<Config>): Config {
     excludedApps: names(raw.excludedApps),
     contentProtection: bool(raw.contentProtection, d.contentProtection),
     quietMode: bool(raw.quietMode, d.quietMode),
+    remindBeforeMinutes: isRemindBefore(raw.remindBeforeMinutes) ? raw.remindBeforeMinutes : d.remindBeforeMinutes,
     theme: THEMES.includes(raw.theme as ThemeChoice) ? (raw.theme as ThemeChoice) : d.theme,
     shortcuts: shortcuts(raw.shortcuts),
     onboarded: bool(raw.onboarded, d.onboarded)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { DESTINATION_LABEL, type NetworkSummary } from '@shared/network'
 import { describePause, isAiPaused, pauseAiForHours, PAUSE_UNTIL_RESUMED, tomorrowMorning } from '@shared/pauseAi'
 import { Button } from '@/ui/Button'
+import { clientOs, THIS_DEVICE } from '@/ui/device'
 import { Group, Page, Pill, Row, Toggle } from './controls'
 import { relativeTime, type SettingsActions, type SettingsData } from './pages'
 
@@ -31,11 +32,11 @@ function NetworkActivity({ actions: { run, busy } }: Pick<PageProps, 'actions'>)
   const offDevice = summary.destinations.filter((d) => d.destination !== 'this-mac')
   return (
     <Group
-      title="What leaves this Mac"
-      footer="AmbientMind logs its own requests and its windows’ as they happen: where to, never what was sent. macOS downloads Apple’s speech model itself, so that isn’t listed."
+      title={`What leaves ${THIS_DEVICE}`}
+      footer={`AmbientMind logs its own requests and its windows’ as they happen: where to, never what was sent.${clientOs === 'mac' ? ' macOS downloads Apple’s speech model itself, so that isn’t listed.' : ''}`}
     >
       {offDevice.length === 0 ? (
-        <Row label="Nothing yet" description="No request has left this Mac since the log started." />
+        <Row label="Nothing yet" description={`No request has left ${THIS_DEVICE} since the log started.`} />
       ) : (
         offDevice.map((destination) => (
           <Row
@@ -47,7 +48,7 @@ function NetworkActivity({ actions: { run, busy } }: Pick<PageProps, 'actions'>)
           </Row>
         ))
       )}
-      <Row label="To this Mac" description="Ollama and the Google sign-in callback. Counted, not logged.">
+      <Row label={`To ${THIS_DEVICE}`} description="Ollama and the Google sign-in callback. Counted, not logged.">
         <Pill tone="quiet">{summary.localSinceLaunch.toLocaleString()} since launch</Pill>
       </Row>
       {summary.recent.length > 0 && (
@@ -57,7 +58,7 @@ function NetworkActivity({ actions: { run, busy } }: Pick<PageProps, 'actions'>)
               <ol aria-label="Recent requests" className="max-h-56 overflow-y-auto rounded-control bg-fill-2 px-2.5 py-2 font-mono text-micro leading-[1.7] text-ink-2 hairline">
                 {summary.recent.map((request, index) => (
                   <li key={`${request.at}-${index}`} className="flex gap-2 whitespace-nowrap">
-                    <span className="text-ink-4">{clock(request.at)}</span>
+                    <span className="text-ink-3">{clock(request.at)}</span>
                     <span className={request.status === null || request.status >= 400 ? 'text-danger' : 'text-ink-3'}>
                       {request.status ?? 'failed'}
                     </span>
@@ -104,7 +105,7 @@ export function Privacy({ data, actions }: PageProps) {
   const { patch, run } = actions
   const paused = isAiPaused(config.pauseAiUntil)
   return (
-    <Page title="Privacy" description="Your mail, tasks and models stay on this Mac. There is no AmbientMind server and no account.">
+    <Page title="Privacy" description={`Your mail, tasks and models stay on ${THIS_DEVICE}. There is no AmbientMind server and no account.`}>
       <Group title="Pause AI" footer="While paused nothing reads your mail or screen. Recurring tasks and snoozes still work. Also in the menu bar.">
         <Row label={paused ? 'Paused' : 'AI is on'} description={paused ? describePause(config.pauseAiUntil!) : 'Reads new mail on schedule and answers in chat.'}>
           {paused ? (
@@ -129,7 +130,7 @@ export function Privacy({ data, actions }: PageProps) {
 
       <Group title="Where your data goes">
         <Row
-          label="Stays on this Mac"
+          label={`Stays on ${THIS_DEVICE}`}
           description="Tasks, the mail text that was read, chat, decisions, logs, and every model that reads them."
         />
         <Row
@@ -155,16 +156,18 @@ export function Privacy({ data, actions }: PageProps) {
         >
           <Toggle label="Hide from screen sharing" checked={config.contentProtection} onChange={(on) => void patch({ contentProtection: on })} />
         </Row>
-        <Row
-          label="Quiet during calls and full screen"
-          description="The orb steps aside and sync notifications wait while another app uses the mic or fills the screen."
-        >
-          <Toggle label="Quiet during calls and full screen" checked={config.quietMode} onChange={(on) => void patch({ quietMode: on })} />
-        </Row>
+        {clientOs === 'mac' && (
+          <Row
+            label="Quiet during calls and full screen"
+            description="The orb steps aside and sync notifications wait while another app uses the mic or fills the screen."
+          >
+            <Toggle label="Quiet during calls and full screen" checked={config.quietMode} onChange={(on) => void patch({ quietMode: on })} />
+          </Row>
+        )}
       </Group>
 
       <Group>
-        <Row label="Crash log" description="Written on this Mac when something goes wrong. Never sent anywhere.">
+        <Row label="Crash log" description={`Written on ${THIS_DEVICE} when something goes wrong. Never sent anywhere.`}>
           <Button
             size="sm"
             onClick={() =>

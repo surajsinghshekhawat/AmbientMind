@@ -17,6 +17,9 @@ interface Props {
 /** Monday first, as people read a week. */
 const DAYS = [1, 2, 3, 4, 5, 6, 0]
 
+/** 4 Jan 2026 was a Sunday, so day 0 lands on it. */
+const fullDayName = (day: number) => new Date(2026, 0, 4 + day).toLocaleDateString(undefined, { weekday: 'long' })
+
 export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }: Props) {
   const [phrase, setPhrase] = useState('')
   const [title, setTitle] = useState('')
@@ -142,10 +145,11 @@ export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }:
                 key={day}
                 type="button"
                 aria-pressed={weekdays.includes(day)}
+                aria-label={fullDayName(day)}
                 onClick={() => toggleDay(day)}
                 className={cn(
                   'focus-ring size-7 rounded-full text-small font-medium transition-colors duration-150',
-                  weekdays.includes(day) ? 'bg-accent text-on-accent' : 'bg-fill-2 text-ink-2 hover:bg-fill-3'
+                  weekdays.includes(day) ? 'bg-accent-fill text-on-accent' : 'bg-fill-2 text-ink-2 hover:bg-fill-3'
                 )}
               >
                 {weekdayLabel(day).slice(0, 2)}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Cpu, Lock, Mail, Undo2 } from 'lucide-react'
 import type { PermissionState } from '@shared/permissions'
 import type { ShortcutStatus } from '@shared/shortcuts'
@@ -9,17 +9,28 @@ import { Kbd } from '@/ui/Kbd'
 import { Orb } from '@/ui/Orb'
 import { Group, Pill, Row, Toggle } from '../settings/controls'
 import { PERMISSION_NAMES, PERMISSION_USE, PermissionAction, permissionPill, type AccountStatus } from '../settings/pages'
-import { clientOs } from '../settings/Shortcuts'
+import { clientOs, THIS_DEVICE } from '@/ui/device'
 
 export const STEPS = ['welcome', 'privacy', 'sources', 'permissions', 'model', 'shortcuts'] as const
 export type Step = (typeof STEPS)[number]
+
+const STEP_LABEL: Record<Step, string> = {
+  welcome: 'Welcome',
+  privacy: 'Privacy',
+  sources: 'Sources',
+  permissions: 'Permissions',
+  model: 'AI model',
+  shortcuts: 'Shortcuts'
+}
 
 const IDLE_ORB = { motion: 'breathing', calm: true, arc: null, badge: null, attention: false, peek: '' } as const
 
 function Hero({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <header className="flex flex-col gap-2">
-      <h1 className="text-[24px] leading-[30px] font-semibold tracking-[-0.015em] text-ink-1">{title}</h1>
+      <h1 tabIndex={-1} className="text-[24px] leading-[30px] font-semibold tracking-[-0.015em] text-ink-1 outline-none">
+        {title}
+      </h1>
       {children && <p className="text-title leading-[1.5] text-ink-2">{children}</p>}
     </header>
   )
@@ -72,6 +83,17 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
   }, [applyTheme, checkHealth, checkPermissions])
 
   const index = STEPS.indexOf(step)
+  const mainRef = useRef<HTMLElement>(null)
+  const firstStep = useRef(true)
+
+  // A new step replaces the whole page; its heading takes focus so it's read out.
+  useEffect(() => {
+    if (firstStep.current) {
+      firstStep.current = false
+      return
+    }
+    mainRef.current?.querySelector<HTMLElement>('h1')?.focus()
+  }, [step])
   const last = index === STEPS.length - 1
   const next = () => (last ? window.ambient.finishOnboarding() : setStep(STEPS[index + 1]!))
   const back = () => setStep(STEPS[Math.max(0, index - 1)]!)
@@ -132,10 +154,10 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
       case 'privacy':
         return (
           <>
-            <Hero title="It stays on this Mac" />
+            <Hero title={`It stays on ${THIS_DEVICE}`} />
             <ul className="flex flex-col gap-5">
               <Commitment icon={<Cpu />} title="The model runs here">
-                Reading mail and answering questions happen on this Mac. No prompt is sent to a server.
+                Reading mail and answering questions happen on {THIS_DEVICE}. No prompt is sent to a server.
               </Commitment>
               <Commitment icon={<Mail />} title="Mail goes straight from Google to you">
                 There is no AmbientMind account and no server in between.
@@ -245,7 +267,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
       case 'model':
         return (
           <>
-            <Hero title="The model on this Mac">
+            <Hero title={`The model on ${THIS_DEVICE}`}>
               {health?.ok ? 'Everything it needs is here and running.' : 'AmbientMind uses a small local model through Ollama.'}
             </Hero>
             <Group
@@ -303,14 +325,24 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
   return (
     <div className="flex h-full flex-col bg-[var(--window)] text-ink-1">
       <div className={cn('shrink-0 [-webkit-app-region:drag]', clientOs === 'mac' ? 'h-12' : 'h-4')} />
-      <main key={step} className="mx-auto flex min-h-0 w-full max-w-[460px] flex-1 animate-rise flex-col justify-center gap-7 overflow-y-auto px-2 pb-4">
+      <main ref={mainRef} key={step} className="mx-auto flex min-h-0 w-full max-w-[460px] flex-1 animate-rise flex-col justify-center gap-7 overflow-y-auto px-2 pb-4">
         {body}
-        {error && <p className="text-small text-danger">{error}</p>}
+        {error && (
+          <p role="alert" className="text-small text-danger">
+            {error}
+          </p>
+        )}
       </main>
       <footer className="flex h-16 shrink-0 items-center gap-3 px-6 shadow-[inset_0_0.5px_0_var(--hairline)]">
         <ol className="flex flex-1 gap-1.5" aria-label={`Step ${index + 1} of ${STEPS.length}`}>
           {STEPS.map((s, i) => (
-            <li key={s} className={cn('h-1.5 rounded-full transition-all duration-300', i === index ? 'w-4 bg-accent' : i < index ? 'w-1.5 bg-ink-3' : 'w-1.5 bg-fill-3')} />
+            <li
+              key={s}
+              aria-current={i === index ? 'step' : undefined}
+              className={cn('h-1.5 rounded-full transition-all duration-300', i === index ? 'w-4 bg-accent' : i < index ? 'w-1.5 bg-ink-3' : 'w-1.5 bg-fill-3')}
+            >
+              <span className="sr-only">{STEP_LABEL[s]}</span>
+            </li>
           ))}
         </ol>
         {index > 0 && (

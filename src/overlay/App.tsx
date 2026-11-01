@@ -8,8 +8,12 @@ import { ToastProvider } from '@/ui/Toast'
 import { Panel } from './Panel'
 
 const CLOCK_TICK_MS = 30_000
+/** Collapsed, the orb only shows urgency by the hour and a count by the day. */
+const COLLAPSED_CLOCK_TICK_MS = 60_000
 /** Ollama gets started after the app often enough to be worth re-checking. */
 const HEALTH_POLL_MS = 60_000
+/** Collapsed, only the attention dot depends on it. */
+const COLLAPSED_HEALTH_POLL_MS = 5 * 60_000
 
 export function App() {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -56,18 +60,18 @@ export function App() {
     void window.ambient.getHealth().then(setHealth)
   }, [])
 
+  useEffect(() => window.ambient.onOverlayExpanded(setExpanded), [])
+
   useEffect(() => {
     refreshHealth()
-    const id = setInterval(refreshHealth, HEALTH_POLL_MS)
+    const id = setInterval(refreshHealth, expanded ? HEALTH_POLL_MS : COLLAPSED_HEALTH_POLL_MS)
     return () => clearInterval(id)
-  }, [refreshHealth])
+  }, [refreshHealth, expanded])
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
+    const id = setInterval(() => setNow(Date.now()), expanded ? CLOCK_TICK_MS : COLLAPSED_CLOCK_TICK_MS)
     return () => clearInterval(id)
-  }, [])
-
-  useEffect(() => window.ambient.onOverlayExpanded(setExpanded), [])
+  }, [expanded])
 
   // Only asked about while the panel is open; a pattern is never urgent.
   useEffect(() => {

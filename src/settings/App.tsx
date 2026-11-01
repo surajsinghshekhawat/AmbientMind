@@ -22,7 +22,8 @@ import { About, AiModels, Capture, General, Learned, Permissions, Sources, type 
 import { Privacy } from './Privacy'
 import { YourData } from './YourData'
 import { Recurring } from './Recurring'
-import { clientOs, Shortcuts } from './Shortcuts'
+import { Shortcuts } from './Shortcuts'
+import { clientOs } from '@/ui/device'
 
 export type SectionId =
   | 'general'
@@ -238,13 +239,20 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
           >
             <Icon className={cn('size-[15px] shrink-0 stroke-[1.75]', section === id ? 'text-accent' : 'text-ink-3')} />
             <span className="flex-1 truncate">{label}</span>
-            {attention[id] && <span aria-label="Needs attention" className="size-1.5 rounded-full bg-warning" />}
+            {attention[id] && (
+              <>
+                <span aria-hidden className="size-1.5 rounded-full bg-warning" />
+                <span className="sr-only">(needs attention)</span>
+              </>
+            )}
           </button>
         ))}
-        {busy && <p className="mt-auto px-2.5 text-small text-ink-3 shimmer">{busy}</p>}
+        <p role="status" className="mt-auto px-2.5 text-small text-ink-3 shimmer empty:hidden">
+          {busy}
+        </p>
       </nav>
 
-      <main className="relative flex min-w-0 flex-1 flex-col">
+      <main aria-label={SECTIONS.find((s) => s.id === section)?.label} className="relative flex min-w-0 flex-1 flex-col">
         {clientOs === 'mac' && <div className="h-6 shrink-0 [-webkit-app-region:drag]" />}
         <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto">
           {page}

@@ -1,5 +1,4 @@
 import { isIsolated } from './isolation'
-import { execFileSync } from 'node:child_process'
 import { userInfo } from 'node:os'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,7 +18,7 @@ import { permissionKinds, privacySettingsUrl, type PermissionKind } from '@share
 import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
 import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
-import { hideDock, installAppMenu, os, permissionState, requestAccess } from './platform'
+import { accountFullName, hideDock, installAppMenu, os, permissionState, requestAccess, setAppIdentity } from './platform'
 import { helperReady, helperRequest, onHelperEvent, onHelperState, startHelper, stopHelper } from './native/helper'
 import { runHelperCheck } from './native/helperCheck'
 
@@ -134,6 +133,9 @@ import {
   closeTaskStore,
   deleteTask,
   getTask,
+  markAlerted,
+  remindAgainAt,
+  tasksToAlert,
   getTaskStore,
   listActive,
   listSyncStates,
@@ -203,6 +205,7 @@ import { exampleCount, messageIdFromTask, rateExampleBySource } from './services
 import { backfillEmbeddings, runRetention } from './services/maintenance'
 import { needsEnrichment, parseCapture } from '@shared/capture'
 import type { ChatReply, ChatTurn, Config, SyncSummary, Task } from '@shared/types'
+import { alertBody, MAX_ALERTS_AT_ONCE } from '@shared/dueAlerts'
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import { powerMonitor } from 'electron'
 import { forgetSubject, learnedSuppressions, recordDecision } from './services/decisionStore'
@@ -227,6 +230,7 @@ let quiet: { reason: QuietReason; label: string } | null = null
 let overlayHiddenForQuiet = false
 let quietTimer: ReturnType<typeof setInterval> | null = null
 let wasPaused = false
+let lastNotifiedError: string | null = null
 /** In-memory: the DB keeps last_run/last_error, this keeps the counts. */
 let lastReport: SyncSummary['lastReport'] = null
 
@@ -236,6 +240,75 @@ function onIpc<A extends unknown[]>(
   handler: (event: Electron.IpcMainEvent, ...args: A) => unknown
 ) {
   ipcMain.on(channel, guard(`ipc:${channel}`, handler) as (event: Electron.IpcMainEvent, ...args: unknown[]) => void)
+}
+
+function completeTaskById(id: string) {
+  // Recorded before the status change, while the task is still readable.
+  const task = getTask(id)
+  setStatus(id, 'done')
+  if (task) {
+    recordDecision({ kind: 'completed', title: task.title, source: task.source })
+    rateSourceExample(task, 1)
+  }
+  broadcastTasks()
+  trayHandle?.refresh()
+}
+
+function snoozeTaskById(id: string, until: string) {
+  const task = getTask(id)
+  snoozeTask(id, until)
+  if (task) {
+    recordDecision({
+      kind: 'snoozed',
+      title: task.title,
+      source: task.source,
+      detail: until.slice(0, 16).replace('T', ' ')
+    })
+  }
+  broadcastTasks()
+  trayHandle?.refresh()
+}
+
+/** Held by reference: a collected notification loses its click and action handlers. */
+const liveNotices = new Set<Notification>()
+
+function showDueAlert(task: Task) {
+  const notice = new Notification({
+    title: task.title,
+    body: alertBody(task.deadline ?? new Date().toISOString(), Date.now()),
+    actions: [
+      { type: 'button', text: 'Done' },
+      { type: 'button', text: 'Snooze 1 hour' }
+    ],
+    closeButtonText: 'Close'
+  })
+  liveNotices.add(notice)
+  const forget = () => liveNotices.delete(notice)
+  notice.on('action', (details) => {
+    if (details.actionIndex === 0) completeTaskById(task.id)
+    if (details.actionIndex === 1) {
+      const until = new Date(Date.now() + 3_600_000).toISOString()
+      snoozeTaskById(task.id, until)
+      remindAgainAt(task.id, until)
+    }
+    forget()
+  })
+  notice.on('click', () => {
+    setOverlayExpanded(true)
+    forget()
+  })
+  notice.on('close', forget)
+  notice.show()
+}
+
+/** Not AI, so a pause doesn't hold them; a call or a full-screen app does. */
+function sendDueAlerts() {
+  const { remindBeforeMinutes } = loadConfig()
+  if (remindBeforeMinutes === null || quiet || !Notification.isSupported()) return
+  for (const task of tasksToAlert(Date.now(), remindBeforeMinutes).slice(0, MAX_ALERTS_AT_ONCE)) {
+    markAlerted(task.id)
+    showDueAlert(task)
+  }
 }
 
 function broadcastTasks() {
@@ -321,8 +394,16 @@ async function checkQuiet() {
   }
 }
 
-function startQuietWatch() {
-  if (os !== 'mac' || quietTimer) return
+/** Polls only while quiet mode is on; off, nothing runs. */
+function syncQuietWatch(enabled: boolean) {
+  if (os !== 'mac') return
+  if (!enabled) {
+    if (quietTimer) clearInterval(quietTimer)
+    quietTimer = null
+    setQuiet(null)
+    return
+  }
+  if (quietTimer) return
   quietTimer = setInterval(() => void checkQuiet(), QUIET_POLL_MS)
   void checkQuiet()
 }
@@ -330,7 +411,7 @@ function startQuietWatch() {
 function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
   if (!previous || previous.contentProtection !== config.contentProtection) applyContentProtection(config.contentProtection)
-  if (previous && previous.quietMode !== config.quietMode) void checkQuiet()
+  if (previous && previous.quietMode !== config.quietMode) syncQuietWatch(config.quietMode)
   trayHandle?.refresh()
   nativeTheme.themeSource = config.theme
   if (previous && JSON.stringify(previous.shortcuts) !== JSON.stringify(config.shortcuts)) registerShortcuts()
@@ -411,15 +492,7 @@ function registerIpc() {
   })
 
   ipcMain.handle(IPC.CompleteTask, (_event, id: string) => {
-    // Recorded before the status change, while the task is still readable.
-    const task = getTask(id)
-    setStatus(id, 'done')
-    if (task) {
-      recordDecision({ kind: 'completed', title: task.title, source: task.source })
-      rateSourceExample(task, 1)
-    }
-    broadcastTasks()
-    trayHandle?.refresh()
+    completeTaskById(id)
     return listActive()
   })
 
@@ -457,18 +530,7 @@ function registerIpc() {
   })
 
   ipcMain.handle(IPC.SnoozeTask, (_event, id: string, until: string) => {
-    const task = getTask(id)
-    snoozeTask(id, until)
-    if (task) {
-      recordDecision({
-        kind: 'snoozed',
-        title: task.title,
-        source: task.source,
-        detail: until.slice(0, 16).replace('T', ' ')
-      })
-    }
-    broadcastTasks()
-    trayHandle?.refresh()
+    snoozeTaskById(id, until)
     return listActive()
   })
 
@@ -814,7 +876,7 @@ function registerIpc() {
   ipcMain.handle(IPC.NetworkLog, () => networkSummary())
 
   ipcMain.handle(IPC.ClearNetworkLog, async () => {
-    const sure = await confirmDestructive('Clear the network log?', 'The list of requests that left this Mac starts again from now.', 'Clear')
+    const sure = await confirmDestructive('Clear the network log?', `The list of requests that left ${os === 'mac' ? 'this Mac' : 'this PC'} starts again from now.`, 'Clear')
     if (!sure) return { canceled: true, removed: 0 }
     const removed = readRequests(networkLogPath()).length
     clearNetworkLog()
@@ -884,17 +946,11 @@ let chatAbort: AbortController | null = null
  * typically address the user by first name. Replaced by an explicit setting
  * once the settings window exists.
  */
-let macName: string | null | undefined
-function macFirstName(): string | null {
-  if (macName !== undefined) return macName
-  macName = null
-  if (process.platform !== 'darwin') return macName
-  try {
-    macName = execFileSync('/usr/bin/id', ['-F'], { encoding: 'utf8', timeout: 1000 }).trim().split(/\s+/)[0] || null
-  } catch {
-    // No full name on the account: fall through to the short one.
-  }
-  return macName
+let accountName: string | null | undefined
+function accountFirstName(): string | null {
+  // No full name on the account falls through to the short one.
+  if (accountName === undefined) accountName = accountFullName()?.split(/\s+/)[0] || null
+  return accountName
 }
 
 function currentUserName(): string {
@@ -905,7 +961,7 @@ function currentUserName(): string {
   // The Mac account's full name gives a real first name; the short account
   // name is often a handle ("jsmith"), as is the Gmail local-part,
   // and the extractor then misses mail that says "Hi Suraj".
-  const full = macFirstName()
+  const full = accountFirstName()
   if (full) return full
   const os = userInfo().username?.trim()
   if (os) return os
@@ -1015,11 +1071,18 @@ async function triggerSync(force = false): Promise<SyncReport> {
   broadcastTasks()
   trayHandle?.refresh()
 
-  const summary = report.errors[0]
-    ? report.errors[0]
-    : `Scanned ${report.scanned}, added ${report.added} task${report.added === 1 ? '' : 's'}`
-  if (!isAiPaused(loadConfig().pauseAiUntil) && !quiet) {
-    new Notification({ title: 'AmbientMind sync', body: summary }).show()
+  // Only news: a pass that found nothing says so in the panel, not on screen,
+  // and the same error isn't repeated every interval.
+  const error = report.errors[0] ?? null
+  const news =
+    report.added > 0
+      ? `Added ${report.added} task${report.added === 1 ? '' : 's'}${report.errors.length ? ` · ${report.errors.length} problem${report.errors.length === 1 ? '' : 's'}` : ''}`
+      : error && error !== lastNotifiedError
+        ? error
+        : null
+  lastNotifiedError = error
+  if (news && !isAiPaused(loadConfig().pauseAiUntil) && !quiet) {
+    new Notification({ title: 'AmbientMind', body: news }).show()
   }
   console.log('[sync] report', report)
   return report
@@ -1234,6 +1297,7 @@ if (process.argv.includes('--selftest')) {
 } else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  setAppIdentity()
   // A menu-bar app: Settings and Chat bring the Dock icon back while open.
   hideDock()
 
@@ -1309,7 +1373,7 @@ if (process.argv.includes('--selftest')) {
       },
       quietLabel: () => quiet?.label ?? null
     })
-    startQuietWatch()
+    syncQuietWatch(config.quietMode)
 
     nativeTheme.themeSource = config.theme
     registerShortcuts({
@@ -1342,6 +1406,7 @@ if (process.argv.includes('--selftest')) {
         }
         // Brings up each rule's next occurrence as the previous one settles.
         applyRules()
+        sendDueAlerts()
         // A timed pause ends on its own; the menu bar should say so.
         const paused = isAiPaused(loadConfig().pauseAiUntil)
         if (paused !== wasPaused) {

@@ -1,5 +1,6 @@
 import type { SpeechStatus } from './helperProtocol'
 import type { ShortcutSet } from './shortcuts'
+import type { RemindBefore } from './dueAlerts'
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
@@ -113,6 +114,8 @@ export interface Config {
   contentProtection: boolean
   /** During a call or a full-screen app, the orb hides and notifications wait. */
   quietMode: boolean
+  /** Minutes before a deadline to notify, with Done and Snooze; null is off. */
+  remindBeforeMinutes: RemindBefore
   /** Settings and onboarding only; the overlay, capture and chat stay dark. */
   theme: ThemeChoice
   /** Only the shortcuts the user changed; the rest use the platform defaults. */
@@ -205,6 +208,7 @@ export const DEFAULT_CONFIG: Config = {
   excludedApps: [],
   contentProtection: false,
   quietMode: true,
+  remindBeforeMinutes: 15,
   theme: 'system',
   shortcuts: {},
   onboarded: false

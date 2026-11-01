@@ -3,16 +3,14 @@ import {
   acceleratorFromKey,
   defaultShortcuts,
   sameShortcut,
-  type Os,
   type ShortcutAction,
   type ShortcutSet,
   type ShortcutStatus
 } from '@shared/shortcuts'
 import { cn } from '@/ui/cn'
+import { clientOs } from '@/ui/device'
 import { Kbd } from '@/ui/Kbd'
 import { Group, Page, Row } from './controls'
-
-export const clientOs: Os = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? 'mac' : 'win'
 
 interface Props {
   shortcuts: ShortcutStatus[]

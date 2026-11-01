@@ -10,7 +10,7 @@
   --ink-1: oklch(0.97 0.003 286);
   --ink-2: oklch(0.83 0.006 286);
   --ink-3: oklch(0.64 0.01 286);
-  --ink-4: oklch(0.48 0.01 286);
+  --ink-4: oklch(0.53 0.01 286);
   /* Without native blur, more show-through than this hurts legibility on busy wallpaper. */
   --glass: oklch(0.205 0.006 286 / 0.95);
   --window: oklch(0.205 0.004 286);
@@ -22,6 +22,8 @@
   --hairline-2: oklch(1 0 0 / 0.15);
   --edge: oklch(0 0 0 / 0.55);
   --accent: oklch(0.64 0.19 254);
+  /* Behind white text; --accent itself is tuned to be read as text on the window. */
+  --accent-fill: oklch(0.55 0.19 256);
   --on-accent: oklch(1 0 0);
   --danger: oklch(0.67 0.21 25);
   --warning: oklch(0.79 0.16 66);
@@ -33,8 +35,8 @@
   color-scheme: light;
   --ink-1: oklch(0.22 0.005 286);
   --ink-2: oklch(0.42 0.008 286);
-  --ink-3: oklch(0.55 0.01 286);
-  --ink-4: oklch(0.7 0.008 286);
+  --ink-3: oklch(0.52 0.01 286);
+  --ink-4: oklch(0.62 0.008 286);
   --glass: oklch(0.985 0.002 286 / 0.92);
   --window: oklch(0.985 0.001 286);
   --sidebar: oklch(0.955 0.003 286);
@@ -44,11 +46,12 @@
   --hairline: oklch(0 0 0 / 0.08);
   --hairline-2: oklch(0 0 0 / 0.14);
   --edge: oklch(0 0 0 / 0.18);
-  --accent: oklch(0.58 0.2 254);
-  --danger: oklch(0.58 0.22 27);
-  --warning: oklch(0.6 0.16 55);
-  --soon: oklch(0.6 0.13 85);
-  --success: oklch(0.56 0.16 150);
+  --accent: oklch(0.53 0.2 254);
+  --accent-fill: oklch(0.53 0.2 254);
+  --danger: oklch(0.55 0.22 27);
+  --warning: oklch(0.52 0.16 55);
+  --soon: oklch(0.52 0.13 85);
+  --success: oklch(0.5 0.16 150);
 }
 
 @media (prefers-color-scheme: light) {
@@ -56,8 +59,8 @@
     color-scheme: light;
     --ink-1: oklch(0.22 0.005 286);
     --ink-2: oklch(0.42 0.008 286);
-    --ink-3: oklch(0.55 0.01 286);
-    --ink-4: oklch(0.7 0.008 286);
+    --ink-3: oklch(0.52 0.01 286);
+    --ink-4: oklch(0.62 0.008 286);
     --glass: oklch(0.985 0.002 286 / 0.92);
     --window: oklch(0.985 0.001 286);
     --sidebar: oklch(0.955 0.003 286);
@@ -67,11 +70,12 @@
     --hairline: oklch(0 0 0 / 0.08);
     --hairline-2: oklch(0 0 0 / 0.14);
     --edge: oklch(0 0 0 / 0.18);
-    --accent: oklch(0.58 0.2 254);
-    --danger: oklch(0.58 0.22 27);
-    --warning: oklch(0.6 0.16 55);
-    --soon: oklch(0.6 0.13 85);
-    --success: oklch(0.56 0.16 150);
+    --accent: oklch(0.53 0.2 254);
+    --accent-fill: oklch(0.53 0.2 254);
+    --danger: oklch(0.55 0.22 27);
+    --warning: oklch(0.52 0.16 55);
+    --soon: oklch(0.52 0.13 85);
+    --success: oklch(0.5 0.16 150);
   }
 }
 
@@ -98,6 +102,7 @@
   --color-hairline: var(--hairline);
   --color-hairline-2: var(--hairline-2);
   --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
   --color-on-accent: var(--on-accent);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
