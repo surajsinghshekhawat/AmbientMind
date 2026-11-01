@@ -72,7 +72,7 @@ Nothing else. There are no analytics, crash-reporting, advertising or tracking s
 
 ## AI
 
-- **It runs locally.** Mail, screen text and chat are read by Ollama on your computer, or on a Mac by Apple's on-device model. No prompt is sent to a cloud AI service. (A developer can point the `OLLAMA_URL` environment variable at another machine. If you do, prompts go to that machine.)
+- **It runs locally.** Mail, screen text and chat are read by Ollama on your computer, or on a Mac by Apple's on-device model. No prompt is sent to a cloud AI service. AmbientMind only talks to Ollama at a loopback address on your own computer (`127.0.0.1` or `::1`), and refuses any other address.
 - **No training.** Nothing you do in AmbientMind is used to train or improve any AI model, the publisher's or anyone else's. Examples of tasks you kept are stored on your computer and shown to your local model as hints. That is not training, and you can see and clear them in Settings → Your data.
 - **It can be wrong.** Tasks the AI found are marked as such, with the quoted line they came from, and those it is unsure about wait for your OK. Check anything that matters.
 

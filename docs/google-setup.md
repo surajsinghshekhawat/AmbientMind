@@ -54,7 +54,8 @@ Settings → Your data → **Show in Finder** (**Show in Explorer**) opens the r
 you works as-is; it does not need editing.
 
 For development you can instead set `GOOGLE_CLIENT_ID` and
-`GOOGLE_CLIENT_SECRET` as environment variables, which take precedence.
+`GOOGLE_CLIENT_SECRET` as environment variables, which take precedence. Release
+builds (`npm run dist:release`) ignore them and only read the file.
 
 > The client secret in a desktop OAuth app is not really a secret — Google
 > treats it as an identifier and expects it to ship inside the application.
