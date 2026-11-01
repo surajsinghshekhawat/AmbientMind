@@ -126,7 +126,8 @@ function tidy(title: string): string {
     .replace(/\s+/g, ' ')
     .replace(/\s+([,.;:])/g, '$1')
     .replace(/(?:\s|^)(?:by|on|at|due)\s*$/i, '')
-    .replace(/^[\s,;:–-]+|[\s,;:–-]+$/g, '')
+    // Dictation ends sentences with a period; a title doesn't need one.
+    .replace(/^[\s,;:–-]+|[\s,;:.–-]+$/g, '')
     .trim()
 }
 

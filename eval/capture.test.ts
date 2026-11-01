@@ -55,6 +55,15 @@ test('urgency cues set priority; @names and "with Name" set people', () => {
   assert.equal(parseCapture('Pay rent!', NOW).title, 'Pay rent')
 })
 
+test('dictated punctuation does not end up in the title', () => {
+  // As Whisper wrote them in the QA voice run.
+  const dentist = parseCapture('Call the dentist tomorrow, at 10am.', NOW)
+  assert.equal(dentist.title, 'Call the dentist')
+  assert.ok(dentist.deadline)
+  assert.equal(parseCapture('Send the quarterly report to Priya by Friday.', NOW).title, 'Send the quarterly report to Priya')
+  assert.equal(parseCapture('Buy milk.', NOW).title, 'Buy milk')
+})
+
 test('a priority tag at either end leaves the title; in the middle it stays', () => {
   const invoice = parseCapture('send the invoice to Acme by Friday 5pm, urgent', NOW)
   assert.equal(invoice.title, 'Send the invoice to Acme')
