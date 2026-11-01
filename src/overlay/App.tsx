@@ -47,6 +47,8 @@ export function App() {
     void window.ambient.getHealth().then(setHealth)
   }, [])
 
+  // Pausing or resuming AI from Settings or the menu changes what health says.
+  useEffect(() => window.ambient.onConfigChanged(refreshHealth), [refreshHealth])
   useEffect(
     () =>
       window.ambient.onSyncStatus((status) => {
