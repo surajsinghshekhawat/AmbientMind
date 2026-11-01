@@ -1,4 +1,5 @@
 import { isIsolated } from './isolation'
+import { qaControl, qaEnabled } from './qa'
 import { userInfo } from 'node:os'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -1358,7 +1359,8 @@ if (process.argv.includes('--selftest')) {
     void backfillEmbeddings(config.embeddingModel)
     createOverlayWindow(config)
     createQuickAddWindow()
-    trayHandle = createTray({
+    // A menu bar icon would appear on the screen of whoever is working while QA runs.
+    if (!qaEnabled) trayHandle = createTray({
       onSyncNow: () => triggerSync(true),
       onOpenSettings: () => showSettingsWindow(),
       launchAtLogin: () => loadConfig().launchAtLogin,
@@ -1382,6 +1384,19 @@ if (process.argv.includes('--selftest')) {
       settings: () => showSettingsWindow(),
       chat: () => showChatWindow()
     })
+    // What the tray and the shortcuts would do, for QA runs that have neither.
+    if (qaControl) {
+      qaControl.actions = {
+        syncNow: () => triggerSync(true),
+        settings: (section?: string) => showSettingsWindow(section),
+        chat: () => showChatWindow(),
+        quickAdd: () => showQuickAdd(),
+        onboarding: () => showOnboardingWindow(),
+        expand: (on = true) => setOverlayExpanded(on),
+        capture: () => captureScreenAsTask(),
+        dueAlerts: () => sendDueAlerts()
+      }
+    }
     startScheduler(config.syncIntervalMinutes, () => syncOptions(), onScheduledSync)
     if (!config.onboarded) showOnboardingWindow()
 
