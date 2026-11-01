@@ -18,7 +18,7 @@ import {
 } from '@shared/types'
 import { Button } from '@/ui/Button'
 import { cn } from '@/ui/cn'
-import { THIS_DEVICE } from '@/ui/device'
+import { SETTINGS_APP, THIS_DEVICE } from '@/ui/device'
 import { Orb } from '@/ui/Orb'
 import { DraftInput, DraftTextarea } from './DraftField'
 import { areaClass, fieldClass, Group, Page, Pill, Row, Segmented, Select, Toggle } from './controls'
@@ -329,25 +329,33 @@ export function Sources({ data: { config, account, sync, apple, permissions }, a
           title="On this Mac"
           footer="Read through macOS with your permission; nothing leaves this Mac. Reminders only ever touches its own “AmbientMind” list."
         >
-          <AppleSourceRow
-            source="calendar"
-            apple={apple}
-            label="Apple Calendar"
-            idle="Meetings with other people in the next two days become prep tasks. Covers every account in Internet Accounts."
-            active={`${plural(apple.calendar.upcoming, 'meeting')} to prepare for`}
-            onChange={setApple}
-          />
-          <AppleSourceRow
-            source="reminders"
-            apple={apple}
-            label="Reminders"
-            idle="Two-way with an “AmbientMind” list: finish a task on your iPhone and it clears here."
-            active={`${plural(apple.reminders.linked, 'task')} in ${apple.reminders.list ?? 'the AmbientMind list'}`}
-            onChange={setApple}
-          />
+          <AppleSourceRows apple={apple} onChange={setApple} />
         </Group>
       )}
     </Page>
+  )
+}
+
+export function AppleSourceRows({ apple, onChange }: { apple: AppleSourcesStatus; onChange: (next: AppleSourcesStatus) => void }) {
+  return (
+    <>
+      <AppleSourceRow
+        source="calendar"
+        apple={apple}
+        label="Apple Calendar"
+        idle="Meetings with other people in the next two days become prep tasks. Covers every account in Internet Accounts."
+        active={`${plural(apple.calendar.upcoming, 'meeting')} to prepare for`}
+        onChange={onChange}
+      />
+      <AppleSourceRow
+        source="reminders"
+        apple={apple}
+        label="Reminders"
+        idle="Two-way with an “AmbientMind” list: finish a task on your iPhone and it clears here."
+        active={`${plural(apple.reminders.linked, 'task')} in ${apple.reminders.list ?? 'the AmbientMind list'}`}
+        onChange={onChange}
+      />
+    </>
   )
 }
 
@@ -497,7 +505,7 @@ export function PermissionAction({ permission, onChange }: { permission: Permiss
   }
   return (
     <Button size="sm" onClick={() => void window.ambient.openPermissionSettings(permission.kind)}>
-      Open System Settings
+      Open {SETTINGS_APP}
     </Button>
   )
 }
@@ -661,7 +669,10 @@ export function Learned({ data: { learned }, actions: { setLearned } }: PageProp
 
 export function Permissions({ data: { permissions }, actions: { refresh } }: PageProps) {
   return (
-    <Page title="Permissions" description="Asked for only when a feature needs it. Changes in System Settings show up here when you come back.">
+    <Page
+      title="Permissions"
+      description={`Asked for only when a feature needs it. Changes in ${SETTINGS_APP} show up here when you come back.`}
+    >
       <Group>
         {permissions.map((permission) => (
           <PermissionRow key={permission.kind} permission={permission} onChange={() => void refresh()} />

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { installMockAmbient } from '../dev/mockAmbient'
+import { SETTINGS_APP } from '@/ui/device'
 import { App } from './App'
 
 const flush = () => act(async () => {})
@@ -146,7 +147,7 @@ describe('Settings', () => {
     })
     await open('permissions')
     expect(screen.getByText('Turn it on in System Settings.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Open System Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: `Open ${SETTINGS_APP}` }))
     expect(mock.calls.some((c) => c.method === 'openPermissionSettings' && c.args[0] === 'screen')).toBe(true)
     expect(screen.getByRole('button', { name: 'Permissions (needs attention)' })).toBeTruthy()
   })

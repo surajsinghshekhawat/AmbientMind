@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Cpu, Lock, Mail, Undo2 } from 'lucide-react'
 import type { PermissionState } from '@shared/permissions'
 import type { ShortcutStatus } from '@shared/shortcuts'
-import type { HealthReport } from '@shared/types'
+import type { AppleSourcesStatus, HealthReport } from '@shared/types'
 import { Button } from '@/ui/Button'
 import { cn } from '@/ui/cn'
 import { Kbd } from '@/ui/Kbd'
 import { Orb } from '@/ui/Orb'
 import { Group, Pill, Row, Toggle } from '../settings/controls'
-import { PERMISSION_NAMES, PERMISSION_USE, PermissionAction, permissionPill, type AccountStatus } from '../settings/pages'
+import { AppleSourceRows, PERMISSION_NAMES, PERMISSION_USE, PermissionAction, permissionPill, type AccountStatus } from '../settings/pages'
 import { clientOs, THIS_DEVICE } from '@/ui/device'
 
 export const STEPS = ['welcome', 'privacy', 'sources', 'permissions', 'model', 'shortcuts'] as const
@@ -58,6 +58,7 @@ interface Props {
 export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
   const [step, setStep] = useState<Step>(initialStep)
   const [account, setAccount] = useState<AccountStatus | null>(null)
+  const [apple, setApple] = useState<AppleSourcesStatus | null>(null)
   const [permissions, setPermissions] = useState<PermissionState[]>([])
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [shortcuts, setShortcuts] = useState<ShortcutStatus[]>([])
@@ -74,6 +75,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
       setScreenReading(config.screenReading)
     })
     void window.ambient.accounts.status().then(setAccount)
+    void window.ambient.appleSources.status().then(setApple)
     void window.ambient.getShortcuts().then(setShortcuts)
     void checkHealth()
     checkPermissions()
@@ -201,12 +203,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
                   </Button>
                 )}
               </Row>
-              <Row label="Apple Calendar" description="Timed events, so you can see the day coming.">
-                <Pill tone="soon">Coming soon</Pill>
-              </Row>
-              <Row label="Reminders" description="Complete a task here and it’s done there too.">
-                <Pill tone="soon">Coming soon</Pill>
-              </Row>
+              {apple && clientOs === 'mac' && <AppleSourceRows apple={apple} onChange={setApple} />}
             </Group>
           </>
         )

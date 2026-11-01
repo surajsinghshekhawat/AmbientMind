@@ -106,7 +106,7 @@ export function Privacy({ data, actions }: PageProps) {
   const paused = isAiPaused(config.pauseAiUntil)
   return (
     <Page title="Privacy" description={`Your mail, tasks and models stay on ${THIS_DEVICE}. There is no AmbientMind server and no account.`}>
-      <Group title="Pause AI" footer="While paused nothing reads your mail or screen. Recurring tasks and snoozes still work. Also in the menu bar.">
+      <Group title="Pause AI" footer={`While paused nothing reads your mail or screen. Recurring tasks and snoozes still work. Also in the ${clientOs === 'mac' ? 'menu bar' : 'system tray'}.`}>
         <Row label={paused ? 'Paused' : 'AI is on'} description={paused ? describePause(config.pauseAiUntil!) : 'Reads new mail on schedule and answers in chat.'}>
           {paused ? (
             <Button variant="primary" size="sm" onClick={() => void patch({ pauseAiUntil: null })}>
