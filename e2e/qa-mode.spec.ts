@@ -98,9 +98,43 @@ test('records every reach outside the app instead of doing it', async () => {
     expect(mic).toEqual({ state: 'denied', request: 'NotAllowedError' })
     expect(await app.evaluate(() => globalThis.__qa!.attempts.map((a) => a.kind))).toContain('permission.media')
 
-    const logged = readFileSync(join(RUN, 'attempts-app.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { kind: string })
+    const logged = readFileSync(join(RUN, 'attempts-app.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { kind: string })
     expect(logged[0]!.kind).toBe('qa.start')
     expect(logged.some((a) => a.kind === 'notification')).toBe(true)
+  } finally {
+    await app.close()
+  }
+})
+
+test('with the fake microphone, only fake devices exist and audio records from one', async () => {
+  const data = join(RUN, 'fake-mic')
+  mkdirSync(data, { recursive: true })
+  writeFileSync(join(data, 'config.json'), JSON.stringify({ onboarded: true }))
+  const app = await electron.launch({
+    args: ['.'],
+    cwd: ROOT,
+    env: { ...process.env, AMBIENTMIND_QA: '1', AMBIENTMIND_QA_FAKE_MIC: '1', AMBIENTMIND_DATA_DIR: data }
+  })
+  try {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    const inputs = await page.evaluate(async () =>
+      (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput').map((d) => d.label)
+    )
+    expect(inputs.length).toBeGreaterThan(0)
+    for (const label of inputs) expect(label).toMatch(/^Fake /)
+    const track = await page.evaluate(async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const label = stream.getAudioTracks()[0]?.label
+      stream.getTracks().forEach((t) => t.stop())
+      return label
+    })
+    expect(track).toMatch(/^Fake /)
+    const video = await page.evaluate(() => navigator.mediaDevices.getUserMedia({ video: true }).then(() => 'granted', (err: Error) => err.name))
+    expect(video).toBe('NotAllowedError')
   } finally {
     await app.close()
   }

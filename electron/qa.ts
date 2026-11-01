@@ -193,25 +193,35 @@ export function installQaMode(): QaControl | null {
   // Pages ask Chromium for the microphone directly (Quick Capture's Whisper
   // fallback, the onboarding mic test). Fake devices mean no real one opens
   // even if a grant slipped through; the handlers below refuse it anyway.
+  // AMBIENTMIND_QA_FAKE_MIC=1 lets audio through to the fake device (a test
+  // tone) so the voice path can be driven.
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  const fakeMic = process.env.AMBIENTMIND_QA_FAKE_MIC === '1'
   const DENIED_PERMISSIONS = new Set(['media', 'display-capture'])
+  const audioOnly = (types: readonly string[] | undefined) => !!types?.length && types.every((t) => t === 'audio')
   void app.whenReady().then(() => {
     const ses = session.defaultSession
     const setRequest = ses.setPermissionRequestHandler.bind(ses)
     const setCheck = ses.setPermissionCheckHandler.bind(ses)
     ses.setPermissionRequestHandler = (handler) =>
       setRequest((wc, permission, callback, details) => {
-        if (DENIED_PERMISSIONS.has(permission)) {
-          const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+        const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+        if (permission === 'media' && fakeMic && audioOnly(mediaTypes)) {
+          record('permission.media', { mediaTypes, url: details.requestingUrl ?? wc.getURL(), fake: true }, false)
+          callback(true)
+        } else if (DENIED_PERMISSIONS.has(permission)) {
           record(`permission.${permission}`, { mediaTypes, url: details.requestingUrl ?? wc.getURL() })
           callback(false)
         } else if (handler) handler(wc, permission, callback, details)
         else callback(true)
       })
     ses.setPermissionCheckHandler = (handler) =>
-      setCheck((wc, permission, origin, details) =>
-        DENIED_PERMISSIONS.has(permission) ? false : handler ? handler(wc, permission, origin, details) : true
-      )
+      setCheck((wc, permission, origin, details) => {
+        const mediaType = 'mediaType' in details ? details.mediaType : undefined
+        if (permission === 'media' && fakeMic && (mediaType === 'audio' || mediaType === undefined)) return true
+        if (DENIED_PERMISSIONS.has(permission)) return false
+        return handler ? handler(wc, permission, origin, details) : true
+      })
     ses.setPermissionRequestHandler(null)
     ses.setPermissionCheckHandler(null)
   })
