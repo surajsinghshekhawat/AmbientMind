@@ -201,9 +201,18 @@ export function installQaMode(): QaControl | null {
   // fallback, the onboarding mic test). Fake devices mean no real one opens
   // even if a grant slipped through; the handlers below refuse it anyway.
   // AMBIENTMIND_QA_FAKE_MIC=1 lets audio through to the fake device (a test
-  // tone) so the voice path can be driven.
+  // tone) so the voice path can be driven; AMBIENTMIND_QA_FAKE_MIC_FILE, a WAV
+  // in the run folder, plays speech through it instead.
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
   const fakeMic = process.env.AMBIENTMIND_QA_FAKE_MIC === '1'
+  const micFile = process.env.AMBIENTMIND_QA_FAKE_MIC_FILE
+  if (fakeMic && micFile) {
+    if (qaFolderAllowed(dirname(micFile))) {
+      app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${micFile}%noloop`)
+      // The sandboxed audio service can't open the file; in-process it can.
+      app.commandLine.appendSwitch('disable-features', 'AudioServiceOutOfProcess')
+    } else console.error(`[qa] ignoring AMBIENTMIND_QA_FAKE_MIC_FILE=${micFile}: not inside a run folder`)
+  }
   const DENIED_PERMISSIONS = new Set(['media', 'display-capture'])
   const audioOnly = (types: readonly string[] | undefined) => !!types?.length && types.every((t) => t === 'audio')
   void app.whenReady().then(() => {

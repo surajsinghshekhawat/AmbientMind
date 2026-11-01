@@ -27,7 +27,9 @@ import { runHelperCheck } from './native/helperCheck'
 
 // Windows 11 otherwise paints a gray DWM plate around transparent overlays.
 app.commandLine.appendSwitch('enable-transparent-visuals')
-app.commandLine.appendSwitch('disable-features', 'EnableTransparentHwndEnlargement')
+// A second disable-features replaces the first, so keep any set before this.
+const disabledFeatures = app.commandLine.getSwitchValue('disable-features')
+app.commandLine.appendSwitch('disable-features', [disabledFeatures, 'EnableTransparentHwndEnlargement'].filter(Boolean).join(','))
 
 /** ~/Library/Logs/AmbientMind on the Mac, where Console.app looks. */
 function crashLogPath() {
