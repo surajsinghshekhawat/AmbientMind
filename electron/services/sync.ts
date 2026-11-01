@@ -3,7 +3,7 @@ import type { Task } from '@shared/types'
 import { rejectDuplicates } from './dedup'
 import { fetchPrepTasks } from './integrations/gcalendar'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
-import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
+import { connectedGoogleAccount, GOOGLE_SCOPES_MESSAGE, isGoogleConnected, isScopeError } from './googleAuth'
 import { shouldAutoAccept } from '@shared/evidence'
 import { AiUnavailableError, chooseEngine } from './ai'
 import { extractTasks, type ExtractedTask } from './extract'
@@ -230,8 +230,9 @@ async function syncCalendar(report: SyncReport): Promise<NewTask[]> {
     report.scanned += prep.length
     return fresh
   } catch (err) {
-    setSyncState('gcalendar', null, (err as Error).message)
-    report.errors.push(`calendar: ${(err as Error).message}`)
+    const message = isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message
+    setSyncState('gcalendar', null, message)
+    report.errors.push(`calendar: ${message}`)
     return []
   }
 }
@@ -284,7 +285,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
       try {
         candidates.push(...(await syncGmail(report, existing, resolved)))
       } catch (err) {
-        report.errors.push(`gmail: ${(err as Error).message}`)
+        report.errors.push(`gmail: ${isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message}`)
       }
     } else {
       report.errors.push('No AI model is available (Apple Intelligence off, Ollama not running); mail was not read this pass')

@@ -4,7 +4,7 @@ import { describeAppleReason } from '@shared/aiStatus'
 import type { AiEnginePreference } from '@shared/types'
 import { aiPreference, appleModelStatus, chooseEngine } from './ai'
 import { OLLAMA_URL, listModels } from './ollama'
-import { hasCalendarWriteScope, isGoogleConnected, loadCredentials } from './googleAuth'
+import { GOOGLE_SCOPES_MESSAGE, hasCalendarWriteScope, hasReadScopes, isGoogleConnected, loadCredentials } from './googleAuth'
 
 /**
  * Ollama reports tags as `name:tag`, and an untagged pull lands as `:latest`.
@@ -88,6 +88,8 @@ export async function checkHealth(config: HealthInput): Promise<HealthReport> {
     problems.push('No Google OAuth client. See docs/google-setup.md.')
   } else if (!googleConnected) {
     problems.push('Google is not connected, so mail and calendar cannot fill the list.')
+  } else if (!hasReadScopes()) {
+    problems.push(GOOGLE_SCOPES_MESSAGE)
   } else if (config.calendarWriteBack && !hasCalendarWriteScope()) {
     // Write-back shipped after the first release, so an older grant simply
     // does not carry the permission. Silence here would look like the feature

@@ -16,9 +16,11 @@ const EXPIRY_SKEW_MS = 60_000
 
 export const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created'
 
+/** Without these the app can sign in but read nothing. */
+const READ_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.readonly']
+
 const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  ...READ_SCOPES,
   // Grants access *only* to calendars this app creates, not the user's own.
   // The broader calendar scope would let a bug damage a real calendar; this
   // one makes that impossible rather than merely unlikely.
@@ -35,6 +37,29 @@ const GOOGLE_SCOPES = [
 export function hasCalendarWriteScope(): boolean {
   const scope = getJson<StoredTokens>(TOKEN_KEY)?.scope ?? ''
   return scope.split(' ').includes(CALENDAR_WRITE_SCOPE)
+}
+
+/**
+ * Google's consent page lists Gmail and Calendar as checkboxes, unticked for
+ * an unverified app, and "Continue" works with them unticked. The sign-in
+ * then succeeds and every read fails with 403.
+ */
+export const GOOGLE_SCOPES_MESSAGE =
+  'Google signed in without access to Gmail and Calendar. Disconnect, connect again, and tick both boxes on Google’s page.'
+
+function missingReadScopes(scope: string): string[] {
+  const granted = scope.split(' ')
+  return READ_SCOPES.filter((wanted) => !granted.includes(wanted))
+}
+
+export function hasReadScopes(): boolean {
+  const scope = getJson<StoredTokens>(TOKEN_KEY)?.scope
+  return scope === undefined || missingReadScopes(scope).length === 0
+}
+
+/** A 403 for missing scopes, from either API. */
+export function isScopeError(message: string): boolean {
+  return /insufficient authentication scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(message)
 }
 
 interface StoredTokens {
@@ -269,6 +294,14 @@ export async function connectGoogle(): Promise<{ email?: string }> {
         redirect_uri: redirectUri
       })
 
+      if (missingReadScopes(tokens.scope).length > 0) {
+        // Not kept: a connection that can read nothing only looks like one.
+        await revoke(tokens.refreshToken || tokens.accessToken)
+        throw new GoogleAuthError(
+          'Google didn’t give access to Gmail and Calendar. Connect again and tick both boxes on Google’s page.',
+          'insufficient_scope'
+        )
+      }
       const email = await fetchEmailAddress(tokens.accessToken)
       setJson(TOKEN_KEY, { ...tokens, ...(email ? { email } : {}) })
       return email ? { email } : {}
@@ -303,16 +336,18 @@ export function connectedGoogleAccount(): string | null {
   return getJson<StoredTokens>(TOKEN_KEY)?.email ?? null
 }
 
+/** Best effort: whatever the server replies, the caller carries on. */
+async function revoke(token: string): Promise<void> {
+  await fetch(REVOKE_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token })
+  }).catch(() => undefined)
+}
+
 export async function disconnectGoogle(): Promise<void> {
   const tokens = getJson<StoredTokens>(TOKEN_KEY)
-  if (tokens?.refreshToken) {
-    // Best effort: the local token is cleared regardless of the server's reply.
-    await fetch(REVOKE_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ token: tokens.refreshToken })
-    }).catch(() => undefined)
-  }
+  if (tokens?.refreshToken) await revoke(tokens.refreshToken)
   deleteSecret(TOKEN_KEY)
 }
 
