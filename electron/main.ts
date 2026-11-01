@@ -2,7 +2,8 @@ import { isIsolated } from './isolation'
 import { qaControl, qaEnabled } from './qa'
 import { userInfo } from 'node:os'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { qaFolderAllowed } from '@shared/qaPolicy'
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import {
@@ -1391,6 +1392,11 @@ if (process.argv.includes('--selftest')) {
     })
     // What the tray and the shortcuts would do, for QA runs that have neither.
     if (qaControl) {
+      const qaWindow = (kind: string) => {
+        const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.webContents.getURL().includes(`/${kind}/`))
+        if (!win) throw new Error(`No ${kind} window`)
+        return win
+      }
       qaControl.actions = {
         syncNow: () => triggerSync(true),
         settings: (section?: string) => showSettingsWindow(section),
@@ -1407,6 +1413,19 @@ if (process.argv.includes('--selftest')) {
         googleCalendar: async (path: string, method = 'GET') => {
           const response = await googleFetch(`https://www.googleapis.com/calendar/v3${path}`, { method })
           return { status: response.status, body: response.status === 204 ? null : await response.json().catch(() => null) }
+        },
+        googleGet: async (url: string) => {
+          if (!/^https:\/\/(gmail|www)\.googleapis\.com\//.test(url)) throw new Error('Google APIs only')
+          const response = await googleFetch(url)
+          return { status: response.status, body: await response.json().catch(() => null) }
+        },
+        // Calls a window's preload API, as its page would.
+        renderer: (kind: string, script: string) => qaWindow(kind).webContents.executeJavaScript(script, true),
+        screenshot: async (kind: string, file: string) => {
+          if (!qaFolderAllowed(dirname(file))) throw new Error(`${file} is not inside a QA run folder`)
+          mkdirSync(dirname(file), { recursive: true })
+          writeFileSync(file, (await qaWindow(kind).webContents.capturePage()).toPNG())
+          return file
         },
         quit: () => setTimeout(() => app.quit(), 100)
       }
