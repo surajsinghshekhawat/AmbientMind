@@ -3,6 +3,7 @@ import { describeGoogleError } from '@shared/googleError'
 import { QA_LIVE_TITLE } from '@shared/qaPolicy'
 import type { RecurrenceRule } from '@shared/recurrence'
 import { googleFetch, hasCalendarWriteScope } from '../googleAuth'
+import { devEnv } from '../../devHooks'
 
 const API = 'https://www.googleapis.com/calendar/v3'
 
@@ -15,7 +16,7 @@ const API = 'https://www.googleapis.com/calendar/v3'
  * calendar. Writing into "primary" would have been fewer lines and no way back.
  */
 /** A QA instance may only write to a calendar by the QA name. */
-const CALENDAR_SUMMARY = process.env.AMBIENTMIND_QA === '1' ? QA_LIVE_TITLE : 'AmbientMind'
+const CALENDAR_SUMMARY = devEnv('AMBIENTMIND_QA') === '1' ? QA_LIVE_TITLE : 'AmbientMind'
 
 let calendarIdCache: string | null = null
 

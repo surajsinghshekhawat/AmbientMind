@@ -10,9 +10,10 @@ import {
   saveReminderLink
 } from './reminderStore'
 import { addTasksIgnoringDuplicates, deleteTask, getTask, reopenTask } from './taskStore'
+import { devEnv } from '../devHooks'
 
 /** A QA instance's helper refuses any other list, so yours is never touched. */
-export const REMINDERS_LIST_TITLE = process.env.AMBIENTMIND_QA === '1' ? QA_LIVE_TITLE : 'AmbientMind'
+export const REMINDERS_LIST_TITLE = devEnv('AMBIENTMIND_QA') === '1' ? QA_LIVE_TITLE : 'AmbientMind'
 
 export interface ReminderList {
   id: string
