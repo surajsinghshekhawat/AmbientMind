@@ -154,7 +154,7 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
           {ready && entries.length === 0 && !busy && (
             <div className="flex animate-rise flex-col gap-1 pt-3">
               <p className="px-1 pb-2 text-small text-ink-3">
-                Ask about your tasks, or tell it what to change. It runs on {THIS_DEVICE}.
+                Ask about your tasks, or tell it what to change. Answers come from an AI model on {THIS_DEVICE} and can be wrong.
               </p>
               {SUGGESTIONS.map((suggestion) => (
                 <button

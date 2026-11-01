@@ -143,7 +143,7 @@ export function Privacy({ data, actions }: PageProps) {
         />
         <Row
           label="Downloaded once"
-          description="Voice and text-recognition models from Hugging Face and jsDelivr, the first time they’re needed. Nothing about you is sent."
+          description="Voice and text-recognition models from Hugging Face and jsDelivr, the first time they’re needed. Only the file is asked for; like any download, the site sees your IP address."
         />
       </Group>
 
