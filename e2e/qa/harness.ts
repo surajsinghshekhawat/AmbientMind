@@ -36,6 +36,8 @@ export interface LaunchOptions {
   prepare?: (dataDir: string) => void
   /** Starts again on this launch's data instead of a fresh copy. */
   reuse?: QaApp
+  /** Command-line arguments, as a relaunch would pass them. */
+  args?: string[]
   /** Copies the snapshot's Google sign-in; every other launch has none to leak. */
   liveGoogle?: boolean
 }
@@ -134,7 +136,9 @@ export async function launchQa(options: LaunchOptions): Promise<QaApp> {
     ...options.env
   }
   const app = await electron.launch(
-    TARGET === 'packaged' ? { executablePath: PACKAGED, env } : { executablePath: electronBinary, args: ['.'], cwd: ROOT, env }
+    TARGET === 'packaged'
+      ? { executablePath: PACKAGED, args: options.args ?? [], env }
+      : { executablePath: electronBinary, args: ['.', ...(options.args ?? [])], cwd: ROOT, env }
   )
   const mainLog: string[] = []
   const logFile = join(out, 'main.log')

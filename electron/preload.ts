@@ -16,6 +16,7 @@ import type { PermissionKind, PermissionState } from '@shared/permissions'
 import type { ShortcutStatus } from '@shared/shortcuts'
 import type { DataInventory, ErasableSource } from '@shared/privacy'
 import type { NetworkSummary } from '@shared/network'
+import type { LegalDoc } from '@shared/legal'
 
 type Confirmed = { canceled: boolean; removed: number }
 
@@ -152,6 +153,7 @@ const api = {
   restoreBackup: (passphrase: string): Promise<{ canceled: true }> => ipcRenderer.invoke(IPC.RestoreBackup, passphrase),
   /** False when nothing has crashed yet. */
   openCrashLog: (): Promise<boolean> => ipcRenderer.invoke(IPC.OpenCrashLog),
+  openLegal: (doc: LegalDoc): Promise<void> => ipcRenderer.invoke(IPC.OpenLegal, doc),
   onShowSection: (handler: (section: string) => void): (() => void) => {
     const listener = (_event: unknown, section: string) => handler(section)
     ipcRenderer.on(IPC.SettingsShowSection, listener)
@@ -167,6 +169,7 @@ const api = {
     forgetBefore: (days: number): Promise<Confirmed> => ipcRenderer.invoke(IPC.ForgetBefore, days),
     clearChat: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearChatHistory),
     clearAiLog: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearAiLog),
+    eraseAll: (): Promise<{ canceled: boolean }> => ipcRenderer.invoke(IPC.EraseAllData),
     exportData: (): Promise<{ canceled: true } | { canceled: false; path: string }> => ipcRenderer.invoke(IPC.ExportData),
     network: (): Promise<NetworkSummary> => ipcRenderer.invoke(IPC.NetworkLog),
     clearNetwork: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearNetworkLog)

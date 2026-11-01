@@ -706,6 +706,23 @@ export function About({ data: { appInfo } }: PageProps) {
           </Button>
         </Row>
       </Group>
+      <Group footer="Free and open source under the MIT licence, by Suraj Singh Shekhawat.">
+        <Row label="Privacy policy" description="What AmbientMind reads, what it keeps and for how long, and what leaves this computer.">
+          <Button size="sm" onClick={() => void window.ambient.openLegal('privacy')}>
+            Open
+          </Button>
+        </Row>
+        <Row label="Terms of use">
+          <Button size="sm" onClick={() => void window.ambient.openLegal('terms')}>
+            Open
+          </Button>
+        </Row>
+        <Row label="Open-source licences" description="The software AmbientMind is built on, and its licences.">
+          <Button size="sm" onClick={() => void window.ambient.openLegal('notices')}>
+            Open
+          </Button>
+        </Row>
+      </Group>
     </Page>
   )
 }

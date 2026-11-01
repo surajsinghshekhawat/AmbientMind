@@ -292,6 +292,36 @@ test('F11 forgetting a source removes its tasks', async () => {
   expect(query<{ n: number }>(app.dataDir, "select count(*) n from tasks where source = 'chat' and status not in ('deleted')")[0]!.n).toBe(0)
 })
 
+test('F15 the policy opens from About, and erasing everything starts fresh', async () => {
+  let app = await open({ profile: 'typical' })
+  expect(query<{ n: number }>(app.dataDir, 'select count(*) n from tasks')[0]!.n).toBeGreaterThan(0)
+  await app.action('settings', 'about')
+  let page = await app.window('settings')
+  watch = new PageWatch(page)
+  // Privacy policy, terms, licences: the policy's Open comes first.
+  await page.getByRole('button', { name: 'Open', exact: true }).first().click()
+  const opened = await until(async () => (await app.attempts()).find((a) => a.kind === 'shell.openPath' && String(a.detail.path).endsWith('PRIVACY.md')))
+  expect(opened, 'the privacy policy was opened').toBeTruthy()
+  expect(existsSync(String(opened!.detail.path)), 'the policy file ships').toBe(true)
+
+  await app.action('settings', 'data')
+  page = await app.window('settings')
+  await page.getByRole('button', { name: 'Erase…' }).click()
+  const relaunch = await until(async () => (await app.attempts()).find((a) => a.kind === 'app.relaunch'))
+  expect((relaunch?.detail.args as string[] | undefined) ?? [], 'restarts to erase').toContain('--erase-data')
+  await app.close()
+
+  const previous = app
+  app = await launchQa({ mission: 'm2', profile: 'typical', reuse: previous, args: ['--erase-data'] })
+  qa = app
+  expect(query<{ n: number }>(app.dataDir, 'select count(*) n from tasks')[0]!.n, 'no tasks left').toBe(0)
+  expect(existsSync(join(app.dataDir, 'secrets.json')), 'no sign-in kept').toBe(false)
+  expect(existsSync(join(app.dataDir, 'google-credentials.json')), 'the Google client file stays').toBe(true)
+  const configPath = join(app.dataDir, 'config.json')
+  const config = existsSync(configPath) ? (JSON.parse(readFileSync(configPath, 'utf8')) as { onboarded?: boolean }) : {}
+  expect(config.onboarded, 'starts with the welcome tour').not.toBe(true)
+})
+
 test('F12 onboarding can be walked start to finish', async () => {
   const app = await open({ profile: 'empty' })
   const page = await app.window('onboarding')

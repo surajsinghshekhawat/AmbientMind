@@ -77,6 +77,7 @@ export const IPC = {
   /** Decrypts a backup, swaps it in for the database, and relaunches. */
   RestoreBackup: 'settings:restore-backup',
   OpenCrashLog: 'settings:open-crash-log',
+  OpenLegal: 'settings:open-legal',
   /** Main -> settings renderer: jump to a section. */
   SettingsShowSection: 'settings:show-section',
   /** What's stored, by source; and the ways to forget it. */
@@ -85,6 +86,7 @@ export const IPC = {
   ForgetBefore: 'privacy:forget-before',
   ClearChatHistory: 'privacy:clear-chat',
   ClearAiLog: 'privacy:clear-ai-log',
+  EraseAllData: 'privacy:erase-all',
   ExportData: 'privacy:export',
   /** Every request that left the Mac, summarised by destination. */
   NetworkLog: 'privacy:network',

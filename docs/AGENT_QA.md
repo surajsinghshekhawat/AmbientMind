@@ -208,8 +208,11 @@ complete, undo, snooze, edit and delete a task; Quick Capture with dates
 ("tomorrow 5pm", "every Tue and Thu"); typed voice intents; recurring rules;
 accepting and dismissing suggestions; chat actions (`eval:chat`); due-soon
 notifications, pressing Done and Snooze through the recorder; Pause AI;
-forgetting a source; export; backup and restore round trip; the migration
-rehearsal on your snapshot.
+forgetting a source; export; backup and restore round trip; opening the
+privacy policy from About and erasing everything (F15: the restart is
+recorded with `--erase-data`, then relaunched with it, and the profile must
+come back empty but for the Google client file); the migration rehearsal on
+your snapshot.
 
 ### M3. The mail pipeline with the real model
 
@@ -391,7 +394,7 @@ changes:
 | `scripts/ollama-faults.cjs` | Fault-injecting proxy in front of the project Ollama |
 | `e2e/qa/harness.ts` | Launch on a fresh profile copy, find windows, run QA actions, read the copy's database, start the local servers |
 | `e2e/qa/explore.spec.ts` | M1: enumerate, operate, capture, axe and overflow on every screen |
-| `e2e/qa/flows.spec.ts` | M2: fourteen flows with database assertions |
+| `e2e/qa/flows.spec.ts` | M2: fifteen flows with database assertions |
 | `e2e/qa/mail.spec.ts` | M3: labelled replay scored with `eval/score.ts`; your real mail, incremental and from scratch |
 | `e2e/qa/perf.spec.ts` | M4: cold start, panel, Quick Capture, chat, memory |
 | `e2e/qa/faults.spec.ts` | M5: Ollama and Google faults, helper faults, a corrupt config |

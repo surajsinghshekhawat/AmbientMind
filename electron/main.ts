@@ -38,6 +38,13 @@ function crashLogPath() {
   return join(dir, 'crash.log')
 }
 
+if (process.argv.includes(ERASE_FLAG)) eraseUserData(app.getPath('userData'), crashLogPath())
+
+/** Restarts without the erase flag, which must act once only. */
+function relaunch() {
+  app.relaunch({ args: process.argv.slice(1).filter((arg) => arg !== ERASE_FLAG) })
+}
+
 async function confirmDestructive(message: string, detail: string, action: string): Promise<boolean> {
   const options = { type: 'warning' as const, buttons: [action, 'Cancel'], defaultId: 1, cancelId: 1, message, detail }
   const parent = getSettingsWindow()
@@ -205,8 +212,10 @@ import {
   type AppleSource
 } from './services/appleSources'
 import { RestoreError, restoreEncryptedBackup, writeEncryptedBackup } from './services/backup'
+import { ERASE_FLAG, eraseUserData } from './services/eraseData'
 import { dropLinesBefore, exportRows, forgetBefore, forgetSource, storedCounts } from './services/inventory'
 import { cutoffFor, INVENTORY_SOURCE_LABEL, isErasableSource, type DataInventory } from '@shared/privacy'
+import { isLegalDoc, LEGAL_DOCS } from '@shared/legal'
 import { loadChatHistory, saveChatHistory } from './services/chatHistory'
 import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
 import { backfillEmbeddings, runRetention } from './services/maintenance'
@@ -795,9 +804,23 @@ function registerIpc() {
       openTaskStore()
       throw err
     }
-    app.relaunch()
+    relaunch()
     app.exit(0)
     return { canceled: true as const }
+  })
+
+  ipcMain.handle(IPC.EraseAllData, async () => {
+    const sure = await confirmDestructive(
+      'Erase everything AmbientMind keeps?',
+      'Google is disconnected, and every task, recurring rule, decision, past mail, chat, log, setting and downloaded model on this computer is deleted. AmbientMind restarts as new. Your Reminders, your calendars, events already in your Google AmbientMind calendar, and backups you saved are not touched.',
+      'Erase and Restart'
+    )
+    if (!sure) return { canceled: true as const }
+    await disconnectGoogle().catch((err) => console.warn('[erase] could not revoke Google access:', (err as Error).message))
+    app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== ERASE_FLAG), ERASE_FLAG] })
+    // QA records the relaunch; quitting would end the run it is part of.
+    if (!qaEnabled) app.exit(0)
+    return { canceled: false as const }
   })
 
   ipcMain.handle(IPC.OpenCrashLog, async () => {
@@ -805,6 +828,13 @@ function registerIpc() {
     if (!existsSync(path) || !readFileSync(path, 'utf8').trim()) return false
     await shell.openPath(path)
     return true
+  })
+
+  ipcMain.handle(IPC.OpenLegal, async (_event, doc: unknown) => {
+    if (!isLegalDoc(doc)) throw new Error(`Unknown document ${String(doc)}`)
+    const path = app.isPackaged ? join(process.resourcesPath, 'legal', LEGAL_DOCS[doc]) : join(app.getAppPath(), LEGAL_DOCS[doc])
+    // Nothing may be set to open Markdown; Finder can still show the file.
+    if (await shell.openPath(path)) shell.showItemInFolder(path)
   })
 
   ipcMain.handle(IPC.DataInventory, () => dataInventory())

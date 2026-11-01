@@ -206,6 +206,23 @@ export function YourData({ data: { appInfo }, actions }: PageProps) {
             {clientOs === 'mac' ? 'Show in Finder' : 'Show in Explorer'}
           </Button>
         </Row>
+        <Row
+          label="Erase everything"
+          description={`Disconnects Google and deletes all AmbientMind keeps on ${THIS_DEVICE}, then starts it fresh. Reminders, calendars and saved backups are not touched.`}
+        >
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={!!busy}
+            onClick={() =>
+              void run('Erasing…', async () => {
+                await window.ambient.privacy.eraseAll()
+              })
+            }
+          >
+            Erase…
+          </Button>
+        </Row>
       </Group>
     </Page>
   )

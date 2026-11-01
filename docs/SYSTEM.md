@@ -1051,7 +1051,18 @@ already shown. A pass that found nothing says so in the panel, not on screen.
   days / 3 months / a year (the open list and rules stay), clear chat history
   and the AI log, export JSON without tokens, and encrypted backup with
   restore (checked, swapped in, the old file kept as
-  `ambientmind.before-restore.db`, then a relaunch).
+  `ambientmind.before-restore.db`, then a relaunch). **Erase everything**
+  revokes Google and relaunches with `--erase-data`; the new process empties
+  the data folder and the crash log before anything opens them, keeping only
+  `google-credentials.json` (`electron/services/eraseData.ts`).
+- **Policy and notices** — `PRIVACY.md`, `TERMS.md`, `LICENSE` and
+  `THIRD_PARTY_NOTICES.md` ship in `Resources/legal` and open from Settings →
+  About. The privacy policy's retention table and destination list describe
+  this section and `shared/retention.ts`; change them together.
+  `scripts/notices.cjs` lists every package that ships (production
+  dependencies plus what Vite bundles into the windows) with its licence text,
+  and `npm run dist` fails if the file is stale or a licence is copyleft or
+  unknown and not reviewed.
 - **Privacy switches** — Pause AI for an hour, until tomorrow or until
   resumed (Settings and the menu bar); screen reading off by default;
   content protection; quiet mode from the helper's `system.busy` (mic in use

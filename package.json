@@ -2,6 +2,16 @@
   "name": "ambientmind",
   "version": "0.2.0",
   "description": "Ambient desktop overlay that auto-populates your todo list from email, calendar and voice using a local LLM.",
+  "license": "MIT",
+  "author": "Suraj Singh Shekhawat",
+  "homepage": "https://github.com/surajsinghshekhawat/AmbientMind",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/surajsinghshekhawat/AmbientMind.git"
+  },
+  "bugs": {
+    "url": "https://github.com/surajsinghshekhawat/AmbientMind/issues"
+  },
   "main": "./out/main/main.js",
   "private": true,
   "scripts": {
@@ -17,10 +27,12 @@
     "corpus:export": "electron . --export-corpus",
     "sync:now": "electron . --sync-now",
     "preflight": "node scripts/preflight-dist.cjs",
+    "notices": "node scripts/notices.cjs",
+    "notices:check": "node scripts/notices.cjs --check",
     "helper": "node scripts/build-helper.cjs",
-    "dist": "node scripts/require-isolation.cjs && npm run preflight && npm run helper && npm run build && electron-builder",
-    "dist:mac": "node scripts/require-isolation.cjs && npm run preflight && npm run helper && npm run build && electron-builder --mac",
-    "dist:win": "node scripts/require-isolation.cjs && npm run preflight && npm run build && electron-builder --win",
+    "dist": "node scripts/require-isolation.cjs && npm run preflight && npm run notices:check && npm run helper && npm run build && electron-builder",
+    "dist:mac": "node scripts/require-isolation.cjs && npm run preflight && npm run notices:check && npm run helper && npm run build && electron-builder --mac",
+    "dist:win": "node scripts/require-isolation.cjs && npm run preflight && npm run notices:check && npm run build && electron-builder --win",
     "sign:setup": "node scripts/mac-sign.cjs setup",
     "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
     "smoke:vec": "electron ./scripts/smoke-vec.cjs && electron ./scripts/smoke-vecstore.cjs",

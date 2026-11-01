@@ -1,6 +1,6 @@
 appId: com.ambientmind.app
 productName: AmbientMind
-copyright: Copyright © 2026
+copyright: Copyright © 2026 Suraj Singh Shekhawat
 
 directories:
   output: release
@@ -40,6 +40,18 @@ asarUnpack:
   - '**/node_modules/onnxruntime-node/**'
   - '**/node_modules/tesseract.js/**'
   - '**/node_modules/tesseract.js-core/**'
+
+# The licence notices have to travel with the binary; Settings → About opens
+# the policy, terms and notices from here (see shared/legal.ts).
+extraResources:
+  - from: LICENSE
+    to: legal/LICENSE
+  - from: PRIVACY.md
+    to: legal/PRIVACY.md
+  - from: TERMS.md
+    to: legal/TERMS.md
+  - from: THIRD_PARTY_NOTICES.md
+    to: legal/THIRD_PARTY_NOTICES.md
 
 mac:
   target:

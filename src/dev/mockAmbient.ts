@@ -302,6 +302,9 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       record('openCrashLog')
       return false
     },
+    openLegal: async (doc: string) => {
+      record('openLegal', doc)
+    },
     onShowSection: (_handler: (section: string) => void) => () => {},
     privacy: {
       inventory: async () => state.inventory,
@@ -324,6 +327,10 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
         record('privacy.clearAiLog')
         state.inventory = { ...state.inventory, aiCalls: 0 }
         return { canceled: false, removed: 0 }
+      },
+      eraseAll: async () => {
+        record('privacy.eraseAll')
+        return { canceled: false }
       },
       exportData: async () => {
         record('privacy.exportData')
