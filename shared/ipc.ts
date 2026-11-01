@@ -16,6 +16,7 @@ export const IPC = {
   SetOverlayExpanded: 'overlay:set-expanded',
   /** Main -> renderer, after the overlay is collapsed or expanded. */
   OverlayExpandedChanged: 'overlay:expanded-changed',
+  GetOverlayExpanded: 'overlay:get-expanded',
   /** Renderer -> main: the panel's content height, so the window fits it. */
   SetPanelHeight: 'overlay:set-panel-height',
 

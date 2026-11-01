@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { sanitizeConfig as sanitize } from '@shared/config'
@@ -17,8 +17,16 @@ export function loadConfig(): Config {
       const raw = JSON.parse(readFileSync(filePath(), 'utf8')) as Partial<Config>
       cached = sanitize(raw)
     } catch (err) {
+      const missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
       console.warn('[config] using defaults:', (err as Error).message)
-      cached = { ...DEFAULT_CONFIG }
+      if (missing) {
+        cached = { ...DEFAULT_CONFIG }
+      } else {
+        // Only someone already set up has a config to break: keep the broken
+        // file for inspection and don't send them back through onboarding.
+        copyFileSync(filePath(), `${filePath()}.corrupt`)
+        cached = { ...DEFAULT_CONFIG, onboarded: true }
+      }
     }
   }
   // Expiry is wall-clock, so a cached future timestamp must drop once it elapses.

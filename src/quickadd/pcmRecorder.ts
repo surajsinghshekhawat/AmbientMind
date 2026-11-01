@@ -8,8 +8,14 @@
  */
 
 import { SilenceGate } from '@shared/silence'
+import { clientOs } from '@/ui/device'
 
 const TARGET_RATE = 16_000
+
+const MIC_BLOCKED =
+  clientOs === 'mac'
+    ? 'The microphone is blocked. Allow AmbientMind in System Settings → Privacy & Security → Microphone.'
+    : 'The microphone is blocked. Allow it in Settings → Privacy & security → Microphone.'
 
 export type RecorderState = 'idle' | 'recording' | 'busy'
 
@@ -41,14 +47,20 @@ export class PcmRecorder {
     this.onLevel = options?.onLevel ?? null
     this.gate = new SilenceGate({ silenceMs: options?.silenceMs ?? 3000 })
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    })
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      })
+    } catch (err) {
+      // Chromium's own text here is a bare "Permission denied".
+      if ((err as Error).name === 'NotAllowedError') throw new Error(MIC_BLOCKED)
+      throw err
+    }
 
     this.context = new AudioContext()
     this.source = this.context.createMediaStreamSource(this.stream)

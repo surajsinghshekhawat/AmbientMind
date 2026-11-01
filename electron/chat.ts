@@ -3,10 +3,14 @@ import { BrowserWindow } from 'electron'
 import { bringToFront, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let chatWindow: BrowserWindow | null = null
+let closing = false
 
 export function showChatWindow() {
   if (chatWindow && !chatWindow.isDestroyed()) {
-    bringToFront(chatWindow)
+    // Showing a window that is being torn down can take the app with it;
+    // open a fresh one once it has gone.
+    if (closing) chatWindow.once('closed', () => showChatWindow())
+    else bringToFront(chatWindow)
     return chatWindow
   }
 
@@ -38,8 +42,12 @@ export function showChatWindow() {
     void chatWindow.loadFile(join(__dirname, '../renderer/chat/index.html'))
   }
 
+  chatWindow.on('close', () => {
+    closing = true
+  })
   chatWindow.on('closed', () => {
     chatWindow = null
+    closing = false
   })
 
   bringToFront(chatWindow)

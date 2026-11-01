@@ -111,7 +111,8 @@ import {
   createOverlayWindow,
   getOverlayWindow,
   setPanelHeight,
-  setOverlayExpanded
+  setOverlayExpanded,
+  isOverlayExpanded
 } from './overlay'
 import {
   createQuickAddWindow,
@@ -478,6 +479,7 @@ function registerIpc() {
   ipcMain.handle(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
     setOverlayExpanded(expanded)
   })
+  ipcMain.handle(IPC.GetOverlayExpanded, () => isOverlayExpanded())
   // Older preload used send() instead of invoke(); keep both so a stale
   // renderer can still collapse/expand.
   onIpc(IPC.SetOverlayExpanded, (_event, expanded: boolean) => {
@@ -1401,7 +1403,6 @@ if (process.argv.includes('--selftest')) {
     if (!config.onboarded) showOnboardingWindow()
 
     setSpeechModel(config.whisperModel)
-    // Warms Whisper unless Apple's live speech will be used instead.
     initLiveSpeech()
     initHoldToTalk()
     initAppleSources({

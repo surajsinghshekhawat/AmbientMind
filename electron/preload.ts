@@ -23,6 +23,7 @@ const api = {
   setPanelHeight: (height: number) => ipcRenderer.send(IPC.SetPanelHeight, height),
   setOverlayExpanded: (expanded: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.SetOverlayExpanded, expanded),
+  getOverlayExpanded: (): Promise<boolean> => ipcRenderer.invoke(IPC.GetOverlayExpanded),
   onOverlayExpanded: (handler: (expanded: boolean) => void): (() => void) => {
     const listener = (_event: unknown, expanded: boolean) => handler(expanded)
     ipcRenderer.on(IPC.OverlayExpandedChanged, listener)

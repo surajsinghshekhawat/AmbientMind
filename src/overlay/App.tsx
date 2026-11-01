@@ -60,7 +60,12 @@ export function App() {
     void window.ambient.getHealth().then(setHealth)
   }, [])
 
-  useEffect(() => window.ambient.onOverlayExpanded(setExpanded), [])
+  useEffect(() => {
+    const off = window.ambient.onOverlayExpanded(setExpanded)
+    // An expand sent before this listener existed would otherwise be lost.
+    void window.ambient.getOverlayExpanded().then(setExpanded)
+    return off
+  }, [])
 
   useEffect(() => {
     refreshHealth()

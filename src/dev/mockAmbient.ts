@@ -136,6 +136,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
   const syncStatus = channel<SyncStatus>()
   const screenStatus = channel<SyncStatus>()
   const overlayExpanded = channel<boolean>()
+  let expandedNow = false
   const quickAddOpened = channel<void>()
   const quickAddShortcut = channel<void>()
   const quickAddHold = channel<'start' | 'end'>()
@@ -155,8 +156,10 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     setPanelHeight: (height: number) => record('setPanelHeight', height),
     setOverlayExpanded: async (expanded: boolean) => {
       record('setOverlayExpanded', expanded)
+      expandedNow = expanded
       overlayExpanded.emit(expanded)
     },
+    getOverlayExpanded: async () => expandedNow,
     onOverlayExpanded: overlayExpanded.on,
 
     getTasks: async () => visible(),
