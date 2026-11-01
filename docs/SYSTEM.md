@@ -145,7 +145,7 @@ external service, which is precisely why the health check in §7.3 exists.
 | `num_ctx` | `8192` | Context window. Large enough for a long email plus five few-shot examples plus the system prompt. |
 | `num_predict` | `800` | Output cap. A runaway generation is bounded rather than hoped against. |
 | `stream` | `false` | Nothing here renders token-by-token, and a non-streamed call is simpler to time out. |
-| timeout | 120 s | A stalled model must not wedge the sync loop forever. |
+| timeout | 60 s for mail, 120 s otherwise | A stalled model must not wedge the sync loop. One message takes seconds; past a minute the server is stuck and the pass stops, leaving the rest for the next one. |
 
 ### 3.1a Apple's on-device model and the router (Mac)
 
@@ -258,6 +258,10 @@ anchored to the message's sent date. Code does date arithmetic more reliably
 than a 3B model: this took deadline accuracy on the seed corpus from 43% to
 71% for `qwen2.5:3b`. A model deadline with no timing words in the quote is
 kept, moved into the message's year if the model got the year wrong.
+"ASAP", "immediately", "right away" and "urgently" make a task **urgent**
+rather than giving it a deadline, and a deadline at the very minute the
+message was sent (the model echoing the date) is dropped: either would show
+the task overdue the moment it arrived.
 
 **Mail tasks arrive as suggestions** (`status = 'suggested'`), with a link to
 the message in Gmail and the quote. With `autoAcceptAbove` set (Settings → AI
@@ -402,7 +406,10 @@ reliable filter than any prompt.
 **Why not whisper.cpp.** A native addon compiled against Electron's ABI, which
 is the same class of pain as `better-sqlite3`. Transformers.js downloads a
 model once and runs in-process with no build step. The cost is a slow first
-load, which is hidden by warming the model shortly after launch.
+load, which is hidden by warming the model when Quick Capture opens: the
+second or so before the first word is usually enough. It is not loaded at
+launch, because with the ONNX runtime it holds about half a gigabyte that a
+user who never talks would pay for.
 
 ### 3.6 OCR: Tesseract
 
@@ -515,6 +522,10 @@ M-series Mac (`eval/results/*-v7-final.json`):
 | `qwen3:4b-instruct-2507-q4_K_M` | 100% | 100% | 57% | 0.2 s |
 | `gemma3n:e4b` | 100% | 100% | 57% | 0.5 s |
 | Apple on-device | 86% | 100% | 67% | 0.8 s |
+
+The latencies are for the short hand-written messages of that corpus. On the
+longer, realistic mail of the November 2026 QA run, `qwen3:4b-instruct-2507`
+took 0.51 s median and 1.7 s at the 95th percentile (n = 20).
 
 Every one of those numbers comes from a corpus small enough that a single
 message changes the second digit. They are useful for catching regressions —
@@ -796,7 +807,8 @@ the desktop to settle.
 1. **Retry first.** Message ids that previously failed and still have attempts
    remaining are fetched by id, ahead of everything else. Without this they
    would age out of the recent listing and never be retried at all (§9.1).
-2. **List** `newer_than:2d -in:chats`, capped by the API at 50 per call.
+2. **List** `newer_than:2d -in:chats`, 100 ids per page and at most 5 pages
+   (500 messages) per pass.
    Promotions are deliberately *included* — excluding that tab hid real
    first-time senders.
 3. **Skip** ids already processed, unless this is a forced sync.
@@ -2120,11 +2132,13 @@ ordinary testable code takes over.
 | --- | --- | --- | --- |
 | Qwen2.5-3B | GPU | ~2.5–2.7 GB | While Ollama keeps it loaded |
 | nomic-embed-text | GPU | ~0.27 GB | During sync only |
-| Whisper base.en | CPU RAM | ~150 MB | Warmed at launch, kept |
+| Whisper base.en | CPU RAM | ~150 MB weights, ~0.5 GB with the runtime | From the first Quick Capture, kept |
 | Tesseract | CPU RAM | ~30 MB | One cached worker per session |
 
 The GPU total is the binding constraint and the reason for nearly every
-substitution in §2. The CPU models are small enough to stay resident
-permanently, which is why both are warmed once and cached rather than loaded
-per use — for Whisper in particular, a cold load is several seconds and would
-land squarely in the middle of the user trying to speak.
+substitution in §2. Once loaded, the CPU models stay resident rather than
+being loaded per use — for Whisper in particular, a cold load is several
+seconds and would land squarely in the middle of the user trying to speak.
+Whisper is warmed when Quick Capture opens rather than at launch; the QA run
+of November 2026 measured the app at about 1 GB ten seconds after launch when
+it was warmed there, settling to about 450 MB.

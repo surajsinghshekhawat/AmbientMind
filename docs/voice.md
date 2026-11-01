@@ -37,8 +37,8 @@ press **Download** in Settings → Capture.
 **Whisper (everywhere else, and the fallback).** Native whisper.cpp bindings
 need rebuilding for Electron's Node ABI. This project already hit that cost
 with `better-sqlite3`. `@xenova/transformers` runs Whisper as ONNX with no
-compile step. It is warmed in the background after launch, but only when it
-will be used: with Apple's model installed it is never loaded.
+compile step. It is warmed in the background when Quick Capture opens, but
+only when it will be used: with Apple's model installed it is never loaded.
 
 Settings → Capture → **Voice model** (**Fallback voice model** when Apple's
 is installed) picks the Whisper size; `Xenova/whisper-base.en` is the default.
