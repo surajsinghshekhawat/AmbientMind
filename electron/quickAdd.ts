@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { BrowserWindow, screen } from 'electron'
 import { IPC } from '@shared/ipc'
+import { rendererDevUrl } from './devHooks'
 import { bringToFront, prepareQuickAdd } from './platform'
 
 const WIDTH = 600
@@ -42,8 +43,8 @@ export function createQuickAddWindow(): BrowserWindow {
 
   prepareQuickAdd(quickAddWindow)
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void quickAddWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/quickadd/index.html`)
+  if (rendererDevUrl) {
+    void quickAddWindow.loadURL(`${rendererDevUrl}/quickadd/index.html`)
   } else {
     void quickAddWindow.loadFile(join(__dirname, '../renderer/quickadd/index.html'))
   }

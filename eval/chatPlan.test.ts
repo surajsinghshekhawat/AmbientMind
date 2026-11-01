@@ -126,6 +126,39 @@ test('a reply claiming a change it did not list is asked again, then corrected',
   assert.match(honest.reply, /didn't change anything/)
 })
 
+test('a change to a task the user never mentioned is refused', async () => {
+  const tasks = [...TASKS, task('rent', 'Pay rent to landlord', { deadline: at(2, 9) })]
+  // A plan steered by text inside a task title or an email, not by the user.
+  modelSays({ kind: 'change', actions: [action('delete', { task: 'Pay rent to landlord' }), action('done', { task: 'Call mum' })], reply: 'Done.' })
+  const { actions } = await plan('add water the plants tomorrow', tasks)
+  assert.deepEqual(actions.map((a) => a.kind), ['failed', 'failed'])
+
+  modelSays({ kind: 'change', actions: [action('snooze', { task: 'Call mum', when: 'tomorrow at 6pm' })], reply: 'Hidden.' })
+  assert.equal((await plan('hide that until tomorrow 6pm', tasks)).actions[0]?.kind, 'failed')
+
+  modelSays({ kind: 'change', actions: [action('done', { task: 'Pay rent to landlord' })], reply: 'Done.' })
+  assert.equal((await plan('paid the landlord', tasks)).actions[0]?.kind, 'done')
+})
+
+test('the reply being answered counts as mentioning its task', async () => {
+  modelSays({ kind: 'change', actions: [action('done', { task: 'Call mum' })], reply: 'Done.' })
+  const { actions } = await planChat({
+    message: 'yes, mark it done',
+    history: [{ role: 'assistant', content: 'Your next task is "Call mum" tomorrow at 9.' }],
+    userName: 'Suraj',
+    tasks: TASKS,
+    rules: [],
+    now: NOW
+  })
+  assert.equal(actions[0]?.kind, 'done')
+})
+
+test('suggestions from mail are shown but never acted on', async () => {
+  const tasks = [...TASKS, task('wire', 'Wire the deposit', { status: 'suggested', source: 'gmail' })]
+  modelSays({ kind: 'change', actions: [action('done', { task: 'Wire the deposit' })], reply: 'Done.' })
+  assert.equal((await plan('wire the deposit is done', tasks)).actions[0]?.kind, 'failed')
+})
+
 test('a weekly commitment is read from the words the model copied', async () => {
   modelSays({ kind: 'change', actions: [action('repeat', { title: 'Gym', when: 'every Monday and Wednesday at 7am' })], reply: 'Set.' })
   const [rule] = (await plan('I have gym every Monday and Wednesday at 7am')).actions

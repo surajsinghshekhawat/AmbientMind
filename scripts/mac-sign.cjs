@@ -11,7 +11,7 @@
  * user's keychain search list. rcodesign reads the certificate from files, so
  * everything stays in .local/:
  *
- *   .local/bin/rcodesign               pinned, checksum-verified
+ *   .local/bin/rcodesign               pinned version, checked against a pinned SHA-256
  *   .local/signing/ambientmind-dev.*   self-signed certificate and key
  *   .local/signing/designated.req      compiled designated requirement
  *
@@ -45,6 +45,7 @@ const SWIFT_HELPER = 'Contents/MacOS/ambientmind-helper'
 
 const RCODESIGN_VERSION = '0.29.0'
 const RCODESIGN_URL = `https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/${RCODESIGN_VERSION}/apple-codesign-${RCODESIGN_VERSION}-macos-universal.tar.gz`
+const RCODESIGN_SHA256 = 'd98372d5524226ccf9dc0eda03d4e4f5826182dabb2fc3f2bd303ed9113a748d'
 
 function run(cmd, args, options = {}) {
   return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options })
@@ -58,9 +59,8 @@ function ensureRcodesign() {
   mkdirSync(join(LOCAL, 'bin'), { recursive: true })
   console.log(`[sign] downloading rcodesign ${RCODESIGN_VERSION} into .local/bin`)
   run('curl', ['-fsSL', RCODESIGN_URL, '-o', join(dl, 'r.tgz')])
-  const expected = run('curl', ['-fsSL', `${RCODESIGN_URL}.sha256`]).trim().split(/\s+/)[0]
   const actual = run('shasum', ['-a', '256', join(dl, 'r.tgz')]).split(/\s+/)[0]
-  if (expected !== actual) throw new Error(`rcodesign checksum mismatch: ${actual} != ${expected}`)
+  if (actual !== RCODESIGN_SHA256) throw new Error(`rcodesign checksum mismatch: ${actual} != ${RCODESIGN_SHA256}`)
   run('tar', ['-xzf', join(dl, 'r.tgz'), '-C', dl])
   const dir = readdirSync(dl).find((name) => name.startsWith('apple-codesign-'))
   copyFileSync(join(dl, dir, 'rcodesign'), RCODESIGN)
@@ -157,8 +157,28 @@ function helperSettings(appPath) {
   return [...electronHelpers, ...swiftHelper]
 }
 
+/**
+ * Release builds only: no running the binary as plain Node, no NODE_OPTIONS
+ * or --inspect, and app code only from the integrity-checked app.asar. Dev and
+ * QA builds keep them because Playwright drives the packaged app over the
+ * inspector. electron-builder's own `electronFuses` would run after this hook,
+ * after signing, so the fuses are flipped here.
+ */
+async function lockFuses(context) {
+  const fuses = await context.packager.generateFuseConfig({
+    runAsNode: false,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableEmbeddedAsarIntegrityValidation: true,
+    onlyLoadAppFromAsar: true
+  })
+  await context.packager.addElectronFuses(context, fuses)
+  console.log('[sign] release fuses set')
+}
+
 /** electron-builder afterPack hook. */
 async function afterPack(context) {
+  if (process.env.AMBIENTMIND_RELEASE === '1') await lockFuses(context)
   if (context.electronPlatformName !== 'darwin') return
   signApp(join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`))
 }

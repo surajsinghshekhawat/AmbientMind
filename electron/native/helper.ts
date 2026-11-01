@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { HelperError, type HelperEvents, type HelperMethod, type HelperMethods } from '@shared/helperProtocol'
+import { devEnv, devHooks } from '../devHooks'
 import { isMac } from '../platform'
 import { HelperClient, type HelperState } from './helperClient'
 
@@ -17,9 +18,16 @@ import { HelperClient, type HelperState } from './helperClient'
 let client: HelperClient | null = null
 
 export function helperPath(): string {
-  if (process.env.AMBIENTMIND_HELPER) return process.env.AMBIENTMIND_HELPER
+  const override = devEnv('AMBIENTMIND_HELPER')
+  if (override) return override
   if (app.isPackaged) return join(process.resourcesPath, '..', 'MacOS', 'ambientmind-helper')
   return join(app.getAppPath(), '.local', 'build', 'mac-helper', 'release', 'ambientmind-helper')
+}
+
+/** The helper reads AMBIENTMIND_QA itself, so a release build must not pass it on. */
+function helperEnv(): NodeJS.ProcessEnv {
+  if (devHooks) return process.env
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('AMBIENTMIND_QA')))
 }
 
 export function startHelper(): HelperClient | null {
@@ -29,7 +37,7 @@ export function startHelper(): HelperClient | null {
     console.warn(`[helper] not found at ${path}; using fallbacks (build it with ./dev npm run helper)`)
     return null
   }
-  client = new HelperClient({ command: path, log: (message) => console.log(`[helper] ${message}`) })
+  client = new HelperClient({ command: path, env: helperEnv(), log: (message) => console.log(`[helper] ${message}`) })
   client.on('state', (state: HelperState) => {
     console.log(`[helper] ${state}`)
     relay.emit('state', state)

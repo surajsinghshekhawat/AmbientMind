@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { app, shell } from 'electron'
+import { devEnv } from '../devHooks'
 import { getJson, setJson, deleteSecret } from './secrets'
 
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
@@ -95,13 +96,9 @@ export function credentialsFilePath() {
 }
 
 export function loadCredentials(): GoogleCredentials | null {
-  const fromEnv = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-  if (fromEnv) {
-    return {
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!
-    }
-  }
+  const clientId = devEnv('GOOGLE_CLIENT_ID')
+  const clientSecret = devEnv('GOOGLE_CLIENT_SECRET')
+  if (clientId && clientSecret) return { clientId, clientSecret }
 
   for (const path of [credentialsFilePath(), join(app.getAppPath(), 'google-credentials.json')]) {
     try {
@@ -191,9 +188,11 @@ function awaitAuthorizationCode(expectedState: string): {
       return
     }
 
+    // Not ours: answered, but the real callback can still arrive. Ending the
+    // sign-in here would let any page that guesses the port cancel it.
     if (url.searchParams.get('state') !== expectedState) {
       respond('Authorisation failed a security check. You can close this tab.')
-      finish(null, new GoogleAuthError('OAuth state mismatch'))
+      console.warn('[oauth] ignored a callback with the wrong state')
       return
     }
 

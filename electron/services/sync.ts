@@ -25,6 +25,7 @@ import {
   exampleCount,
   nearestExamples,
   renderFewShot,
+  replayable,
   storeExample,
   truncateExample
 } from './vectorStore'
@@ -189,7 +190,7 @@ async function retrieveFewShot(
     const available = exampleCount(db)
     if (available === 0) return ''
     const vector = await embed(embeddingText(message), embedModel, 'query')
-    return renderFewShot(nearestExamples(db, vector, Math.min(5, available)))
+    return renderFewShot(nearestExamples(db, vector, Math.min(15, available)).filter(replayable).slice(0, 5))
   } catch (err) {
     console.warn('[rag] retrieve failed:', (err as Error).message)
     return ''

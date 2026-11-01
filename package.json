@@ -33,6 +33,7 @@
     "dist": "node scripts/require-isolation.cjs && npm run preflight && npm run notices:check && npm run helper && npm run build && electron-builder",
     "dist:mac": "node scripts/require-isolation.cjs && npm run preflight && npm run notices:check && npm run helper && npm run build && electron-builder --mac",
     "dist:win": "node scripts/require-isolation.cjs && npm run preflight && npm run notices:check && npm run build && electron-builder --win",
+    "dist:release": "node scripts/release.cjs",
     "sign:setup": "node scripts/mac-sign.cjs setup",
     "smoke:sqlite": "electron ./scripts/smoke-sqlite.cjs",
     "smoke:vec": "electron ./scripts/smoke-vec.cjs && electron ./scripts/smoke-vecstore.cjs",

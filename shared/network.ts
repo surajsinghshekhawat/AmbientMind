@@ -32,10 +32,41 @@ export interface NetworkSummary {
   localSinceLaunch: number
 }
 
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+/** `host` or `host:port`, IPv6 bare or in brackets. */
+function bareHostname(host: string): string {
+  const name = host.toLowerCase()
+  if (name.startsWith('[')) return name.slice(1, name.indexOf(']'))
+  if (name.indexOf(':') !== name.lastIndexOf(':')) return name
+  return name.replace(/:\d+$/, '')
+}
+
+function isLoopbackIp(name: string): boolean {
+  if (name === '::1') return true
+  const octets = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name)
+  return octets !== null && octets[1] === '127' && octets.slice(2).every((octet) => Number(octet) <= 255)
+}
 
 export function isLoopback(host: string): boolean {
-  return LOOPBACK.has(host.replace(/:\d+$/, '').toLowerCase()) || host.startsWith('127.')
+  const name = bareHostname(host)
+  return name === 'localhost' || isLoopbackIp(name)
+}
+
+export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434'
+
+/**
+ * Mail and screen text are sent to Ollama, so an override has to be plain
+ * http to a loopback IP. A name, even `localhost`, resolves outside our control.
+ */
+export function localOllamaUrl(raw: string | undefined): string {
+  if (!raw) return DEFAULT_OLLAMA_URL
+  try {
+    const url = new URL(raw)
+    if (url.protocol === 'http:' && isLoopbackIp(bareHostname(url.host))) return url.origin
+  } catch {
+    // Falls through to the default.
+  }
+  console.warn(`[ollama] ignoring OLLAMA_URL=${raw}: only http://127.0.0.1 or http://[::1] is allowed`)
+  return DEFAULT_OLLAMA_URL
 }
 
 export function destinationOf(host: string): Destination {

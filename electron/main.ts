@@ -20,6 +20,7 @@ import { permissionKinds, privacySettingsUrl, type PermissionKind } from '@share
 import { BurstLimiter, guard, setErrorSink } from './services/guard'
 import { broadcast } from './broadcast'
 import { allowPermission, contentSecurityPolicy, isAppUrl } from './security'
+import { devHooks, rendererDevUrl } from './devHooks'
 import { accountFullName, hideDock, installAppMenu, os, permissionState, requestAccess, setAppIdentity } from './platform'
 import type { HelperMethod } from '@shared/helperProtocol'
 import { helperReady, helperRequest, onHelperEvent, onHelperState, startHelper, stopHelper } from './native/helper'
@@ -1137,7 +1138,8 @@ async function triggerSync(force = false): Promise<SyncReport> {
   return report
 }
 
-const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL
+const devServerUrl = rendererDevUrl
+const rendererDir = join(__dirname, '../renderer')
 
 /**
  * Built pages carry their policy as a meta tag (see electron.vite.config.ts),
@@ -1159,7 +1161,7 @@ function applyDevCsp() {
 function guardNavigation() {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, url) => {
-      if (!isAppUrl(url, devServerUrl)) event.preventDefault()
+      if (!isAppUrl(url, devServerUrl, rendererDir)) event.preventDefault()
     })
     contents.on('will-attach-webview', (event) => event.preventDefault())
     contents.setWindowOpenHandler(({ url }) => {
@@ -1293,7 +1295,7 @@ if (process.argv.includes('--selftest')) {
     writeFileSync(join(app.getPath('userData'), 'helper-check.json'), report)
     app.exit(result.ok ? 0 : 1)
   })
-} else if (process.argv.includes('--sync-now')) {
+} else if (devHooks && process.argv.includes('--sync-now')) {
   // Headless sync, for scripting and for checking a change against real mail
   // without waiting for the scheduler's next tick. Opens the store, so the
   // app should not be running at the same time.
@@ -1309,7 +1311,7 @@ if (process.argv.includes('--selftest')) {
       app.exit(1)
     }
   })
-} else if (process.argv.includes('--export-corpus')) {
+} else if (devHooks && process.argv.includes('--export-corpus')) {
   void app.whenReady().then(async () => {
     try {
       const config = loadConfig()
@@ -1367,6 +1369,7 @@ if (process.argv.includes('--selftest')) {
         allowPermission(permission, {
           ...(mediaTypes ? { mediaTypes } : {}),
           url: details.requestingUrl ?? wc.getURL(),
+          rendererDir,
           ...(devServerUrl ? { devServerUrl } : {})
         })
       )
@@ -1376,6 +1379,7 @@ if (process.argv.includes('--selftest')) {
       return allowPermission(permission, {
         ...(mediaType ? { mediaTypes: [mediaType] } : {}),
         url: wc?.getURL() || requestingOrigin,
+        rendererDir,
         ...(devServerUrl ? { devServerUrl } : {})
       })
     })

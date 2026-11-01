@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { sanitizeConfig } from '../shared/config'
-import { destinationOf, isLoopback, safePath, summariseNetwork, type NetworkRequest } from '../shared/network'
+import {
+  DEFAULT_OLLAMA_URL,
+  destinationOf,
+  isLoopback,
+  localOllamaUrl,
+  safePath,
+  summariseNetwork,
+  type NetworkRequest
+} from '../shared/network'
 import {
   describePause,
   isAiPaused,
@@ -41,6 +49,21 @@ test('requests are grouped by where they went', () => {
   assert.equal(destinationOf('google.com.evil.example'), 'other')
   assert.equal(isLoopback('127.0.0.2'), true)
   assert.equal(isLoopback('10.0.0.1'), false)
+  assert.equal(isLoopback('::1'), true)
+  assert.equal(isLoopback('[::1]:11434'), true)
+  // A name that merely starts like a loopback address is somewhere else.
+  assert.equal(isLoopback('127.evil.example'), false)
+  assert.equal(destinationOf('127.0.0.1.evil.example'), 'other')
+  assert.equal(isLoopback('127.0.0.300'), false)
+})
+
+test('Ollama may only be overridden to a loopback IP over http', () => {
+  assert.equal(localOllamaUrl(undefined), DEFAULT_OLLAMA_URL)
+  assert.equal(localOllamaUrl('http://127.0.0.1:11435'), 'http://127.0.0.1:11435')
+  assert.equal(localOllamaUrl('http://[::1]:11435/'), 'http://[::1]:11435')
+  for (const raw of ['http://192.168.1.20:11434', 'https://127.0.0.1:11434', 'http://localhost:11434', 'http://127.evil.example', 'nonsense']) {
+    assert.equal(localOllamaUrl(raw), DEFAULT_OLLAMA_URL, raw)
+  }
 })
 
 test('logged paths drop long opaque ids', () => {

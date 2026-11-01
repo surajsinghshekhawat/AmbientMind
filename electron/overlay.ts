@@ -3,6 +3,7 @@ import { app, BrowserWindow, screen, type Display, type Rectangle } from 'electr
 import { IPC } from '@shared/ipc'
 import { overlayBounds, PANEL_START_HEIGHT } from '@shared/overlayGeometry'
 import { DEFAULT_CONFIG, type Config } from '@shared/types'
+import { rendererDevUrl } from './devHooks'
 import { overlayWindowOptions, prepareOverlay, shapesOverlay } from './platform'
 
 let overlayWindow: BrowserWindow | null = null
@@ -93,8 +94,8 @@ export function createOverlayWindow(config: Config = DEFAULT_CONFIG): BrowserWin
   overlayWindow.setMenuBarVisibility(false)
   applyWindowShape()
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void overlayWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/overlay/index.html`)
+  if (rendererDevUrl) {
+    void overlayWindow.loadURL(`${rendererDevUrl}/overlay/index.html`)
   } else {
     void overlayWindow.loadFile(join(__dirname, '../renderer/overlay/index.html'))
   }

@@ -1,4 +1,5 @@
 import { describeGoogleError } from '@shared/googleError'
+import { stripHtml } from '@shared/html'
 import { header, type MailPayload as GmailPayload } from '@shared/mailTriage'
 import { googleFetch } from '../googleAuth'
 import type { MessageInput } from '../extract'
@@ -24,21 +25,6 @@ interface GmailFull {
 function decode(data: string | undefined): string {
   if (!data) return ''
   return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&quot;/g, '"')
 }
 
 /** Depth-first walk preferring text/plain; HTML is a fallback, not a supplement. */
@@ -130,7 +116,7 @@ export async function fetchMessage(id: string): Promise<{
   message: GmailMessage
   payload: GmailPayload | undefined
 }> {
-  const full = await json<GmailFull>(`${API}/messages/${id}?format=full`)
+  const full = await json<GmailFull>(`${API}/messages/${encodeURIComponent(id)}?format=full`)
   const payload = full.payload
   const body = stripQuotedReplies(extractBody(payload))
 

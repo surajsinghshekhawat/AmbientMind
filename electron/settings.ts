@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { BrowserWindow, nativeTheme } from 'electron'
 import { IPC } from '@shared/ipc'
+import { rendererDevUrl } from './devHooks'
 import { bringToFront, insetTitleBarOptions, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let settingsWindow: BrowserWindow | null = null
@@ -33,8 +34,8 @@ export function showSettingsWindow(section?: string) {
 
   prepareUtilityWindow(settingsWindow, 'settings')
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/settings/index.html${section ? `#${section}` : ''}`)
+  if (rendererDevUrl) {
+    void settingsWindow.loadURL(`${rendererDevUrl}/settings/index.html${section ? `#${section}` : ''}`)
   } else {
     void settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'), section ? { hash: section } : {})
   }

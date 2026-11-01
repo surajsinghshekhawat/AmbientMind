@@ -1,12 +1,13 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { devEnv } from './devHooks'
 
 // Must be main.ts's first import: paths have to be redirected before any other
 // module resolves userData. Unpackaged runs keep all app state in the repo's
 // .local/data rather than ~/Library; ./dev also opts packaged test builds in.
 const dataDir =
-  process.env.AMBIENTMIND_DATA_DIR ??
+  devEnv('AMBIENTMIND_DATA_DIR') ??
   (app.isPackaged ? undefined : join(app.getAppPath(), '.local', 'data'))
 
 export const isIsolated = dataDir !== undefined

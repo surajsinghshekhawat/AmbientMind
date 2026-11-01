@@ -101,7 +101,35 @@ export function spokenTime(iso: string, now: Date = new Date()): string {
   return `${day} at ${time}`
 }
 
-/** The tasks the model is shown, and so may name. */
+/** Words too common in task titles to show which task someone meant. */
+const COMMON_WORDS = new Set(
+  'the and for with from that this about into your call email send reply buy get pay book check make task thing'.split(' ')
+)
+const ALL_OF_THEM = /\b(?:all|every(?:thing)?)\b/i
+
+function words(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+}
+
+/**
+ * Whether the user's own words, or the reply they are answering, point at
+ * this task. Task titles and the model's plan can carry text from an email or
+ * the screen; a change to a task nobody mentioned is not the user's request.
+ */
+export function referencedByUser(task: Task, context: Pick<ChatContext, 'message' | 'history'>): boolean {
+  if (ALL_OF_THEM.test(context.message)) return true
+  const recent = context.history.slice(-6)
+  const lastReply = [...recent].reverse().find((turn) => turn.role === 'assistant')
+  const said = [context.message, ...recent.filter((turn) => turn.role === 'user').map((turn) => turn.content), lastReply?.content ?? '']
+  const heard = new Set(said.flatMap(words))
+  const titleWords = words(task.title).filter((word) => word.length >= 3 && !COMMON_WORDS.has(word))
+  if (titleWords.length === 0) return said.some((text) => text.toLowerCase().includes(task.title.toLowerCase()))
+  return titleWords.some(
+    (word) => heard.has(word) || (word.length >= 5 && [...heard].some((other) => other.length >= 5 && other.slice(0, 5) === word.slice(0, 5)))
+  )
+}
+
+/** The tasks the model is shown. Suggestions are listed but not acted on: their titles come straight from mail. */
 export function listedTasks(tasks: Task[], now: Date = new Date()): { open: Task[]; done: Task[] } {
   const open = sortByUrgency(
     tasks.filter((task) => task.status === 'pending' || task.status === 'snoozed' || task.status === 'suggested'),
@@ -150,7 +178,11 @@ export function buildChatPrompt(context: ChatContext): { system: string; user: s
     .slice(-6)
     .map((turn) => `${turn.role === 'user' ? context.userName : 'You'}: ${turn.content}`)
   lines.push(`${context.userName}: ${context.message}`)
-  return { system, user: lines.join('\n'), open, done }
+  return { system, user: lines.join('\n'), open: open.filter((task) => task.status !== 'suggested'), done }
+}
+
+function notMentioned(task: Task): ResolvedAction {
+  return { kind: 'failed', reason: `I wasn't sure you meant "${task.title}", so I left it alone. Name it and I'll change it.` }
 }
 
 /** The task the model named: its copied title, or the closest one in the pool. */
@@ -232,6 +264,10 @@ export function resolveActions(rawActions: unknown[], context: ChatContext, open
           }
           break
         }
+        if (!referencedByUser(task, context)) {
+          resolved.push(notMentioned(task))
+          break
+        }
         const patch: { title?: string; deadline?: string | null; priority?: TaskPriority } = {}
         const when = timeFrom(raw.when, now)
         if (when === 'unknown') {
@@ -265,7 +301,7 @@ export function resolveActions(rawActions: unknown[], context: ChatContext, open
           resolved.push({ kind: 'failed', reason: "I couldn't find an open task like that." })
           break
         }
-        resolved.push({ kind: raw.type, task })
+        resolved.push(referencedByUser(task, context) ? { kind: raw.type, task } : notMentioned(task))
         break
       }
       case 'reopen': {
@@ -282,6 +318,8 @@ export function resolveActions(rawActions: unknown[], context: ChatContext, open
         const until = timeFrom(raw.when, now)
         if (!task) {
           resolved.push({ kind: 'failed', reason: "I couldn't tell which task you meant." })
+        } else if (!referencedByUser(task, context)) {
+          resolved.push(notMentioned(task))
         } else if (!until || until === 'unknown' || Date.parse(until) <= now.getTime()) {
           resolved.push({ kind: 'failed', reason: `I need a time in the future to hide "${task.title}" until.` })
         } else {

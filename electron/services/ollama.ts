@@ -3,7 +3,9 @@
  * identical code path from plain Node.
  */
 
-export const OLLAMA_URL = process.env.OLLAMA_URL ?? 'http://localhost:11434'
+import { localOllamaUrl } from '@shared/network'
+
+export const OLLAMA_URL = localOllamaUrl(process.env.OLLAMA_URL)
 
 /** A 3B model on a 4GB GPU: generous, but bounded so a stall cannot wedge sync. */
 const REQUEST_TIMEOUT_MS = 120_000

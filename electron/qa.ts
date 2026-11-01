@@ -16,6 +16,7 @@ import {
   type MessageBoxOptions
 } from 'electron'
 import { QA_LIVE_TITLE, qaFolderAllowed, qaRequestAllowed, readableBody, type QaLiveGoogle } from '@shared/qaPolicy'
+import { devEnv } from './devHooks'
 import { setJson } from './services/secrets'
 
 /**
@@ -51,7 +52,7 @@ declare global {
   var __qa: QaControl | undefined
 }
 
-export const qaEnabled = process.env.AMBIENTMIND_QA === '1'
+export const qaEnabled = devEnv('AMBIENTMIND_QA') === '1'
 /** Real helper, real Reminders and Calendar, Google writes to QA_LIVE_TITLE only. */
 export const qaLive = qaEnabled && process.env.AMBIENTMIND_QA_LIVE === '1'
 const liveCalendars = new Set<string>()

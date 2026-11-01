@@ -94,6 +94,34 @@ test('forgetting by date keeps the open list', () => {
   )
 })
 
+test('a backup carrying a trigger the app never made is refused', () => {
+  const db = freshStore()
+  addTask({ title: 'Keep me', source: 'manual' })
+  const live = taskStorePath()!
+  const file = join(dirname(live), 'evil.amb')
+  db.exec('CREATE TRIGGER evil AFTER INSERT ON tasks BEGIN DELETE FROM tasks; END')
+  writeEncryptedBackup(file, 'correct horse')
+  db.exec('DROP TRIGGER evil')
+
+  assert.throws(() => restoreEncryptedBackup(file, 'correct horse'), /didn’t create/)
+  assert.deepEqual(listActive().map((task) => task.title), ['Keep me'])
+  assert.equal(existsSync(join(dirname(live), 'ambientmind.before-restore.db')), false)
+})
+
+test('a backup whose own trigger was rewritten is refused', () => {
+  const db = freshStore()
+  const live = taskStorePath()!
+  const file = join(dirname(live), 'rewritten.amb')
+  const original = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'tasks_touch'").get() as { sql: string }).sql
+  db.exec('DROP TRIGGER tasks_touch')
+  db.exec('CREATE TRIGGER tasks_touch AFTER UPDATE ON tasks BEGIN DELETE FROM tasks; END')
+  writeEncryptedBackup(file, 'correct horse')
+  db.exec('DROP TRIGGER tasks_touch')
+  db.exec(original)
+
+  assert.throws(() => restoreEncryptedBackup(file, 'correct horse'), RestoreError)
+})
+
 test('a backup restores over later changes, and keeps the replaced copy', () => {
   freshStore()
   addTask({ title: 'Before the backup', source: 'manual' })

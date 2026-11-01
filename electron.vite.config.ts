@@ -33,6 +33,12 @@ export default defineConfig({
   main: {
     resolve: { alias },
     plugins: [externalizeDepsPlugin()],
+    // See electron/devHooks.ts.
+    define: {
+      __DEV_HOOKS__: JSON.stringify(
+        process.env.AMBIENTMIND_ISOLATED === '1' && process.env.AMBIENTMIND_RELEASE !== '1'
+      )
+    },
     build: {
       outDir: 'out/main',
       lib: { entry: resolve(__dirname, 'electron/main.ts') }

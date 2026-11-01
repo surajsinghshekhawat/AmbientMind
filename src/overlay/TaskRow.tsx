@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlarmClock, ArrowUpRight, Check as CheckIcon, Pencil, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
-import { confidenceLabel, openSourceLabel, SOURCE_LABEL } from '@shared/panel'
+import { confidenceLabel, openSourceLabel, safeSourceUrl, SOURCE_LABEL } from '@shared/panel'
 import { SNOOZE_CHOICES } from '@shared/snooze'
 import type { Task, TaskPriority, Urgency } from '@shared/types'
 import { formatDeadline, urgencyOf } from '@shared/urgency'
@@ -110,6 +110,7 @@ export function TaskRow({ task, now, view, selected, open, editing, snoozing, ac
   if (task.people[0]) meta.push({ text: task.people[0] })
 
   const openLabel = openSourceLabel(task.source)
+  const sourceUrl = safeSourceUrl(task.sourceUrl)
   const quote = task.evidence ?? task.rawContext
 
   return (
@@ -250,9 +251,9 @@ export function TaskRow({ task, now, view, selected, open, editing, snoozing, ac
           )}
 
           <div className="-ml-2 flex flex-wrap items-center gap-0.5">
-            {openLabel && task.sourceUrl && (
+            {openLabel && sourceUrl && (
               <a
-                href={task.sourceUrl}
+                href={sourceUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="focus-ring inline-flex h-6 items-center gap-1 rounded-control px-2 text-small font-medium text-accent hover:bg-fill"

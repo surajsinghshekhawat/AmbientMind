@@ -3,15 +3,31 @@
  * tested. main.ts wires them into the session and every webContents.
  */
 
-/** Our pages: the bundled files, or the Vite dev server while developing. */
-export function isAppUrl(url: string, devServerUrl?: string): boolean {
+import { isAbsolute, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/**
+ * Our pages: the bundled files, or the Vite dev server while developing. With
+ * `rendererDir`, a file has to be inside it; any other file on disk is not ours.
+ */
+export function isAppUrl(url: string, devServerUrl?: string, rendererDir?: string): boolean {
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
     return false
   }
-  if (parsed.protocol === 'file:') return true
+  if (parsed.protocol === 'file:') {
+    if (!rendererDir) return true
+    let file: string
+    try {
+      file = fileURLToPath(parsed)
+    } catch {
+      return false
+    }
+    const inside = relative(resolve(rendererDir), resolve(file))
+    return inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+  }
   if (!devServerUrl) return false
   return parsed.origin === new URL(devServerUrl).origin
 }
@@ -23,10 +39,10 @@ export function isAppUrl(url: string, devServerUrl?: string): boolean {
  */
 export function allowPermission(
   permission: string,
-  details: { mediaTypes?: string[]; url: string; devServerUrl?: string }
+  details: { mediaTypes?: string[]; url: string; devServerUrl?: string; rendererDir?: string }
 ): boolean {
   if (permission !== 'media') return false
-  if (!isAppUrl(details.url, details.devServerUrl)) return false
+  if (!isAppUrl(details.url, details.devServerUrl, details.rendererDir)) return false
   const types = details.mediaTypes ?? []
   return types.length > 0 && types.every((type) => type === 'audio')
 }

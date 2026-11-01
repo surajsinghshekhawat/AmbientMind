@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { BrowserWindow, nativeTheme } from 'electron'
+import { rendererDevUrl } from './devHooks'
 import { bringToFront, insetTitleBarOptions, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let onboardingWindow: BrowserWindow | null = null
@@ -31,8 +32,8 @@ export function showOnboardingWindow() {
 
   prepareUtilityWindow(onboardingWindow, 'onboarding')
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void onboardingWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/onboarding/index.html`)
+  if (rendererDevUrl) {
+    void onboardingWindow.loadURL(`${rendererDevUrl}/onboarding/index.html`)
   } else {
     void onboardingWindow.loadFile(join(__dirname, '../renderer/onboarding/index.html'))
   }

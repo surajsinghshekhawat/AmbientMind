@@ -13,6 +13,18 @@ test('only the bundled pages, or the dev server in development, count as the app
   assert.equal(isAppUrl('not a url'), false)
 })
 
+test('with the renderer folder given, other files on disk are not the app', () => {
+  const dir = '/Applications/AmbientMind.app/Contents/Resources/app.asar/out/renderer'
+  assert.equal(isAppUrl(`file://${dir}/overlay/index.html`, undefined, dir), true)
+  assert.equal(isAppUrl('file:///Users/someone/Downloads/page.html', undefined, dir), false)
+  assert.equal(isAppUrl(`file://${dir}/../renderer-evil/index.html`, undefined, dir), false)
+  assert.equal(isAppUrl(`file://${dir}`, undefined, dir), false)
+  assert.equal(
+    allowPermission('media', { mediaTypes: ['audio'], url: 'file:///tmp/x.html', rendererDir: dir }),
+    false
+  )
+})
+
 test('the microphone is the only permission, and only for our pages', () => {
   const ours = `${DEV}/quickadd/index.html`
   assert.equal(allowPermission('media', { mediaTypes: ['audio'], url: ours, devServerUrl: DEV }), true)

@@ -74,12 +74,20 @@ export function openTaskStore(filename?: string) {
   db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+  // Schema objects (triggers, defaults, checks) may only call harmless functions.
+  db.pragma('trusted_schema = OFF')
   // Must precede migrate(): migration 002 creates a vec0 virtual table.
-  // In a packaged build the extension resolves to a path inside app.asar,
-  // which dlopen cannot read; electron-builder unpacks it next door.
-  db.loadExtension(sqliteVec.getLoadablePath().replace('app.asar', 'app.asar.unpacked'))
+  db.loadExtension(vecExtensionPath())
   migrate(db)
   return db
+}
+
+/**
+ * In a packaged build the extension resolves to a path inside app.asar,
+ * which dlopen cannot read; electron-builder unpacks it next door.
+ */
+export function vecExtensionPath(): string {
+  return sqliteVec.getLoadablePath().replace('app.asar', 'app.asar.unpacked')
 }
 
 function handle(): Database.Database {

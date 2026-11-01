@@ -10,6 +10,16 @@ export interface StoredExample {
   tasks: ExtractedTask[]
   feedback: -1 | 0 | 1
   distance: number
+  source?: string
+}
+
+/**
+ * An unrated extraction is the model's own output on a stranger's message;
+ * replaying it would let one crafted email keep teaching the model. Seeds and
+ * examples the user has rated, by acting on the task, are theirs.
+ */
+export function replayable(example: StoredExample): boolean {
+  return example.feedback !== 0 || example.source === 'seed'
 }
 
 /**
@@ -210,9 +220,9 @@ export function nearestExamples(
   const rows = db
     .prepare<
       [Float32Array, number],
-      { id: number; message: string; tasks: string; feedback: -1 | 0 | 1; distance: number }
+      { id: number; message: string; tasks: string; feedback: -1 | 0 | 1; source: string; distance: number }
     >(
-      `SELECT e.id, e.message, e.tasks, e.feedback, v.distance
+      `SELECT e.id, e.message, e.tasks, e.feedback, e.source, v.distance
          FROM example_vectors v
          JOIN examples e ON e.id = v.rowid
         WHERE v.embedding MATCH ? AND k = ?
@@ -225,7 +235,8 @@ export function nearestExamples(
     message: row.message,
     tasks: JSON.parse(row.tasks) as ExtractedTask[],
     feedback: row.feedback,
-    distance: row.distance
+    distance: row.distance,
+    source: row.source
   }))
 }
 
@@ -256,10 +267,12 @@ export function renderFewShot(examples: StoredExample[]): string {
   if (examples.length === 0) return ''
 
   const blocks = examples.map((example) => {
-    const body =
+    const clipped =
       example.message.length > MAX_EXAMPLE_CHARS
         ? `${example.message.slice(0, MAX_EXAMPLE_CHARS)}…`
         : example.message
+    // A message must not be able to close its own block and start another.
+    const body = clipped.replace(/^\s*(-{3}|MESSAGE:|EXTRACTED:)/gm, '> $1')
     const tasks = example.feedback === -1 ? [] : example.tasks
     return `MESSAGE:\n${body}\n\nEXTRACTED:\n${JSON.stringify({ tasks }, null, 0)}`
   })

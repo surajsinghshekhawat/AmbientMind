@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
+import { rendererDevUrl } from './devHooks'
 import { bringToFront, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let chatWindow: BrowserWindow | null = null
@@ -36,8 +37,8 @@ export function showChatWindow() {
 
   prepareUtilityWindow(chatWindow, 'chat')
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void chatWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/chat/index.html`)
+  if (rendererDevUrl) {
+    void chatWindow.loadURL(`${rendererDevUrl}/chat/index.html`)
   } else {
     void chatWindow.loadFile(join(__dirname, '../renderer/chat/index.html'))
   }

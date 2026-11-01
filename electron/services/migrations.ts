@@ -42,9 +42,14 @@ const MIGRATIONS: string[] = [
 export const MIGRATION_COUNT = MIGRATIONS.length
 
 export function migrate(db: Database.Database) {
+  migrateTo(db, MIGRATIONS.length)
+}
+
+/** Brings a database up to `target`; restore uses it to build a reference schema. */
+export function migrateTo(db: Database.Database, target: number) {
   const current = db.pragma('user_version', { simple: true }) as number
 
-  for (let version = current; version < MIGRATIONS.length; version++) {
+  for (let version = current; version < Math.min(target, MIGRATIONS.length); version++) {
     const sql = MIGRATIONS[version]
     if (!sql) continue
     db.transaction(() => {

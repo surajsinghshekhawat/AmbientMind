@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { orbLook } from '../shared/orb'
-import { allClearLine, confidenceLabel, matchesQuery, panelSections } from '../shared/panel'
+import { allClearLine, confidenceLabel, matchesQuery, panelSections, safeSourceUrl } from '../shared/panel'
 import type { Task } from '../shared/types'
 
 const HOUR = 3_600_000
@@ -123,4 +123,13 @@ test('confidence is a word, not a percentage', () => {
   assert.equal(confidenceLabel(0.94), 'High')
   assert.equal(confidenceLabel(0.75), 'Medium')
   assert.equal(confidenceLabel(0.65), 'Low')
+})
+
+test('a task link only opens where its button says', () => {
+  assert.equal(safeSourceUrl('https://mail.google.com/mail/u/0/#all/abc'), 'https://mail.google.com/mail/u/0/#all/abc')
+  assert.equal(safeSourceUrl('https://evil.example/mail.google.com'), null)
+  assert.equal(safeSourceUrl('http://mail.google.com/'), null)
+  assert.equal(safeSourceUrl('javascript:alert(1)'), null)
+  assert.equal(safeSourceUrl('https://mail.google.com.evil.example/'), null)
+  assert.equal(safeSourceUrl(null), null)
 })

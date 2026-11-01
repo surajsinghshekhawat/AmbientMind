@@ -91,6 +91,26 @@ export const SOURCE_LABEL: Record<TaskSource, string> = {
   rule: 'Recurring'
 }
 
+const SOURCE_HOSTS = new Set([
+  'mail.google.com',
+  'calendar.google.com',
+  'www.google.com',
+  'outlook.office.com',
+  'outlook.live.com',
+  'teams.microsoft.com'
+])
+
+/** A task's link, only if it goes where its "Open in…" button says. A restored backup can hold anything. */
+export function safeSourceUrl(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && SOURCE_HOSTS.has(parsed.hostname) ? parsed.href : null
+  } catch {
+    return null
+  }
+}
+
 export function openSourceLabel(source: TaskSource): string | null {
   if (source === 'gmail') return 'Open in Gmail'
   if (source === 'gcalendar') return 'Open in Calendar'
