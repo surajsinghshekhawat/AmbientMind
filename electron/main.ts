@@ -38,7 +38,17 @@ function crashLogPath() {
   return join(dir, 'crash.log')
 }
 
-if (process.argv.includes(ERASE_FLAG)) eraseUserData(app.getPath('userData'), crashLogPath())
+const notErased = process.argv.includes(ERASE_FLAG) ? eraseUserData(app.getPath('userData'), crashLogPath()) : []
+if (notErased.length > 0) {
+  console.error('[erase] could not remove:', notErased.join(', '))
+  void app.whenReady().then(() =>
+    dialog.showMessageBox({
+      type: 'warning',
+      message: 'Some of AmbientMind’s data could not be erased',
+      detail: `Another program may have had these open. Quit AmbientMind and delete them by hand:\n\n${notErased.join('\n')}`
+    })
+  )
+}
 
 /** Restarts without the erase flag, which must act once only. */
 function relaunch() {

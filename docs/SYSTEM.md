@@ -1054,7 +1054,9 @@ already shown. A pass that found nothing says so in the panel, not on screen.
   `ambientmind.before-restore.db`, then a relaunch). **Erase everything**
   revokes Google and relaunches with `--erase-data`; the new process empties
   the data folder and the crash log before anything opens them, keeping only
-  `google-credentials.json` (`electron/services/eraseData.ts`).
+  `google-credentials.json` (`electron/services/eraseData.ts`). Windows won't
+  delete a file the exiting instance still holds, so each removal retries for
+  two seconds; whatever is left is named in a dialog once the app is up.
 - **Policy and notices** — `PRIVACY.md`, `TERMS.md`, `LICENSE` and
   `THIRD_PARTY_NOTICES.md` ship in `Resources/legal` and open from Settings →
   About. The privacy policy's retention table and destination list describe
@@ -1062,7 +1064,11 @@ already shown. A pass that found nothing says so in the panel, not on screen.
   `scripts/notices.cjs` lists every package that ships (production
   dependencies plus what Vite bundles into the windows) with its licence text,
   and `npm run dist` fails if the file is stale or a licence is copyleft or
-  unknown and not reviewed.
+  unknown and not reviewed. Per-platform binaries (`sqlite-vec-darwin-arm64`)
+  are named from the lockfile, and line endings normalised, so the file is
+  the same whether it is generated on a Mac or on Windows. Build the Windows
+  release on Windows: from a Mac, electron-builder packs the Mac's
+  `node_modules`, with the Mac builds of sqlite-vec and sharp's libvips.
 - **Privacy switches** — Pause AI for an hour, until tomorrow or until
   resumed (Settings and the menu bar); screen reading off by default;
   content protection; quiet mode from the helper's `system.busy` (mic in use

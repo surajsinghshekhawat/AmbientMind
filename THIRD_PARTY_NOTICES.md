@@ -32,8 +32,9 @@ SOFTWARE.
 
 ## Shipped outside npm
 
-- **Electron and Chromium.** Their licences ship beside the app as `LICENSE.electron.txt` and `LICENSES.chromium.html` in `AmbientMind.app/Contents/Resources`.
-- **libvips** (LGPL-3.0-or-later), with the libraries it links, comes prebuilt inside the `sharp` package that @xenova/transformers depends on. It is a separate, dynamically loaded library in `app.asar.unpacked/node_modules/sharp/vendor`, where its own THIRD-PARTY-NOTICES.md lists every component and licence. You may replace it with your own build. Source: https://github.com/libvips/libvips.
+- **Electron and Chromium.** Their licences ship with the app as `LICENSE.electron.txt` and `LICENSES.chromium.html`: in `AmbientMind.app/Contents/Resources` on a Mac, in the install folder on Windows.
+- **libvips** (LGPL-3.0-or-later), with the libraries it links, comes prebuilt inside the `sharp` package that @xenova/transformers depends on. It is a separate, dynamically loaded library in `resources/app.asar.unpacked/node_modules/sharp/vendor`, where its own THIRD-PARTY-NOTICES.md lists every component and licence. You may replace it with your own build. Source: https://github.com/libvips/libvips.
+- **Platform builds.** Each install carries the one for its own system, under the licence of the package it builds: sqlite-vec-darwin-arm64 0.1.9 (MIT OR Apache), sqlite-vec-darwin-x64 0.1.9 (MIT OR Apache), sqlite-vec-linux-arm64 0.1.9 (MIT OR Apache), sqlite-vec-linux-x64 0.1.9 (MIT OR Apache), sqlite-vec-windows-x64 0.1.9 (MIT OR Apache).
 
 ## Downloaded at runtime, not shipped
 
@@ -41,7 +42,7 @@ SOFTWARE.
 - Tesseract English text-recognition data (Apache-2.0) from jsDelivr, when screen reading first needs it.
 - Ollama models (by default qwen3 and nomic-embed-text, both Apache-2.0) are installed by you through Ollama, under their own licences.
 
-## npm packages (113)
+## npm packages (112)
 
 ### @babel/runtime 7.29.10
 
@@ -4472,12 +4473,6 @@ THE SOFTWARE.
 ```
 
 ### sqlite-vec 0.1.9
-
-Licence: MIT OR Apache · https://github.com/asg017/sqlite-vec
-
-The package ships no licence file; the licence above is from its package.json.
-
-### sqlite-vec-darwin-arm64 0.1.9
 
 Licence: MIT OR Apache · https://github.com/asg017/sqlite-vec
 

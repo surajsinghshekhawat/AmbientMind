@@ -55,13 +55,21 @@ function resolve(name, from) {
 }
 
 const shipped = new Set()
+/**
+ * Prebuilt binaries for one OS and CPU (sqlite-vec-darwin-arm64). Only the
+ * build machine's is installed, so they are named from the lockfile instead,
+ * and the file comes out the same whether it is generated on a Mac or on Windows.
+ */
+const platformBuilds = []
 
 for (const [path, entry] of Object.entries(lock)) {
-  if (path && !entry.dev && existsSync(join(root, path, 'package.json'))) shipped.add(path)
+  if (!path || entry.dev) continue
+  if (entry.cpu) platformBuilds.push({ name: path.split('node_modules/').pop(), version: entry.version, license: entry.license ?? 'UNKNOWN' })
+  else if (existsSync(join(root, path, 'package.json'))) shipped.add(path)
 }
 
 function walk(path) {
-  if (!path || shipped.has(path) || !existsSync(join(root, path, 'package.json'))) return
+  if (!path || shipped.has(path) || lock[path].cpu || !existsSync(join(root, path, 'package.json'))) return
   shipped.add(path)
   const entry = lock[path]
   for (const dep of Object.keys({ ...entry.dependencies, ...entry.optionalDependencies })) walk(resolve(dep, path))
@@ -72,9 +80,14 @@ for (const name of RENDERER_ALONE) {
   if (path) shipped.add(path)
 }
 
+/** A Windows checkout may have CRLF line endings; the file must not depend on that. */
+function read(path) {
+  return readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+}
+
 function licenceText(dir) {
   const file = readdirSync(dir).find((name) => /^(licen[cs]e|copying)(\.(md|txt|markdown))?$/i.test(name))
-  return file ? readFileSync(join(dir, file), 'utf8').trim() : null
+  return file ? read(join(dir, file)).trim() : null
 }
 
 const packages = new Map()
@@ -90,7 +103,9 @@ for (const path of shipped) {
 
 const sorted = [...packages.values()].sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version))
 
-const problems = sorted
+platformBuilds.sort((a, b) => a.name.localeCompare(b.name))
+
+const problems = [...sorted, ...platformBuilds]
   .filter((p) => !PERMISSIVE.test(p.license) && reviewed(p.name) === undefined)
   .map((p) => `${p.name}@${p.version}: licence "${p.license}" has not been reviewed`)
 
@@ -104,13 +119,14 @@ const lines = [
   '## AmbientMind',
   '',
   '```text',
-  readFileSync(join(root, 'LICENSE'), 'utf8').trim(),
+  read(join(root, 'LICENSE')).trim(),
   '```',
   '',
   '## Shipped outside npm',
   '',
-  '- **Electron and Chromium.** Their licences ship beside the app as `LICENSE.electron.txt` and `LICENSES.chromium.html` in `AmbientMind.app/Contents/Resources`.',
-  '- **libvips** (LGPL-3.0-or-later), with the libraries it links, comes prebuilt inside the `sharp` package that @xenova/transformers depends on. It is a separate, dynamically loaded library in `app.asar.unpacked/node_modules/sharp/vendor`, where its own THIRD-PARTY-NOTICES.md lists every component and licence. You may replace it with your own build. Source: https://github.com/libvips/libvips.',
+  '- **Electron and Chromium.** Their licences ship with the app as `LICENSE.electron.txt` and `LICENSES.chromium.html`: in `AmbientMind.app/Contents/Resources` on a Mac, in the install folder on Windows.',
+  '- **libvips** (LGPL-3.0-or-later), with the libraries it links, comes prebuilt inside the `sharp` package that @xenova/transformers depends on. It is a separate, dynamically loaded library in `resources/app.asar.unpacked/node_modules/sharp/vendor`, where its own THIRD-PARTY-NOTICES.md lists every component and licence. You may replace it with your own build. Source: https://github.com/libvips/libvips.',
+  `- **Platform builds.** Each install carries the one for its own system, under the licence of the package it builds: ${platformBuilds.map((p) => `${p.name} ${p.version} (${p.license})`).join(', ')}.`,
   '',
   '## Downloaded at runtime, not shipped',
   '',
@@ -129,7 +145,7 @@ for (const p of sorted) {
 const text = `${lines.join('\n').trimEnd()}\n`
 
 if (process.argv.includes('--check')) {
-  if (!existsSync(output) || readFileSync(output, 'utf8') !== text) {
+  if (!existsSync(output) || read(output) !== text) {
     problems.push('THIRD_PARTY_NOTICES.md is out of date. Run `./dev npm run notices` and commit it.')
   }
   if (problems.length > 0) {
