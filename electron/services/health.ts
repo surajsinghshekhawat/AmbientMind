@@ -1,6 +1,7 @@
 import type { HealthReport, ModelHealth } from '@shared/types'
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import { describeAppleReason } from '@shared/aiStatus'
+import { syncProblem } from '@shared/syncProblem'
 import type { AiEnginePreference } from '@shared/types'
 import { aiPreference, appleModelStatus, chooseEngine } from './ai'
 import { OLLAMA_URL, listModels } from './ollama'
@@ -26,6 +27,8 @@ export interface HealthInput {
   calendarWriteBack?: boolean
   pauseAiUntil?: string | null
   aiEngine?: AiEnginePreference
+  /** What the last pass of any source failed on, if it did. */
+  lastSyncError?: string | null
 }
 
 /**
@@ -98,6 +101,8 @@ export async function checkHealth(config: HealthInput): Promise<HealthReport> {
       'Reconnect Google to finish enabling calendar write-back — your existing sign-in predates it.'
     )
   }
+  const lastSync = syncProblem(config.lastSyncError)
+  if (lastSync) problems.push(lastSync)
 
   return {
     checkedAt: new Date().toISOString(),

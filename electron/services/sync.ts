@@ -232,7 +232,7 @@ async function syncCalendar(report: SyncReport): Promise<NewTask[]> {
   } catch (err) {
     const message = isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message
     setSyncState('gcalendar', null, message)
-    report.errors.push(`calendar: ${message}`)
+    report.errors.push(named('calendar', message))
     return []
   }
 }
@@ -285,7 +285,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
       try {
         candidates.push(...(await syncGmail(report, existing, resolved)))
       } catch (err) {
-        report.errors.push(`gmail: ${isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message}`)
+        report.errors.push(named('gmail', isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message))
       }
     } else {
       report.errors.push('No AI model is available (Apple Intelligence off, Ollama not running); mail was not read this pass')
@@ -312,10 +312,15 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
   return report
 }
 
+/** "calendar: Calendar 404: …" says the source twice. */
+function named(source: 'gmail' | 'calendar', message: string): string {
+  return message.toLowerCase().startsWith(source) ? message : `${source}: ${message}`
+}
+
 /** Calendar records its own outcome; everything else is the mail pass's. */
 function recordMailOutcome(report: SyncReport) {
   try {
-    setSyncState('gmail', null, report.errors.find((e) => !e.startsWith('calendar:')) ?? null)
+    setSyncState('gmail', null, report.errors.find((e) => !/^calendar\b/i.test(e)) ?? null)
   } catch (err) {
     console.warn('[sync] could not record outcome:', (err as Error).message)
   }

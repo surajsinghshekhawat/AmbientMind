@@ -43,21 +43,24 @@ export function App() {
     return window.ambient.onTasksChanged(setTasks)
   }, [])
 
+  const refreshHealth = useCallback(() => {
+    void window.ambient.getHealth().then(setHealth)
+  }, [])
+
   useEffect(
     () =>
       window.ambient.onSyncStatus((status) => {
         setSyncing(status.state === 'running')
-        if (status.state === 'idle') void window.ambient.getSyncSummary().then((s) => setLastRun(s.lastRun))
+        if (status.state !== 'idle') return
+        void window.ambient.getSyncSummary().then((s) => setLastRun(s.lastRun))
+        // A failed pass raises the dot now, not at the next poll.
+        refreshHealth()
       }),
-    []
+    [refreshHealth]
   )
   useEffect(() => window.ambient.onScreenStatus((status) => setReading(status.state === 'running')), [])
   useEffect(() => {
     void window.ambient.getSyncSummary().then((summary) => setLastRun(summary.lastRun))
-  }, [])
-
-  const refreshHealth = useCallback(() => {
-    void window.ambient.getHealth().then(setHealth)
   }, [])
 
   useEffect(() => {

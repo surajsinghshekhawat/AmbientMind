@@ -695,7 +695,8 @@ function registerIpc() {
       embeddingModel: config.embeddingModel,
       calendarWriteBack: config.calendarWriteBack,
       pauseAiUntil: config.pauseAiUntil,
-      aiEngine: config.aiEngine
+      aiEngine: config.aiEngine,
+      lastSyncError: listSyncStates().find((s) => s.lastError)?.lastError ?? null
     })
   })
 
