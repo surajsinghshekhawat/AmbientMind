@@ -55,6 +55,18 @@ test('urgency cues set priority; @names and "with Name" set people', () => {
   assert.equal(parseCapture('Pay rent!', NOW).title, 'Pay rent')
 })
 
+test('a priority tag at either end leaves the title; in the middle it stays', () => {
+  const invoice = parseCapture('send the invoice to Acme by Friday 5pm, urgent', NOW)
+  assert.equal(invoice.title, 'Send the invoice to Acme')
+  assert.equal(invoice.priority, 'urgent')
+  assert.ok(invoice.deadline)
+  assert.equal(parseCapture('Urgent: renew the domain', NOW).title, 'Renew the domain')
+  assert.equal(parseCapture('Book flights - important', NOW).title, 'Book flights')
+  const content = parseCapture('Reply to the urgent mail from Sam', NOW)
+  assert.equal(content.title, 'Reply to the urgent mail from Sam')
+  assert.equal(content.priority, 'urgent')
+})
+
 test('recurrence needs an explicit cue and wins over a one-off deadline', () => {
   const parsed = parseCapture('gym every monday and wednesday at 7am', NOW)
   assert.ok(parsed.recurrence)

@@ -119,6 +119,8 @@ function dayLabel(date: Date, now: Date): string {
   return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
+const PRIORITY_TAG = /^(?:urgent|important)\s*[:,–-]\s*|[\s,;:–-]+(?:urgent|important)$/i
+
 function tidy(title: string): string {
   return title
     .replace(/\s+/g, ' ')
@@ -221,6 +223,9 @@ export function parseCapture(input: string, now: Date = new Date()): ParsedCaptu
     ? `${dayLabel(deadline, now)}, ${deadline.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
     : null
 
+  // "Urgent: pay rent", "pay rent, urgent": a tag, once the dates are out.
+  // In the middle it's content ("reply to the urgent mail").
+  if (priority) title = tidy(title).replace(PRIORITY_TAG, '')
   const tidied = tidy(title) || text
   return {
     // Capitalised here, since the model is no longer always asked to.
