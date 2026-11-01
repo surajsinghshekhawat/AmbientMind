@@ -102,9 +102,10 @@ export function Orb({ look, size = 48, bare }: Props) {
       )}
       {look.badge !== null && (
         <span
+          aria-hidden
           className={cn(
             'tabular absolute top-0 right-0 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold shadow-[0_0_0_1.5px_oklch(0.16_0.005_286)]',
-            look.arc === 'overdue' ? 'bg-danger text-white' : 'bg-ink-1 text-black'
+            look.arc === 'overdue' ? 'bg-danger-fill text-white' : 'bg-ink-1 text-black'
           )}
         >
           {look.badge > 9 ? '9+' : look.badge}

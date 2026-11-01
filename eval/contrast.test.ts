@@ -43,11 +43,16 @@ function luminance([r, g, b]: number[]): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
-/** Glass over a busy wallpaper is unknowable, so it's judged over the window colour it imitates. */
-function contrast(fg: string, bg: string, base: string): number {
-  const under = oklch(base).rgb
-  const back = oklch(bg)
-  const behind = back.rgb.map((x, i) => x * back.alpha + under[i] * (1 - back.alpha))
+const over = (top: Rgba, under: number[]) => top.rgb.map((x, i) => x * top.alpha + under[i]! * (1 - top.alpha))
+
+/**
+ * Glass over a busy wallpaper is unknowable, so it's judged over the window
+ * colour it imitates. `fill` is a translucent layer between, as under a pill
+ * or a selected row.
+ */
+function contrast(fg: string, bg: string, base: string, fill?: string): number {
+  const surface = over(oklch(bg), oklch(base).rgb)
+  const behind = fill ? over(oklch(fill), surface) : surface
   const front = oklch(fg)
   const shown = front.rgb.map((x, i) => x * front.alpha + behind[i] * (1 - front.alpha))
   const [hi, lo] = [luminance(shown), luminance(behind)].sort((x, y) => y - x)
@@ -70,9 +75,25 @@ for (const [name, tokens] of Object.entries(THEMES)) {
     })
   }
 
-  test(`${name}: white on a filled button is readable`, () => {
-    const ratio = contrast(tokens['on-accent'], tokens['accent-fill'], tokens.window)
-    assert.ok(ratio >= TEXT, `on-accent on accent-fill: ${ratio.toFixed(2)}`)
+  test(`${name}: white on a filled button or badge is readable`, () => {
+    for (const fill of ['accent-fill', 'danger-fill']) {
+      const ratio = contrast(tokens['on-accent'], tokens[fill], tokens.window)
+      assert.ok(ratio >= TEXT, `on-accent on ${fill}: ${ratio.toFixed(2)}`)
+    }
+  })
+
+  test(`${name}: secondary text stays readable on a selected row`, () => {
+    for (const surface of ['window', 'glass']) {
+      const ratio = contrast(tokens['ink-3'], tokens[surface], tokens.window, tokens['fill-2'])
+      assert.ok(ratio >= TEXT, `ink-3 on fill-2 over ${surface}: ${ratio.toFixed(2)}`)
+    }
+  })
+
+  test(`${name}: pill and segmented text is readable on any fill`, () => {
+    for (const surface of ['window', 'sidebar', 'glass']) {
+      const ratio = contrast(tokens['ink-2'], tokens[surface], tokens.window, tokens['fill-3'])
+      assert.ok(ratio >= TEXT, `ink-2 on fill-3 over ${surface}: ${ratio.toFixed(2)}`)
+    }
   })
 }
 

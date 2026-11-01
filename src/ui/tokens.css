@@ -9,7 +9,7 @@
   color-scheme: dark;
   --ink-1: oklch(0.97 0.003 286);
   --ink-2: oklch(0.83 0.006 286);
-  --ink-3: oklch(0.64 0.01 286);
+  --ink-3: oklch(0.68 0.01 286);
   --ink-4: oklch(0.53 0.01 286);
   /* Without native blur, more show-through than this hurts legibility on busy wallpaper. */
   --glass: oklch(0.205 0.006 286 / 0.95);
@@ -26,6 +26,8 @@
   --accent-fill: oklch(0.55 0.19 256);
   --on-accent: oklch(1 0 0);
   --danger: oklch(0.67 0.21 25);
+  /* Behind white text, as --accent-fill is. */
+  --danger-fill: oklch(0.55 0.21 27);
   --warning: oklch(0.79 0.16 66);
   --soon: oklch(0.88 0.12 92);
   --success: oklch(0.76 0.19 150);
@@ -49,6 +51,7 @@
   --accent: oklch(0.53 0.2 254);
   --accent-fill: oklch(0.53 0.2 254);
   --danger: oklch(0.55 0.22 27);
+  --danger-fill: oklch(0.55 0.22 27);
   --warning: oklch(0.52 0.16 55);
   --soon: oklch(0.52 0.13 85);
   --success: oklch(0.5 0.16 150);
@@ -73,6 +76,7 @@
     --accent: oklch(0.53 0.2 254);
     --accent-fill: oklch(0.53 0.2 254);
     --danger: oklch(0.55 0.22 27);
+    --danger-fill: oklch(0.55 0.22 27);
     --warning: oklch(0.52 0.16 55);
     --soon: oklch(0.52 0.13 85);
     --success: oklch(0.5 0.16 150);
@@ -105,6 +109,7 @@
   --color-accent-fill: var(--accent-fill);
   --color-on-accent: var(--on-accent);
   --color-danger: var(--danger);
+  --color-danger-fill: var(--danger-fill);
   --color-warning: var(--warning);
   --color-soon: var(--soon);
   --color-success: var(--success);

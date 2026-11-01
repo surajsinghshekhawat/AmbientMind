@@ -145,14 +145,14 @@ export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }:
                 key={day}
                 type="button"
                 aria-pressed={weekdays.includes(day)}
-                aria-label={fullDayName(day)}
                 onClick={() => toggleDay(day)}
                 className={cn(
                   'focus-ring size-7 rounded-full text-small font-medium transition-colors duration-150',
                   weekdays.includes(day) ? 'bg-accent-fill text-on-accent' : 'bg-fill-2 text-ink-2 hover:bg-fill-3'
                 )}
               >
-                {weekdayLabel(day).slice(0, 2)}
+                <span aria-hidden>{weekdayLabel(day).slice(0, 2)}</span>
+                <span className="sr-only">{fullDayName(day)}</span>
               </button>
             ))}
           </div>

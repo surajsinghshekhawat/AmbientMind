@@ -155,7 +155,7 @@ describe('Overlay app', () => {
     const mock = installMockAmbient({ tasks: [makeTask({ title: 'Reply to Priya', deadline: inHours(2, Date.now()) })] })
     render(<App />)
     await flush()
-    const orb = screen.getByRole('button', { name: /AmbientMind: Reply to Priya · in 2h/ })
+    const orb = screen.getByRole('button', { name: /^AmbientMind(, .+)?: Reply to Priya · in 2h/ })
     fireEvent.click(orb)
     await flush()
     expect(mock.calls.some((c) => c.method === 'setOverlayExpanded' && c.args[0] === true)).toBe(true)

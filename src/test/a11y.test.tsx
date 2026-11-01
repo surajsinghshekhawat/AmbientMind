@@ -6,6 +6,7 @@ import { App as Chat } from '../chat/App'
 import { inHours, makeTask } from '../dev/fixtures'
 import { installMockAmbient } from '../dev/mockAmbient'
 import { App as Onboarding, STEPS } from '../onboarding/App'
+import { App as Overlay } from '../overlay/App'
 import { Panel } from '../overlay/Panel'
 import { App as QuickAdd } from '../quickadd/App'
 import { App as Settings, type SectionId } from '../settings/App'
@@ -17,7 +18,7 @@ async function violations(container: HTMLElement): Promise<string[]> {
   await act(async () => {})
   const result = await axe.run(container, {
     // Contrast needs real layout and is checked against the tokens in eval/contrast.test.ts.
-    rules: { 'color-contrast': { enabled: false } }
+    rules: { 'color-contrast': { enabled: false }, 'label-content-name-mismatch': { enabled: true } }
   })
   return result.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(' ')).join(', ')})`)
 }
@@ -61,6 +62,15 @@ describe('axe finds nothing in', () => {
         />
       </ToastProvider>
     )
+    expect(await violations(container)).toEqual([])
+  })
+
+  it('the orb, with tasks due', async () => {
+    const now = Date.now()
+    installMockAmbient({ tasks: [makeTask({ title: 'Pay rent', deadline: inHours(-1, now) }), makeTask({ title: 'Call Sam', deadline: inHours(1, now) })] })
+    const { container } = render(<Overlay />)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: /^AmbientMind, 2 due today: / })).toBeTruthy()
     expect(await violations(container)).toEqual([])
   })
 

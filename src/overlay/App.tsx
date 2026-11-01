@@ -102,12 +102,15 @@ export function App() {
 
   if (!expanded) {
     const look = orbLook({ tasks, now, activity, attention: Boolean(health && !health.ok) })
+    const label = ['AmbientMind', look.badge !== null && `${look.badge} due today`, look.attention && 'needs attention']
+      .filter(Boolean)
+      .join(', ')
     return (
       <div className="grid h-full w-full place-items-center">
         <button
           type="button"
           onClick={() => void window.ambient.setOverlayExpanded(true)}
-          aria-label={`AmbientMind: ${look.peek}`}
+          aria-label={`${label}: ${look.peek}`}
           title={look.peek}
           className="rounded-full outline-none transition-transform duration-300 ease-[var(--ease-spring)] hover:scale-[1.06] active:scale-95"
         >

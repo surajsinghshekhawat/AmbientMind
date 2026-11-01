@@ -147,7 +147,9 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
           ref={threadRef}
           role="log"
           aria-label="Conversation"
-          className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [mask-image:linear-gradient(to_bottom,transparent_0,#000_14px,#000_100%)] [scrollbar-width:none]"
+          // Scrollable, so it must take focus for arrow keys to reach it.
+          tabIndex={0}
+          className="focus-ring min-h-0 flex-1 overflow-y-auto px-4 pb-4 [mask-image:linear-gradient(to_bottom,transparent_0,#000_14px,#000_100%)] [scrollbar-width:none]"
         >
           {ready && entries.length === 0 && !busy && (
             <div className="flex animate-rise flex-col gap-1 pt-3">

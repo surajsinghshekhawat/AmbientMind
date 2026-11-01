@@ -108,7 +108,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
             'focus-ring rounded-[6px] px-2.5 text-small font-medium transition-colors duration-150',
             value === option.value
               ? 'bg-[var(--window)] text-ink-1 shadow-[0_0.5px_2px_oklch(0_0_0/0.25),inset_0_0_0_0.5px_var(--hairline-2)]'
-              : 'text-ink-3 hover:text-ink-1'
+              : 'text-ink-2 hover:text-ink-1'
           )}
         >
           {option.label}
@@ -133,8 +133,8 @@ export function Pill({ tone, children }: { tone: 'ok' | 'warn' | 'bad' | 'quiet'
         tone === 'ok' && 'bg-[color-mix(in_oklch,var(--success)_16%,transparent)] text-success',
         tone === 'warn' && 'bg-[color-mix(in_oklch,var(--warning)_16%,transparent)] text-warning',
         tone === 'bad' && 'bg-[color-mix(in_oklch,var(--danger)_16%,transparent)] text-danger',
-        tone === 'quiet' && 'bg-fill-2 text-ink-3',
-        tone === 'soon' && 'bg-fill-2 text-ink-3'
+        tone === 'quiet' && 'bg-fill-2 text-ink-2',
+        tone === 'soon' && 'bg-fill-2 text-ink-2'
       )}
     >
       {children}
