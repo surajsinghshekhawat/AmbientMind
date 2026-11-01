@@ -217,6 +217,7 @@ const SETTINGS_STATES: { section: SectionId; theme: 'light' | 'dark' }[] = [
   { section: 'recurring', theme: 'light' },
   { section: 'learned', theme: 'dark' },
   { section: 'privacy', theme: 'light' },
+  { section: 'data', theme: 'dark' },
   { section: 'permissions', theme: 'dark' },
   { section: 'about', theme: 'light' }
 ]

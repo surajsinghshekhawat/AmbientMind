@@ -57,6 +57,11 @@ describe('Onboarding', () => {
     expect(getUserMedia).toHaveBeenCalledWith({ audio: true })
     expect(stop).toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+    // Screen Recording only matters once screen reading is on.
+    expect(screen.getAllByText('Allowed')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('switch', { name: 'Read the screen' }))
+    await flush()
+    expect(mock.state.config.screenReading).toBe(true)
     expect(screen.getAllByText('Allowed')).toHaveLength(2)
   })
 

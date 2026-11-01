@@ -19,6 +19,26 @@ export const EXCLUDED_BUNDLE_IDS = [
   'com.enpass.Enpass-Desktop'
 ]
 
+/** True when the user listed the app, by name or bundle id, case-insensitively. */
+export function userExcluded(
+  excluded: readonly string[],
+  app: { name?: string | null; bundleId?: string | null; windowTitle?: string | null }
+): string | null {
+  const name = app.name?.trim().toLowerCase()
+  const bundleId = app.bundleId?.trim().toLowerCase()
+  const title = app.windowTitle?.toLowerCase() ?? ''
+  for (const entry of excluded) {
+    const wanted = entry.trim().toLowerCase()
+    if (!wanted) continue
+    if (wanted === name || wanted === bundleId) return entry
+    // Without the helper only the window title is known, which usually ends in the app's name.
+    if (!name && !bundleId && title && (title === wanted || title.endsWith(` — ${wanted}`) || title.endsWith(` - ${wanted}`))) {
+      return entry
+    }
+  }
+  return null
+}
+
 /** Enough accessibility text to stand on its own, without a screenshot. */
 export const AX_ENOUGH_CHARS = 200
 /** Below this, a reading carries too little to make a task from. */

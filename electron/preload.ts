@@ -14,6 +14,10 @@ import type {
 import type { NewRecurrenceRule, RecurrenceRule } from '@shared/recurrence'
 import type { PermissionKind, PermissionState } from '@shared/permissions'
 import type { ShortcutStatus } from '@shared/shortcuts'
+import type { DataInventory, ErasableSource } from '@shared/privacy'
+import type { NetworkSummary } from '@shared/network'
+
+type Confirmed = { canceled: boolean; removed: number }
 
 const api = {
   setPanelHeight: (height: number) => ipcRenderer.send(IPC.SetPanelHeight, height),
@@ -143,6 +147,30 @@ const api = {
   ): Promise<{ canceled: true } | { canceled: false; path: string }> =>
     ipcRenderer.invoke(IPC.ExportBackup, passphrase),
 
+  /** Relaunches the app on success, so a resolved promise means it was cancelled. */
+  restoreBackup: (passphrase: string): Promise<{ canceled: true }> => ipcRenderer.invoke(IPC.RestoreBackup, passphrase),
+  /** False when nothing has crashed yet. */
+  openCrashLog: (): Promise<boolean> => ipcRenderer.invoke(IPC.OpenCrashLog),
+  onShowSection: (handler: (section: string) => void): (() => void) => {
+    const listener = (_event: unknown, section: string) => handler(section)
+    ipcRenderer.on(IPC.SettingsShowSection, listener)
+    return () => {
+      ipcRenderer.off(IPC.SettingsShowSection, listener)
+    }
+  },
+
+  privacy: {
+    inventory: (): Promise<DataInventory> => ipcRenderer.invoke(IPC.DataInventory),
+    /** Each asks for confirmation in a native dialog first. */
+    forgetSource: (source: ErasableSource): Promise<Confirmed> => ipcRenderer.invoke(IPC.ForgetSource, source),
+    forgetBefore: (days: number): Promise<Confirmed> => ipcRenderer.invoke(IPC.ForgetBefore, days),
+    clearChat: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearChatHistory),
+    clearAiLog: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearAiLog),
+    exportData: (): Promise<{ canceled: true } | { canceled: false; path: string }> => ipcRenderer.invoke(IPC.ExportData),
+    network: (): Promise<NetworkSummary> => ipcRenderer.invoke(IPC.NetworkLog),
+    clearNetwork: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearNetworkLog)
+  },
+
   getAppInfo: (): Promise<{ version: string; userData: string }> =>
     ipcRenderer.invoke(IPC.GetAppInfo),
 
@@ -161,7 +189,7 @@ const api = {
 
   quickAdd: {
     open: () => ipcRenderer.send(IPC.OpenQuickAdd),
-    submit: (title: string, options?: { keepOpen?: boolean }) =>
+    submit: (title: string, options?: { keepOpen?: boolean; spoken?: boolean }) =>
       ipcRenderer.send(IPC.QuickAddSubmit, title, options),
     setHeight: (height: number) => ipcRenderer.send(IPC.QuickAddHeight, height),
     cancel: () => ipcRenderer.send(IPC.QuickAddCancel),

@@ -4,6 +4,7 @@ import { showChatWindow } from './chat'
 import { getOverlayWindow, isOverlayExpanded, setOverlayExpanded } from './overlay'
 import { trayMenuOnRightClick } from './platform'
 import { listActive } from './services/taskStore'
+import { isAiPaused, pauseEnds, pauseAiForHours, PAUSE_UNTIL_RESUMED, tomorrowMorning } from '@shared/pauseAi'
 import {
   connectGoogle,
   connectedGoogleAccount,
@@ -37,6 +38,10 @@ export interface TrayActions {
   /** Goes through the saved config, which is what applies the login item. */
   launchAtLogin: () => boolean
   setLaunchAtLogin: (on: boolean) => void
+  pauseAiUntil: () => string | null
+  setPauseAiUntil: (until: string | null) => void
+  /** Why the orb is hidden right now, or null. */
+  quietLabel: () => string | null
 }
 
 export function createTray(actions: TrayActions) {
@@ -54,7 +59,10 @@ export function createTray(actions: TrayActions) {
     const email = connectedGoogleAccount()
 
     const pending = listActive().filter((task) => task.status === 'pending').length
-    tray?.setToolTip(`AmbientMind — ${pending} pending`)
+    const pausedUntil = actions.pauseAiUntil()
+    const paused = isAiPaused(pausedUntil)
+    const quiet = actions.quietLabel()
+    tray?.setToolTip(['AmbientMind', `${pending} pending`, paused ? 'AI paused' : null, quiet].filter(Boolean).join(' — '))
 
     menu = Menu.buildFromTemplate([
       {
@@ -114,6 +122,20 @@ export function createTray(actions: TrayActions) {
         click: () => void actions.onSyncNow()
       },
       { type: 'separator' },
+      ...(quiet ? [{ label: quiet, enabled: false }] : []),
+      paused && pausedUntil
+        ? {
+            label: `Resume AI (paused ${pauseEnds(pausedUntil)})`,
+            click: () => actions.setPauseAiUntil(null)
+          }
+        : {
+            label: 'Pause AI',
+            submenu: [
+              { label: 'For 1 hour', click: () => actions.setPauseAiUntil(pauseAiForHours(1)) },
+              { label: 'Until tomorrow', click: () => actions.setPauseAiUntil(tomorrowMorning()) },
+              { label: 'Until I resume', click: () => actions.setPauseAiUntil(PAUSE_UNTIL_RESUMED) }
+            ]
+          },
       { label: 'Ask about my tasks…', click: () => showChatWindow() },
       { label: 'Settings…', click: () => actions.onOpenSettings() },
       { type: 'separator' },

@@ -27,7 +27,7 @@ function due(deadline: string | null | undefined): string {
 export function perform(action: ResolvedAction): { said: string; changed: boolean } {
   switch (action.kind) {
     case 'add': {
-      const task = addTask({ title: action.title, deadline: action.deadline, priority: action.priority, source: 'manual' })
+      const task = addTask({ title: action.title, deadline: action.deadline, priority: action.priority, source: 'chat' })
       return { said: `Added "${task.title}"${due(task.deadline)}.`, changed: true }
     }
     case 'update': {

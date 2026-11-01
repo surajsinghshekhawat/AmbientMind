@@ -36,6 +36,18 @@ function shortcuts(value: unknown): Partial<ShortcutSet> {
   return out
 }
 
+/** Trimmed, de-duplicated, capped; anything that isn't a list of strings is dropped. */
+function names(value: unknown, max = 50): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const name = entry.trim().slice(0, 120)
+    if (name && !out.some((kept) => kept.toLowerCase() === name.toLowerCase())) out.push(name)
+  }
+  return out.slice(0, max)
+}
+
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
@@ -71,6 +83,10 @@ export function sanitizeConfig(raw: Partial<Config>): Config {
     displayName: text(raw.displayName, '', 80),
     aboutMe: text(raw.aboutMe, '', ABOUT_ME_MAX_CHARS),
     pauseAiUntil: normalizePauseAiUntil(raw.pauseAiUntil),
+    screenReading: bool(raw.screenReading, d.screenReading),
+    excludedApps: names(raw.excludedApps),
+    contentProtection: bool(raw.contentProtection, d.contentProtection),
+    quietMode: bool(raw.quietMode, d.quietMode),
     theme: THEMES.includes(raw.theme as ThemeChoice) ? (raw.theme as ThemeChoice) : d.theme,
     shortcuts: shortcuts(raw.shortcuts),
     onboarded: bool(raw.onboarded, d.onboarded)

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { describeAppleReason } from '@shared/aiStatus'
-import { describePause, isAiPaused, pauseAiForHours } from '@shared/pauseAi'
 import type { PermissionKind, PermissionState } from '@shared/permissions'
 import {
   ABOUT_ME_MAX_CHARS,
@@ -594,8 +593,28 @@ export function Capture({ data: { config, permissions, speech }, actions: { patc
               : 'Say “add what’s on my screen” in Quick Capture, or use the capture shortcut.'
           }
         >
-          {accessibility && <PermissionRow permission={accessibility} onChange={() => void refresh()} />}
-          <PermissionRow permission={screen} onChange={() => void refresh()} />
+          <Row label="Read the screen" description="Off until you turn it on. While it reads, the orb says so.">
+            <Toggle label="Read the screen" checked={config.screenReading} onChange={(on) => void patch({ screenReading: on })} />
+          </Row>
+          {config.screenReading && accessibility && <PermissionRow permission={accessibility} onChange={() => void refresh()} />}
+          {config.screenReading && <PermissionRow permission={screen} onChange={() => void refresh()} />}
+          {config.screenReading && (
+            <Row
+              label="Never read"
+              htmlFor="excluded-apps"
+              description="One app per line, by name or bundle id. Password managers are never read."
+              stacked
+            >
+              <DraftTextarea
+                id="excluded-apps"
+                rows={3}
+                value={config.excludedApps.join('\n')}
+                placeholder={'Messages\ncom.tinyspeck.slackmacgap'}
+                onCommit={(text) => patch({ excludedApps: text.split('\n') })}
+                className={areaClass}
+              />
+            </Row>
+          )}
         </Group>
       )}
     </Page>
@@ -621,76 +640,6 @@ export function Learned({ data: { learned }, actions: { setLearned } }: PageProp
           ))}
         </Group>
       )}
-    </Page>
-  )
-}
-
-function tomorrowMorning(now = new Date()): string {
-  const next = new Date(now)
-  next.setDate(next.getDate() + 1)
-  next.setHours(8, 0, 0, 0)
-  return next.toISOString()
-}
-
-export function Privacy({ data: { config }, actions: { patch, run, busy } }: PageProps) {
-  const [passphrase, setPassphrase] = useState('')
-  const paused = isAiPaused(config.pauseAiUntil)
-  return (
-    <Page title="Privacy & Data" description="Your mail, tasks and model all live on this Mac. Nothing is uploaded, and there is no account.">
-      <Group title="Pause AI" footer="While paused nothing reads your mail or screen. Recurring tasks and snoozes still work.">
-        <Row label={paused ? 'Paused' : 'AI is on'} description={paused ? describePause(config.pauseAiUntil!) : 'Reads new mail on schedule and answers in chat.'}>
-          {paused ? (
-            <Button variant="primary" size="sm" onClick={() => void patch({ pauseAiUntil: null })}>
-              Resume
-            </Button>
-          ) : (
-            <>
-              <Button size="sm" onClick={() => void patch({ pauseAiUntil: pauseAiForHours(1) })}>
-                For 1 hour
-              </Button>
-              <Button size="sm" onClick={() => void patch({ pauseAiUntil: tomorrowMorning() })}>
-                Until tomorrow
-              </Button>
-            </>
-          )}
-        </Row>
-      </Group>
-
-      <Group title="Backup" footer="An encrypted file with your tasks, rules and settings. Without the passphrase it cannot be opened, by anyone.">
-        <Row label="Passphrase" htmlFor="backup-passphrase">
-          <input
-            id="backup-passphrase"
-            type="password"
-            autoComplete="new-password"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-            placeholder="At least 8 characters"
-            className={cn(fieldClass, 'w-48')}
-          />
-          <Button
-            size="sm"
-            disabled={!!busy || passphrase.length < 8}
-            onClick={() =>
-              void run('Writing backup…', async () => {
-                const result = await window.ambient.exportBackup(passphrase)
-                if (result.canceled) return
-                setPassphrase('')
-                return `Backup saved to ${result.path}`
-              })
-            }
-          >
-            Save backup…
-          </Button>
-        </Row>
-      </Group>
-
-      <Group title="Your data">
-        <Row label="App data folder" description="The database, settings and downloaded models.">
-          <Button size="sm" onClick={() => void window.ambient.openUserData()}>
-            Show in Finder
-          </Button>
-        </Row>
-      </Group>
     </Page>
   )
 }

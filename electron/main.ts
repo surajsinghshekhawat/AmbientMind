@@ -1,9 +1,9 @@
 import { isIsolated } from './isolation'
 import { execFileSync } from 'node:child_process'
 import { userInfo } from 'node:os'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, dialog, globalShortcut, ipcMain, nativeTheme, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, Notification, session, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import {
   findConflicts,
@@ -32,6 +32,24 @@ function crashLogPath() {
   const dir = app.getPath('logs')
   mkdirSync(dir, { recursive: true })
   return join(dir, 'crash.log')
+}
+
+async function confirmDestructive(message: string, detail: string, action: string): Promise<boolean> {
+  const options = { type: 'warning' as const, buttons: [action, 'Cancel'], defaultId: 1, cancelId: 1, message, detail }
+  const parent = getSettingsWindow()
+  const { response } = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+  return response === 0
+}
+
+function dataInventory(): DataInventory {
+  const userData = app.getPath('userData')
+  return {
+    ...storedCounts(getTaskStore()),
+    chatTurns: loadChatHistory().length,
+    aiCalls: readCalls(join(userData, 'ai-calls.jsonl')).length,
+    networkRequests: readRequests(networkLogPath()).length,
+    dataFolder: userData
+  }
 }
 
 function recordCrash(kind: string, err: unknown) {
@@ -91,6 +109,7 @@ app.on('child-process-gone', (_event, details) => {
 import {
   applyOverlayConfig,
   createOverlayWindow,
+  getOverlayWindow,
   setPanelHeight,
   setOverlayExpanded
 } from './overlay'
@@ -100,11 +119,13 @@ import {
   hideQuickAdd,
   setQuickAddRecording,
   setQuickAddHeight,
+  isQuickAddRecording,
   showQuickAdd,
   toggleQuickAdd
 } from './quickAdd'
+import { describeQuiet, quietReason, type QuietReason } from '@shared/quiet'
 import { HoldGesture } from './holdGesture'
-import { showSettingsWindow } from './settings'
+import { getSettingsWindow, showSettingsWindow } from './settings'
 import { createTray } from './tray'
 import {
   addTask,
@@ -144,7 +165,8 @@ import {
 } from './services/suggestionStore'
 import { enrichTask } from './services/extract'
 import { configureAi } from './services/ai'
-import { openAiLog } from './services/aiLog'
+import { openAiLog, readCalls } from './services/aiLog'
+import { clearNetworkLog, installNetworkLog, networkLogPath, networkSummary, readRequests } from './services/netLog'
 import { helperAppleModel } from './services/appleModel'
 import {
   connectGoogle,
@@ -173,7 +195,9 @@ import {
   syncAppleCalendar,
   type AppleSource
 } from './services/appleSources'
-import { writeEncryptedBackup } from './services/backup'
+import { RestoreError, restoreEncryptedBackup, writeEncryptedBackup } from './services/backup'
+import { dropLinesBefore, exportRows, forgetBefore, forgetSource, storedCounts } from './services/inventory'
+import { cutoffFor, INVENTORY_SOURCE_LABEL, isErasableSource, type DataInventory } from '@shared/privacy'
 import { loadChatHistory, saveChatHistory } from './services/chatHistory'
 import { exampleCount, messageIdFromTask, rateExampleBySource } from './services/vectorStore'
 import { backfillEmbeddings, runRetention } from './services/maintenance'
@@ -198,6 +222,11 @@ const ARCHIVE_SWEEP_MS = 15 * 60_000
 const SNOOZE_SWEEP_MS = 30_000
 
 let trayHandle: { refresh: () => void } | null = null
+const QUIET_POLL_MS = 15_000
+let quiet: { reason: QuietReason; label: string } | null = null
+let overlayHiddenForQuiet = false
+let quietTimer: ReturnType<typeof setInterval> | null = null
+let wasPaused = false
 /** In-memory: the DB keeps last_run/last_error, this keeps the counts. */
 let lastReport: SyncSummary['lastReport'] = null
 
@@ -260,8 +289,49 @@ function applyLoginItem(config: Config) {
   })
 }
 
+function applyContentProtection(on: boolean) {
+  for (const win of BrowserWindow.getAllWindows()) win.setContentProtection(on)
+}
+
+/** The orb steps aside and sync notifications wait while on a call or in a full-screen app. */
+function setQuiet(next: typeof quiet) {
+  const changed = (next?.reason ?? null) !== (quiet?.reason ?? null)
+  quiet = next
+  if (!changed) return
+  const overlay = getOverlayWindow()
+  if (next && overlay?.isVisible()) {
+    overlay.hide()
+    overlayHiddenForQuiet = true
+  } else if (!next && overlayHiddenForQuiet) {
+    overlayHiddenForQuiet = false
+    overlay?.showInactive()
+  }
+  trayHandle?.refresh()
+}
+
+async function checkQuiet() {
+  if (!loadConfig().quietMode || !helperReady()) return setQuiet(null)
+  try {
+    const busy = await helperRequest('system.busy', {})
+    const reason = quietReason(busy, isQuickAddRecording())
+    setQuiet(reason ? { reason, label: describeQuiet(reason, busy) } : null)
+  } catch (err) {
+    // A restarting helper keeps the last state rather than flickering the orb.
+    console.warn('[quiet] could not ask the helper:', (err as Error).message)
+  }
+}
+
+function startQuietWatch() {
+  if (os !== 'mac' || quietTimer) return
+  quietTimer = setInterval(() => void checkQuiet(), QUIET_POLL_MS)
+  void checkQuiet()
+}
+
 function applyLiveConfig(config: Config, previous?: Config) {
   applyOverlayConfig(config)
+  if (!previous || previous.contentProtection !== config.contentProtection) applyContentProtection(config.contentProtection)
+  if (previous && previous.quietMode !== config.quietMode) void checkQuiet()
+  trayHandle?.refresh()
   nativeTheme.themeSource = config.theme
   if (previous && JSON.stringify(previous.shortcuts) !== JSON.stringify(config.shortcuts)) registerShortcuts()
   broadcast(IPC.ConfigChanged, config)
@@ -402,7 +472,7 @@ function registerIpc() {
     return listActive()
   })
 
-  onIpc(IPC.QuickAddSubmit, (_event, title: string, options?: { keepOpen?: boolean }) => {
+  onIpc(IPC.QuickAddSubmit, (_event, title: string, options?: { keepOpen?: boolean; spoken?: boolean }) => {
     const trimmed = title.trim()
     if (!options?.keepOpen) hideQuickAdd()
     setQuickAddRecording(false)
@@ -441,7 +511,7 @@ function registerIpc() {
       deadline: parsed.deadline,
       priority: parsed.priority ?? 'medium',
       people: parsed.people,
-      source: 'manual'
+      source: options?.spoken ? 'voice' : 'manual'
     })
     broadcastTasks()
 
@@ -632,6 +702,125 @@ function registerIpc() {
     return { canceled: false as const, path: filePath }
   })
 
+  ipcMain.handle(IPC.RestoreBackup, async (_event, passphrase: string) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Restore from backup',
+      properties: ['openFile'],
+      filters: [{ name: 'AmbientMind backup', extensions: ['amb'] }]
+    })
+    const file = filePaths[0]
+    if (canceled || !file) return { canceled: true as const }
+    const sure = await confirmDestructive(
+      'Replace your tasks with this backup?',
+      'Everything AmbientMind has now is swapped for the backup’s copy; the current database is kept beside it as ambientmind.before-restore.db. AmbientMind restarts.',
+      'Restore and Restart'
+    )
+    if (!sure) return { canceled: true as const }
+    try {
+      restoreEncryptedBackup(file, String(passphrase ?? ''))
+    } catch (err) {
+      // The database is still open when the backup is refused.
+      if (err instanceof RestoreError) throw err
+      openTaskStore()
+      throw err
+    }
+    app.relaunch()
+    app.exit(0)
+    return { canceled: true as const }
+  })
+
+  ipcMain.handle(IPC.OpenCrashLog, async () => {
+    const path = crashLogPath()
+    if (!existsSync(path) || !readFileSync(path, 'utf8').trim()) return false
+    await shell.openPath(path)
+    return true
+  })
+
+  ipcMain.handle(IPC.DataInventory, () => dataInventory())
+
+  ipcMain.handle(IPC.ForgetSource, async (_event, source: unknown) => {
+    if (!isErasableSource(source)) throw new Error(`Unknown source ${String(source)}`)
+    const label = INVENTORY_SOURCE_LABEL[source]
+    const sure = await confirmDestructive(
+      `Forget everything from ${label}?`,
+      source === 'gmail'
+        ? 'Its tasks, the decisions made about them, and the past mail kept to guide the model are removed. While Gmail stays connected, new mail is still read.'
+        : `Its tasks and the decisions made about them are removed.`,
+      'Forget'
+    )
+    if (!sure) return { canceled: true, removed: 0 }
+    const removed = forgetSource(getTaskStore(), source)
+    broadcastTasks()
+    trayHandle?.refresh()
+    return { canceled: false, removed }
+  })
+
+  ipcMain.handle(IPC.ForgetBefore, async (_event, days: unknown) => {
+    const age = Number(days)
+    if (!Number.isFinite(age) || age < 1) throw new Error('A number of days is needed')
+    const cutoff = cutoffFor(age)
+    const sure = await confirmDestructive(
+      `Forget what’s older than ${new Date(cutoff).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}?`,
+      'Finished and deleted tasks, read-mail records, decisions, past mail kept to guide the model, and log entries from before then. Your open tasks and recurring rules stay.',
+      'Forget'
+    )
+    if (!sure) return { canceled: true, removed: 0 }
+    const userData = app.getPath('userData')
+    const removed =
+      forgetBefore(getTaskStore(), cutoff) +
+      dropLinesBefore(join(userData, 'ai-calls.jsonl'), cutoff) +
+      dropLinesBefore(networkLogPath(), cutoff)
+    broadcastTasks()
+    return { canceled: false, removed }
+  })
+
+  ipcMain.handle(IPC.ClearChatHistory, async () => {
+    const sure = await confirmDestructive('Clear the chat history?', 'Past questions and answers are removed. Tasks the chat added stay.', 'Clear')
+    if (!sure) return { canceled: true, removed: 0 }
+    const removed = loadChatHistory().length
+    saveChatHistory([])
+    getChatWindow()?.webContents.reload()
+    return { canceled: false, removed }
+  })
+
+  ipcMain.handle(IPC.ClearAiLog, async () => {
+    const sure = await confirmDestructive('Clear the AI call log?', 'It records which engine answered and how long it took, never what was asked.', 'Clear')
+    if (!sure) return { canceled: true, removed: 0 }
+    const path = join(app.getPath('userData'), 'ai-calls.jsonl')
+    const removed = readCalls(path).length
+    if (existsSync(path)) writeFileSync(path, '')
+    return { canceled: false, removed }
+  })
+
+  ipcMain.handle(IPC.ExportData, async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Export your data',
+      defaultPath: `ambientmind-export-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (canceled || !filePath) return { canceled: true as const }
+    const exported = {
+      exportedAt: new Date().toISOString(),
+      app: { name: 'AmbientMind', version: app.getVersion() },
+      ...exportRows(getTaskStore()),
+      neverSuggest: learnedSuppressions(),
+      chatHistory: loadChatHistory(),
+      settings: loadConfig()
+    }
+    writeFileSync(filePath, `${JSON.stringify(exported, null, 2)}\n`)
+    return { canceled: false as const, path: filePath }
+  })
+
+  ipcMain.handle(IPC.NetworkLog, () => networkSummary())
+
+  ipcMain.handle(IPC.ClearNetworkLog, async () => {
+    const sure = await confirmDestructive('Clear the network log?', 'The list of requests that left this Mac starts again from now.', 'Clear')
+    if (!sure) return { canceled: true, removed: 0 }
+    const removed = readRequests(networkLogPath()).length
+    clearNetworkLog()
+    return { canceled: false, removed }
+  })
+
   ipcMain.handle(IPC.GetChatHistory, () => loadChatHistory())
   ipcMain.handle(IPC.SaveChatHistory, (_event, turns: ChatTurn[]) => saveChatHistory(turns ?? []))
 
@@ -730,7 +919,16 @@ function currentUserName(): string {
  * serves Ctrl+Shift+S and spoken/typed "add what's on my screen" intents.
  */
 async function captureScreenAsTask(instruction = ''): Promise<void> {
-  const pausedUntil = loadConfig().pauseAiUntil
+  const { pauseAiUntil: pausedUntil, screenReading } = loadConfig()
+  if (!screenReading) {
+    const notice = new Notification({
+      title: 'Screen reading is off',
+      body: 'Turn it on in Settings → Capture to make tasks from what’s on screen.'
+    })
+    notice.on('click', () => showSettingsWindow('capture'))
+    notice.show()
+    return
+  }
   if (isAiPaused(pausedUntil) && pausedUntil) {
     new Notification({ title: 'AmbientMind', body: describePause(pausedUntil) }).show()
     return
@@ -741,6 +939,7 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
     const config = loadConfig()
     const result = await screenToTask(instruction, {
       userName: currentUserName(),
+      excludedApps: config.excludedApps,
       ...(config.aboutMe ? { aboutMe: config.aboutMe } : {})
     })
     if (!result) {
@@ -755,7 +954,7 @@ async function captureScreenAsTask(instruction = ''): Promise<void> {
       title: result.title,
       deadline: result.deadline,
       priority: result.priority,
-      source: 'manual',
+      source: 'screen',
       people: result.people,
       // The summary is the whole point: it lets the task be acted on later
       // without going back to whatever was on screen at the time.
@@ -819,7 +1018,7 @@ async function triggerSync(force = false): Promise<SyncReport> {
   const summary = report.errors[0]
     ? report.errors[0]
     : `Scanned ${report.scanned}, added ${report.added} task${report.added === 1 ? '' : 's'}`
-  if (!isAiPaused(loadConfig().pauseAiUntil)) {
+  if (!isAiPaused(loadConfig().pauseAiUntil) && !quiet) {
     new Notification({ title: 'AmbientMind sync', body: summary }).show()
   }
   console.log('[sync] report', report)
@@ -1039,6 +1238,9 @@ if (process.argv.includes('--selftest')) {
   hideDock()
 
   void app.whenReady().then(() => {
+    installNetworkLog(join(app.getPath('userData'), 'network.jsonl'), [session.defaultSession])
+    // Set before any page loads, so a protected window is never captured even once.
+    app.on('browser-window-created', (_event, win) => win.setContentProtection(loadConfig().contentProtection))
     applyDevCsp()
     guardNavigation()
     installAppMenu({ openSettings: () => showSettingsWindow() })
@@ -1099,8 +1301,15 @@ if (process.argv.includes('--selftest')) {
       setLaunchAtLogin: (on) => {
         const previous = loadConfig()
         applyLiveConfig(saveConfig({ launchAtLogin: on }), previous)
-      }
+      },
+      pauseAiUntil: () => loadConfig().pauseAiUntil,
+      setPauseAiUntil: (until) => {
+        const previous = loadConfig()
+        applyLiveConfig(saveConfig({ pauseAiUntil: until }), previous)
+      },
+      quietLabel: () => quiet?.label ?? null
     })
+    startQuietWatch()
 
     nativeTheme.themeSource = config.theme
     registerShortcuts({
@@ -1133,6 +1342,13 @@ if (process.argv.includes('--selftest')) {
         }
         // Brings up each rule's next occurrence as the previous one settles.
         applyRules()
+        // A timed pause ends on its own; the menu bar should say so.
+        const paused = isAiPaused(loadConfig().pauseAiUntil)
+        if (paused !== wasPaused) {
+          wasPaused = paused
+          trayHandle?.refresh()
+          broadcast(IPC.ConfigChanged, loadConfig())
+        }
       }),
       SNOOZE_SWEEP_MS
     )

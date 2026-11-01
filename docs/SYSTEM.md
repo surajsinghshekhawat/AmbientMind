@@ -547,7 +547,7 @@ sqlite-vec      localhost      Gmail,          safeStorage/DPAPI,
 | --- | --- | --- |
 | **Overlay** | Always present | A 64 px glass orb (`ThinkingOrb` inside) in the configured corner that never takes focus. Click expands it into a 380 px panel sized to its content, which takes focus so the keyboard works; Esc collapses it. |
 | **QuickAdd** | `Ctrl+Shift+A` (Mac `⌃⌥Space`) | A composer card: type, or press the shortcut again (or ⌘L, or the mic) to talk. Live chips show what was understood. Enter saves, ⌘Enter saves and stays open, Esc cancels. |
-| **Settings** | `Ctrl+Shift+,` (Mac `⌃⌥,`), tray, or the gear | A sidebar window: General, Sources, AI & Models, Capture, Shortcuts (with a recorder), Recurring, Learned, Privacy & Data, Permissions, About. Follows the system theme unless set to Light or Dark. |
+| **Settings** | `Ctrl+Shift+,` (Mac `⌃⌥,`), tray, or the gear | A sidebar window: General, Sources, AI & Models, Capture, Shortcuts (with a recorder), Recurring, Learned, Privacy, Your data, Permissions, About. Follows the system theme unless set to Light or Dark. |
 | **Chat** | `Ctrl+Shift+C` (Mac `⌃⌥C`), tray, or the overlay header | A frameless glass card that answers about the list and changes it, showing each change as a step. Stop cancels a running answer. |
 | **Onboarding** | First launch, or Settings → About | Welcome, privacy, sources, permissions, model check and shortcuts. Finishing sets `onboarded` in the config. |
 | **Tray** | Always | Show/hide, sync now, chat, settings, quit. There is no main window, so closing the overlay must never quit the process. |
@@ -677,6 +677,7 @@ them from a path would fail.
 | 11 | `011_task_lifecycle.sql` | Rebuild of `tasks`: tombstones (`deleted_at`), `suggested` status, `user_edited_at`, `source_url`, `evidence` |
 | 12 | `012_example_dedupe.sql` | Unique `examples (source, source_id)` |
 | 13 | `013_apple_sources.sql` | Rebuild of `tasks` so `source` admits `acalendar` and `reminders`; `updated_at` kept by triggers; `task_links` |
+| 14 | `014_screen_chat_sources.sql` | Rebuild of `tasks` so `source` admits `screen` and `chat`, which were saved as `manual` before |
 
 Migration 005 is the interesting one. SQLite cannot alter a `CHECK`
 constraint, so adding `'rule'` to the allowed task sources required copying the
@@ -691,8 +692,9 @@ caught a real problem (§9.1), which is the argument for keeping it.
 
 - `title`, `deadline` (ISO-8601 or null), `priority` (low/medium/high/urgent)
 - `source` — `gmail` | `gcalendar` | `acalendar` (Apple Calendar) |
-  `reminders` (made in Apple Reminders) | `manual` | `voice` | `rule`, with
-  `outlook`/`teams` reserved
+  `reminders` (made in Apple Reminders) | `manual` (typed) | `voice` (spoken
+  in Quick Capture) | `screen` | `chat` | `rule`, with `outlook`/`teams`
+  reserved
 - `updated_at` — set by triggers on any change to title, deadline, priority
   or status, so no writer can forget it; Reminders sync uses it to let the
   later edit win
@@ -751,12 +753,17 @@ timestamp. Outlives the task itself.
 | `autoAcceptAbove` | `null` | Off, or 0.7–1: confident mail tasks with a verified quote skip Suggested (§3.2a) |
 | `embeddingModel` | `nomic-embed-text` | RAG embeddings |
 | `whisperModel` | `Xenova/whisper-base.en` | Speech-to-text size |
-| `launchAtLogin` | `true` | Start with Windows |
+| `launchAtLogin` | `false` | Start at sign-in (opt-in) |
 | `calendarWriteBack` | `false` | Mirror rules to Google Calendar (opt-in) |
 | `appleCalendar` | `false` | Prep tasks from Apple Calendar (Mac, opt-in, asks for Calendar access) |
 | `remindersSync` | `false` | Two-way sync with an "AmbientMind" list in Reminders (Mac, opt-in) |
 | `displayName` | `''` | What your mail calls you; beats the OS guess |
 | `aboutMe` | `''` | Free-text profile, max 1200 characters |
+| `pauseAiUntil` | `null` | ISO time AI stays off until; `9999-12-31` means until resumed |
+| `screenReading` | `false` | The capture shortcut and screen intent may read the front window (opt-in) |
+| `excludedApps` | `[]` | App names or bundle ids never read, on top of the built-in password managers |
+| `contentProtection` | `false` | Windows are blank in screenshots, recordings and screen sharing |
+| `quietMode` | `true` | On a call or in a full-screen app, the orb hides and sync notifications wait (Mac) |
 
 ### 5.4 Background timers
 
@@ -903,7 +910,10 @@ a task with those words as its title.
 
 ### 6.5 Screen capture
 
-`Ctrl+Shift+S` (Mac `⌃⌥S`) or a spoken screen intent. On the Mac the helper
+`Ctrl+Shift+S` (Mac `⌃⌥S`) or a spoken screen intent, once **Read the
+screen** is on in Settings → Capture (off by default; the shortcut otherwise
+says how to turn it on). Apps listed under "Never read" are refused by bundle
+id in the helper, or by name before anything reaches the model. On the Mac the helper
 reads the window you were looking at: its Accessibility text when there is
 enough, otherwise that one window by ScreenCaptureKit and Vision. Password
 managers are refused outright. Failing both, and always on Windows, it
@@ -998,6 +1008,23 @@ which task to do first, and cross-source deduplication.
   toast has gone.
 - **Learned suppressions panel** — everything the app has decided to hide, with
   counts and an undo.
+- **Network log** — the main process's `fetch` is wrapped and the windows'
+  session watched; every request that leaves the Mac is a line in
+  `network.jsonl` (time, method, host, path without query or long ids,
+  status). Requests to this Mac are only counted. Settings → Privacy groups
+  them by destination (Google, model downloads, this Mac, anywhere else).
+- **Your data** — counts by source and of everything else kept; forget a
+  source (tasks become content-free tombstones so a sync doesn't re-add them;
+  Gmail also drops its learned examples), forget everything older than 30
+  days / 3 months / a year (the open list and rules stay), clear chat history
+  and the AI log, export JSON without tokens, and encrypted backup with
+  restore (checked, swapped in, the old file kept as
+  `ambientmind.before-restore.db`, then a relaunch).
+- **Privacy switches** — Pause AI for an hour, until tomorrow or until
+  resumed (Settings and the menu bar); screen reading off by default;
+  content protection; quiet mode from the helper's `system.busy` (mic in use
+  by another app, or a full-screen app), polled every 15 s.
+- **Crash log** — `logs/crash.log`, opened from Settings → Privacy.
 - **Corpus export** — dump recent mail to JSONL, pre-filled with the model's
   current extractions, so labelling is correcting a draft rather than authoring
   one. Pre-filtered mail is written to a *separate* audit file with its skip
@@ -1289,9 +1316,9 @@ connected, and the privacy story stays "the LLM never leaves localhost".
 - **Mobile, read-only first.** List, then complete and snooze, then chat — and
   only if the phone reaches the same backend rather than running a second model
   on the device.
-- **Phase F hardening.** Crash UX, encrypted export of the database without
-  tokens, privacy copy explaining what is local versus Google, a "pause AI for
-  an hour" switch, and a reboot test for start-at-login.
+- **Phase F hardening.** Done in rebuild Phase 7 (crash log, encrypted
+  backup and restore, privacy copy, pause AI), except the reboot test for
+  start-at-login, which needs a real reboot.
 - **Feedback on RAG examples themselves**, closing the one learning loop that
   is still open.
 

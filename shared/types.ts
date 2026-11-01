@@ -13,6 +13,10 @@ export type TaskSource =
   | 'outlook'
   | 'teams'
   | 'voice'
+  /** Read off the screen by the capture shortcut or "what's on my screen". */
+  | 'screen'
+  /** Added or changed by asking in chat. */
+  | 'chat'
   | 'manual'
   /** Materialised from a recurrence rule rather than observed anywhere. */
   | 'rule'
@@ -98,6 +102,17 @@ export interface Config {
    * Recurrence and snooze keep running. Null means not paused.
    */
   pauseAiUntil: string | null
+  /**
+   * The capture shortcut and "what's on my screen" read the front window.
+   * Off until turned on: reading the screen should never be a surprise.
+   */
+  screenReading: boolean
+  /** App names or bundle ids never read, on top of the built-in password managers. */
+  excludedApps: string[]
+  /** Hides AmbientMind's windows from screenshots, recordings and screen sharing. */
+  contentProtection: boolean
+  /** During a call or a full-screen app, the orb hides and notifications wait. */
+  quietMode: boolean
   /** Settings and onboarding only; the overlay, capture and chat stay dark. */
   theme: ThemeChoice
   /** Only the shortcuts the user changed; the rest use the platform defaults. */
@@ -186,6 +201,10 @@ export const DEFAULT_CONFIG: Config = {
   displayName: '',
   aboutMe: '',
   pauseAiUntil: null,
+  screenReading: false,
+  excludedApps: [],
+  contentProtection: false,
+  quietMode: true,
   theme: 'system',
   shortcuts: {},
   onboarded: false

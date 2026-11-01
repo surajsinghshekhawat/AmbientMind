@@ -21,6 +21,8 @@ import {
   type ShortcutStatus
 } from '@shared/shortcuts'
 import { sanitizeConfig } from '@shared/config'
+import type { DataInventory, ErasableSource } from '@shared/privacy'
+import type { NetworkSummary } from '@shared/network'
 import { healthyReport, makeTask } from './fixtures'
 
 type SyncStatus = { state: 'running' | 'idle' }
@@ -57,6 +59,8 @@ export interface MockState {
   appleSourceError: string | null
   /** What Apple's live speech returns on stop. */
   liveTranscript: string
+  inventory: DataInventory
+  network: NetworkSummary
 }
 
 /**
@@ -93,6 +97,33 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
     },
     appleSourceError: null,
     liveTranscript: '',
+    inventory: {
+      tasks: [
+        { source: 'gmail', open: 4, finished: 12 },
+        { source: 'manual', open: 3, finished: 9 },
+        { source: 'acalendar', open: 1, finished: 6 }
+      ],
+      tombstones: 5,
+      itemsRead: 140,
+      examples: 38,
+      decisions: 22,
+      rules: 2,
+      chatTurns: 14,
+      aiCalls: 310,
+      networkRequests: 2,
+      oldest: '2026-10-01T09:00:00.000Z',
+      dataFolder: '/mock/userData'
+    },
+    network: {
+      destinations: [
+        { destination: 'google', hosts: ['gmail.googleapis.com', 'www.googleapis.com'], requests: 2, failed: 0, lastAt: '2026-11-01T09:00:00.000Z' }
+      ],
+      recent: [
+        { at: '2026-11-01T09:00:00.000Z', method: 'GET', host: 'gmail.googleapis.com', path: '/gmail/v1/users/me/messages', status: 200, ms: 180, via: 'main' },
+        { at: '2026-11-01T08:59:00.000Z', method: 'GET', host: 'www.googleapis.com', path: '/calendar/v3/calendars/primary/events', status: 200, ms: 140, via: 'main' }
+      ],
+      localSinceLaunch: 48
+    },
     ...initial
   }
   const calls: { method: string; args: unknown[] }[] = []
@@ -260,6 +291,48 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
       record('exportBackup', passphrase)
       return { canceled: true as const }
     },
+    restoreBackup: async (passphrase: string) => {
+      record('restoreBackup', passphrase)
+      return { canceled: true as const }
+    },
+    openCrashLog: async () => {
+      record('openCrashLog')
+      return false
+    },
+    onShowSection: (_handler: (section: string) => void) => () => {},
+    privacy: {
+      inventory: async () => state.inventory,
+      forgetSource: async (source: ErasableSource) => {
+        record('privacy.forgetSource', source)
+        const removed = state.inventory.tasks.find((row) => row.source === source)
+        state.inventory = { ...state.inventory, tasks: state.inventory.tasks.filter((row) => row.source !== source) }
+        return { canceled: false, removed: removed ? removed.open + removed.finished : 0 }
+      },
+      forgetBefore: async (days: number) => {
+        record('privacy.forgetBefore', days)
+        return { canceled: false, removed: 7 }
+      },
+      clearChat: async () => {
+        record('privacy.clearChat')
+        state.inventory = { ...state.inventory, chatTurns: 0 }
+        return { canceled: false, removed: 0 }
+      },
+      clearAiLog: async () => {
+        record('privacy.clearAiLog')
+        state.inventory = { ...state.inventory, aiCalls: 0 }
+        return { canceled: false, removed: 0 }
+      },
+      exportData: async () => {
+        record('privacy.exportData')
+        return { canceled: false as const, path: '/mock/ambientmind-export.json' }
+      },
+      network: async () => state.network,
+      clearNetwork: async () => {
+        record('privacy.clearNetwork')
+        state.network = { ...state.network, destinations: [], recent: [] }
+        return { canceled: false, removed: 0 }
+      }
+    },
     getAppInfo: async () => ({ version: '0.0.0-mock', userData: '/mock/userData' }),
     openUserData: async () => record('openUserData'),
     getShortcuts: async () => state.shortcuts,
@@ -285,7 +358,7 @@ export function createMockAmbient(initial: Partial<MockState> = {}) {
 
     quickAdd: {
       open: () => record('quickAdd.open'),
-      submit: (title: string, options?: { keepOpen?: boolean }) => record('quickAdd.submit', title, options),
+      submit: (title: string, options?: { keepOpen?: boolean; spoken?: boolean }) => record('quickAdd.submit', title, options),
       setHeight: (height: number) => record('quickAdd.setHeight', height),
       cancel: () => record('quickAdd.cancel'),
       setRecording: (recording: boolean) => record('quickAdd.setRecording', recording),

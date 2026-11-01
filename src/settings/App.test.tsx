@@ -24,9 +24,10 @@ describe('Settings', () => {
   it('moves between sections from the sidebar', async () => {
     installMockAmbient()
     await open()
-    fireEvent.click(screen.getByRole('button', { name: 'Privacy & Data' }))
-    expect(screen.getByRole('heading', { name: 'Privacy & Data' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Privacy & Data' }).getAttribute('aria-current')).toBe('page')
+    fireEvent.click(screen.getByRole('button', { name: 'Your data' }))
+    await flush()
+    expect(screen.getByRole('heading', { name: 'Your data' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Your data' }).getAttribute('aria-current')).toBe('page')
   })
 
   it('records a new shortcut with the old ones suspended', async () => {
@@ -72,6 +73,68 @@ describe('Settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
     await flush()
     expect(mock.state.config.pauseAiUntil).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Until I resume' }))
+    await flush()
+    expect(screen.getByText(/until you resume it/)).toBeTruthy()
+  })
+
+  it('shows where requests went and hides windows from screen sharing', async () => {
+    const mock = installMockAmbient()
+    await open('privacy')
+    expect(screen.getByText('Google (Gmail and Calendar)')).toBeTruthy()
+    expect(screen.getByText('2 requests')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }))
+    await flush()
+    expect(screen.getByRole('list', { name: 'Recent requests' }).textContent).toContain('gmail.googleapis.com/gmail/v1/users/me/messages')
+    fireEvent.click(screen.getByRole('switch', { name: 'Hide from screen sharing' }))
+    await flush()
+    expect(mock.state.config.contentProtection).toBe(true)
+    expect(mock.state.config.quietMode).toBe(true)
+  })
+
+  it('counts what is kept and forgets a source, by date, or the chat', async () => {
+    const mock = installMockAmbient()
+    await open('data')
+    expect(screen.getByText('4 open · 12 finished')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Forget…' })[0]!)
+    await flush()
+    expect(mock.calls).toContainEqual({ method: 'privacy.forgetSource', args: ['gmail'] })
+    expect(screen.queryByText('4 open · 12 finished')).toBeNull()
+    await waitFor(() => expect(screen.getByText('Forgot 16 items')).toBeTruthy())
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Older than' }), { target: { value: '365' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Forget…' }).at(-1)!)
+    await flush()
+    expect(mock.calls).toContainEqual({ method: 'privacy.forgetBefore', args: [365] })
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear…' })[0]!)
+    await flush()
+    expect(mock.state.inventory.chatTurns).toBe(0)
+  })
+
+  it('keeps backup and restore behind a passphrase', async () => {
+    const mock = installMockAmbient()
+    await open('data')
+    const restore = screen.getByRole('button', { name: 'Restore…' })
+    expect(restore.hasAttribute('disabled')).toBe(true)
+    fireEvent.change(screen.getByLabelText('Passphrase'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Restore…' }))
+    await flush()
+    expect(mock.calls).toContainEqual({ method: 'restoreBackup', args: ['correct horse'] })
+  })
+
+  it('screen reading starts off and takes a list of apps never to read', async () => {
+    const mock = installMockAmbient()
+    await open('capture')
+    expect(screen.queryByLabelText(/Never read/)).toBeNull()
+    fireEvent.click(screen.getByRole('switch', { name: 'Read the screen' }))
+    await flush()
+    expect(mock.state.config.screenReading).toBe(true)
+    const field = screen.getByLabelText(/Never read/)
+    fireEvent.change(field, { target: { value: 'Messages\n\n messages \ncom.tinyspeck.slackmacgap' } })
+    fireEvent.blur(field)
+    await flush()
+    expect(mock.state.config.excludedApps).toEqual(['Messages', 'com.tinyspeck.slackmacgap'])
   })
 
   it('a refused permission links to System Settings and flags the sidebar', async () => {

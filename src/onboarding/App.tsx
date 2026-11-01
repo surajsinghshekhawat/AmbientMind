@@ -7,7 +7,7 @@ import { Button } from '@/ui/Button'
 import { cn } from '@/ui/cn'
 import { Kbd } from '@/ui/Kbd'
 import { Orb } from '@/ui/Orb'
-import { Group, Pill, Row } from '../settings/controls'
+import { Group, Pill, Row, Toggle } from '../settings/controls'
 import { PERMISSION_NAMES, PERMISSION_USE, PermissionAction, permissionPill, type AccountStatus } from '../settings/pages'
 import { clientOs } from '../settings/Shortcuts'
 
@@ -52,6 +52,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
   const [shortcuts, setShortcuts] = useState<ShortcutStatus[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [screenReading, setScreenReading] = useState(false)
 
   const checkPermissions = useCallback(() => void window.ambient.getPermissions().then(setPermissions), [])
   const checkHealth = useCallback(async () => setHealth(await window.ambient.getHealth()), [])
@@ -59,6 +60,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
   useEffect(() => {
     void window.ambient.getConfig().then((config) => {
       if (applyTheme) document.documentElement.dataset.theme = config.theme
+      setScreenReading(config.screenReading)
     })
     void window.ambient.accounts.status().then(setAccount)
     void window.ambient.getShortcuts().then(setShortcuts)
@@ -207,6 +209,18 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
                 </Row>
               )}
               {screen && (
+                <Row label="Read the screen" description="Make a task from what’s in front of you, when you ask. Off unless you turn it on.">
+                  <Toggle
+                    label="Read the screen"
+                    checked={screenReading}
+                    onChange={(on) => {
+                      setScreenReading(on)
+                      void window.ambient.setConfig({ screenReading: on })
+                    }}
+                  />
+                </Row>
+              )}
+              {screen && screenReading && (
                 <Row
                   label="Screen Recording"
                   description={screen.help ?? 'Only when you ask it to read your screen. Nothing is recorded or kept. macOS asks again every month.'}
@@ -219,7 +233,7 @@ export function App({ initialStep = 'welcome', applyTheme = true }: Props) {
                   )}
                 </Row>
               )}
-              {accessibility && (
+              {accessibility && screenReading && (
                 <Row label={PERMISSION_NAMES.accessibility} description={accessibility.help ?? PERMISSION_USE.accessibility}>
                   {permissionPill(accessibility)}
                   <PermissionAction permission={accessibility} onChange={checkPermissions} />

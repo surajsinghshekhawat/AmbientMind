@@ -10,6 +10,7 @@ import {
   MIN_SCREEN_CHARS,
   denoiseOcr,
   focusedText,
+  userExcluded,
   windowTitle,
   type ScreenReading
 } from '@shared/screenRead'
@@ -120,13 +121,20 @@ export async function readScreenText(png: Buffer): Promise<string> {
 }
 
 /** Accessibility, then that window's pixels, then the whole display. */
-export async function readScreen(): Promise<ScreenReading> {
+export async function readScreen(excludedApps: readonly string[] = []): Promise<ScreenReading> {
   let fallbackTitle = ''
   let axText = ''
   if (isMac && helperReady()) {
     try {
-      const context = await helperRequest('context.focused', { excludeBundleIds: EXCLUDED_BUNDLE_IDS, maxChars: 12_000 })
+      const context = await helperRequest('context.focused', {
+        excludeBundleIds: [...EXCLUDED_BUNDLE_IDS, ...excludedApps.filter((entry) => entry.includes('.'))],
+        maxChars: 12_000
+      })
       if (context.excluded) throw new ScreenRefused(context.app ?? 'this app')
+      // Names are matched here, after the read; the text is dropped unused.
+      if (userExcluded(excludedApps, { name: context.app, bundleId: context.bundleId })) {
+        throw new ScreenRefused(context.app ?? 'this app')
+      }
       fallbackTitle = windowTitle(context)
       axText = focusedText(context)
       console.log(`[screen] ${context.app}: ${axText.length} chars through accessibility`)
@@ -150,6 +158,8 @@ export async function readScreen(): Promise<ScreenReading> {
   }
 
   const capture = await captureScreen()
+  const refused = fallbackTitle ? null : userExcluded(excludedApps, { windowTitle: capture.windowTitle })
+  if (refused) throw new ScreenRefused(refused)
   console.log(`[screen] captured "${capture.windowTitle}" (${capture.png.length} bytes)`)
   const text = await readScreenText(capture.png)
   console.log(`[screen] display OCR produced ${text.length} chars`)
@@ -161,9 +171,9 @@ export async function readScreen(): Promise<ScreenReading> {
 
 export async function screenToTask(
   instruction: string,
-  options: { userName?: string; aboutMe?: string } = {}
+  options: { userName?: string; aboutMe?: string; excludedApps?: readonly string[] } = {}
 ): Promise<ScreenTask | null> {
-  const reading = await readScreen()
+  const reading = await readScreen(options.excludedApps)
   if (reading.text.length < MIN_SCREEN_CHARS) return null
 
   const vars = {

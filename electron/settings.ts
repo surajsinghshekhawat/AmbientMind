@@ -1,11 +1,14 @@
 import { join } from 'node:path'
 import { BrowserWindow, nativeTheme } from 'electron'
+import { IPC } from '@shared/ipc'
 import { bringToFront, prepareUtilityWindow, utilityWindowOptions } from './platform'
 
 let settingsWindow: BrowserWindow | null = null
 
-export function showSettingsWindow() {
+/** `section` opens that page: on load through the hash, after it by message. */
+export function showSettingsWindow(section?: string) {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (section) settingsWindow.webContents.send(IPC.SettingsShowSection, section)
     bringToFront(settingsWindow)
     return settingsWindow
   }
@@ -31,9 +34,9 @@ export function showSettingsWindow() {
   prepareUtilityWindow(settingsWindow, 'settings')
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    void settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/settings/index.html`)
+    void settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/settings/index.html${section ? `#${section}` : ''}`)
   } else {
-    void settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'))
+    void settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'), section ? { hash: section } : {})
   }
 
   settingsWindow.on('closed', () => {

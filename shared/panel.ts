@@ -85,6 +85,8 @@ export const SOURCE_LABEL: Record<TaskSource, string> = {
   outlook: 'Outlook',
   teams: 'Teams',
   voice: 'Voice',
+  screen: 'From your screen',
+  chat: 'From chat',
   manual: 'Added by you',
   rule: 'Recurring'
 }

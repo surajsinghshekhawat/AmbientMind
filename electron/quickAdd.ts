@@ -65,6 +65,10 @@ export function setQuickAddRecording(next: boolean) {
   recording = next
 }
 
+export function isQuickAddRecording() {
+  return recording
+}
+
 function centerOnActiveDisplay(win: BrowserWindow) {
   const cursor = screen.getCursorScreenPoint()
   const { x, y, width, height } = screen.getDisplayNearestPoint(cursor).workArea

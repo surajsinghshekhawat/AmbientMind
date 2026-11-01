@@ -72,6 +72,7 @@ export function App({
   const cardRef = useRef<HTMLDivElement>(null)
   const recorderRef = useRef(new PcmRecorder())
   const finishingRef = useRef(false)
+  const spokenRef = useRef(false)
   const phaseRef = useRef<Phase>('typing')
   phaseRef.current = phase
   const engineRef = useRef<SpeechEngineInfo['engine']>('whisper')
@@ -119,6 +120,7 @@ export function App({
     setHolding(false)
     setPartial('')
     setValue('')
+    spokenRef.current = false
     setPhase('typing')
     setMessage(null)
     checkEngine()
@@ -131,7 +133,7 @@ export function App({
       if (!text || phaseRef.current !== 'typing') return
       setPhase('saved')
       setTimeout(() => {
-        window.ambient.quickAdd.submit(text, { keepOpen })
+        window.ambient.quickAdd.submit(text, spokenRef.current ? { keepOpen, spoken: true } : { keepOpen })
         if (keepOpen) reset()
       }, SAVED_MS)
     },
@@ -163,6 +165,7 @@ export function App({
       } else {
         // Shown for a look before saving; voice gets the same chips as typing.
         setValue((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript))
+        spokenRef.current = true
         setMessage(null)
       }
     } catch (err) {

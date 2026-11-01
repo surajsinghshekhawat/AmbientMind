@@ -73,6 +73,21 @@ export const IPC = {
   FinishOnboarding: 'onboarding:finish',
   GetAppInfo: 'app:info',
   ExportBackup: 'settings:export-backup',
+  /** Decrypts a backup, swaps it in for the database, and relaunches. */
+  RestoreBackup: 'settings:restore-backup',
+  OpenCrashLog: 'settings:open-crash-log',
+  /** Main -> settings renderer: jump to a section. */
+  SettingsShowSection: 'settings:show-section',
+  /** What's stored, by source; and the ways to forget it. */
+  DataInventory: 'privacy:inventory',
+  ForgetSource: 'privacy:forget-source',
+  ForgetBefore: 'privacy:forget-before',
+  ClearChatHistory: 'privacy:clear-chat',
+  ClearAiLog: 'privacy:clear-ai-log',
+  ExportData: 'privacy:export',
+  /** Every request that left the Mac, summarised by destination. */
+  NetworkLog: 'privacy:network',
+  ClearNetworkLog: 'privacy:clear-network',
   SuspendShortcuts: 'settings:suspend-shortcuts',
   GetChatHistory: 'chat:history-get',
   SaveChatHistory: 'chat:history-save',

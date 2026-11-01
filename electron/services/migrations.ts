@@ -12,6 +12,7 @@ import exampleFeedback from '../../db/migrations/010_example_feedback.sql?raw'
 import taskLifecycle from '../../db/migrations/011_task_lifecycle.sql?raw'
 import exampleDedupe from '../../db/migrations/012_example_dedupe.sql?raw'
 import appleSources from '../../db/migrations/013_apple_sources.sql?raw'
+import screenChatSources from '../../db/migrations/014_screen_chat_sources.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
@@ -31,8 +32,12 @@ const MIGRATIONS: string[] = [
   exampleFeedback,
   taskLifecycle,
   exampleDedupe,
-  appleSources
+  appleSources,
+  screenChatSources
 ]
+
+/** The schema version a fully migrated database reports. */
+export const MIGRATION_COUNT = MIGRATIONS.length
 
 export function migrate(db: Database.Database) {
   const current = db.pragma('user_version', { simple: true }) as number

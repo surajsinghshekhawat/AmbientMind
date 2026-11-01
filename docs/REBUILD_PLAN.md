@@ -932,7 +932,7 @@ Not done yet, and why:
   that doesn't fit to Ollama, and with Apple chosen alone it fails as too
   long.
 
-### Phase 7 — Trust and privacy (3–4 days)
+### Phase 7 — Trust and privacy (3–4 days) — done, branch `phase-7-privacy`
 
 - "What AmbientMind knows" page: counts per source, where data lives,
   retention, export, delete by source or date.
@@ -944,6 +944,43 @@ Not done yet, and why:
 - Content protection toggle; quiet mode during calls and full-screen apps.
 
 Exit: every BACKLOG Phase F item is reachable from the UI.
+
+What landed:
+
+- Settings → **Your data**: tasks counted by where they came from, and
+  everything else kept (past mail used as examples, read-mail ids, deleted
+  tasks, decisions, rules, chat history, the AI log) with its retention.
+  Forget a source, forget everything older than 30 days / 3 months / a year,
+  clear chat or the AI log, export JSON (no tokens), and encrypted backup
+  with **restore**. Each destructive action asks in a native dialog first.
+- Voice, screen and chat tasks are now tagged as such (migration 014); before,
+  all three were `manual` and could not be counted apart. Older tasks keep
+  their `manual` tag.
+- Settings → **Privacy**: where data goes (stays here, read from Google,
+  models downloaded once), and **What leaves this Mac**, from a network log
+  that wraps the main process's `fetch` and watches the windows' session.
+  Only off-device requests are written, without query strings; requests to
+  this Mac are counted.
+- Pause AI gained "until I resume" and a menu bar entry, and says "tomorrow
+  at 8:00" rather than only a time.
+- Screen reading is a switch, off by default, in Capture and onboarding;
+  the shortcut explains how to turn it on. "Never read" takes app names or
+  bundle ids on top of the password managers. The orb's reading state was
+  already the indicator.
+- Content protection hides every window from screenshots and sharing; quiet
+  mode polls the helper's `system.busy` and hides the orb and holds sync
+  notifications while another app has the mic or an app is full screen.
+- The backup's plaintext copy is written beside the database instead of the
+  system temp folder. Crash log opens from Privacy.
+
+Not done yet, and why:
+
+- The network log covers AmbientMind's own process and windows. Tesseract's
+  worker thread and the Swift helper make requests it can't see (the helper
+  only talks to Apple for the speech model). Running the Tesseract model
+  download through the main process would close that.
+- The start-at-login reboot test from BACKLOG Phase F needs a real reboot.
+- Quiet mode needs the helper, so it does nothing on Windows.
 
 ### Phase 8 — Polish and release readiness (3–5 days)
 

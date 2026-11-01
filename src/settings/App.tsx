@@ -3,6 +3,7 @@ import {
   Brain,
   Cable,
   Command,
+  Database,
   GraduationCap,
   Info,
   KeyRound,
@@ -17,7 +18,9 @@ import type { ShortcutSet, ShortcutStatus } from '@shared/shortcuts'
 import type { Config, RecurrenceSuggestion } from '@shared/types'
 import { cn } from '@/ui/cn'
 import { ToastProvider, ToastRegion, useToast } from '@/ui/Toast'
-import { About, AiModels, Capture, General, Learned, Permissions, Privacy, Sources, type SettingsActions, type SettingsData } from './pages'
+import { About, AiModels, Capture, General, Learned, Permissions, Sources, type SettingsActions, type SettingsData } from './pages'
+import { Privacy } from './Privacy'
+import { YourData } from './YourData'
 import { Recurring } from './Recurring'
 import { clientOs, Shortcuts } from './Shortcuts'
 
@@ -30,6 +33,7 @@ export type SectionId =
   | 'recurring'
   | 'learned'
   | 'privacy'
+  | 'data'
   | 'permissions'
   | 'about'
 
@@ -41,12 +45,17 @@ const SECTIONS: { id: SectionId; label: string; icon: ComponentType<LucideProps>
   { id: 'shortcuts', label: 'Shortcuts', icon: Command },
   { id: 'recurring', label: 'Recurring', icon: Repeat },
   { id: 'learned', label: 'Learned', icon: GraduationCap },
-  { id: 'privacy', label: 'Privacy & Data', icon: ShieldCheck },
+  { id: 'privacy', label: 'Privacy', icon: ShieldCheck },
+  { id: 'data', label: 'Your data', icon: Database },
   { id: 'permissions', label: 'Permissions', icon: KeyRound },
   { id: 'about', label: 'About', icon: Info }
 ]
 
 const SAVED_DELAY_MS = 600
+
+export function isSectionId(value: string): value is SectionId {
+  return SECTIONS.some((section) => section.id === value)
+}
 
 interface Props {
   initialSection?: SectionId | undefined
@@ -123,6 +132,14 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
     contentRef.current?.scrollTo({ top: 0 })
   }, [section])
 
+  useEffect(
+    () =>
+      window.ambient.onShowSection((next) => {
+        if (isSectionId(next)) setSection(next)
+      }),
+    []
+  )
+
   const patch = useCallback(
     async (partial: Partial<Config>) => {
       const config = await window.ambient.setConfig(partial)
@@ -191,6 +208,8 @@ function Settings({ initialSection = 'general', applyTheme = true }: Props) {
         return <Learned data={data} actions={actions} />
       case 'privacy':
         return <Privacy data={data} actions={actions} />
+      case 'data':
+        return <YourData data={data} actions={actions} />
       case 'permissions':
         return <Permissions data={data} actions={actions} />
       case 'about':
