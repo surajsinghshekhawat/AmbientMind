@@ -2,6 +2,7 @@
  * Starts and stops an unattended QA run (docs/AGENT_QA.md).
  *
  *   ./dev npm run qa -- start [name]   run folder, snapshot, seeded profiles, guard on
+ *   ./dev npm run qa -- resume <name>  the same run again, e.g. after a QA-mode fix
  *   ./dev npm run qa -- status
  *   ./dev npm run qa -- stop           guard off; nothing is deleted
  *
@@ -213,6 +214,26 @@ function start(name) {
   console.log(JSON.stringify(meta, null, 2))
 }
 
+/** Re-activates a stopped run, e.g. after a QA-mode fix, keeping its snapshot and results. */
+function resume(name) {
+  if (existsSync(ACTIVE)) {
+    console.error(`[qa] a run is already active: ${readFileSync(ACTIVE, 'utf8').trim()}. Stop it first.`)
+    process.exit(1)
+  }
+  const run = name ? join(QA, 'runs', name) : null
+  const metaFile = run && join(run, 'run.json')
+  if (!metaFile || !existsSync(metaFile)) {
+    console.error(`[qa] no run named ${name ?? '(none)'}`)
+    process.exit(1)
+  }
+  const meta = JSON.parse(readFileSync(metaFile, 'utf8'))
+  const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim()
+  const entry = { at: new Date().toISOString(), commit: git(['rev-parse', '--short', 'HEAD']), branch: git(['branch', '--show-current']) }
+  writeFileSync(metaFile, JSON.stringify({ ...meta, resumes: [...(meta.resumes ?? []), entry] }, null, 2))
+  writeFileSync(ACTIVE, run)
+  console.log(`[qa] resumed ${run} on ${entry.branch}@${entry.commit}`)
+}
+
 function stop() {
   if (!existsSync(ACTIVE)) return console.log('[qa] no active run')
   const run = readFileSync(ACTIVE, 'utf8').trim()
@@ -227,9 +248,10 @@ function stop() {
 
 const [command, arg] = process.argv.slice(2)
 if (command === 'start') start(arg)
+else if (command === 'resume') resume(arg)
 else if (command === 'stop') stop()
 else if (command === 'status') console.log(existsSync(ACTIVE) ? `active: ${readFileSync(ACTIVE, 'utf8').trim()}` : 'no active run')
 else {
-  console.error('usage: npm run qa -- start [name] | status | stop')
+  console.error('usage: npm run qa -- start [name] | resume <name> | status | stop')
   process.exit(1)
 }

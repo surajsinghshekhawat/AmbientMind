@@ -71,7 +71,9 @@ check('release/ untouched', releaseChanged.length === 0, releaseChanged.slice(0,
 // 4. Git: same branch and commit as at the start.
 const head = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim()
 const branch = spawnSync('git', ['branch', '--show-current'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim()
-check('git branch and commit unchanged', head === meta.commit && branch === meta.branch, { start: `${meta.branch}@${meta.commit}`, now: `${branch}@${head}` })
+// A resumed run (qa -- resume) is checked against the commit it resumed on.
+const since = meta.resumes?.at(-1) ?? meta
+check('git branch and commit unchanged', head === since.commit && branch === since.branch, { start: `${since.branch}@${since.commit}`, now: `${branch}@${head}` })
 
 // 5. What the app and the agent tried.
 const attemptFiles = walk(run).filter((p) => p.endsWith('attempts-app.jsonl'))
