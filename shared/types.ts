@@ -176,7 +176,7 @@ export const DEFAULT_CONFIG: Config = {
   maxTasksVisible: 7,
   aiEngine: 'auto',
   autoAcceptAbove: null,
-  ollamaModel: 'qwen2.5:3b',
+  ollamaModel: 'qwen3:4b-instruct-2507-q4_K_M',
   embeddingModel: 'nomic-embed-text',
   whisperModel: 'Xenova/whisper-base.en',
   launchAtLogin: false,

@@ -894,13 +894,31 @@ Benchmark on `eval/corpus/seed.jsonl` (14 messages, results in
 
 | Engine                          | F1   | Task-free left alone | Deadline | Median latency |
 | ------------------------------- | ---- | -------------------- | -------- | -------------- |
-| `qwen2.5:3b` (default)          | 100% | 100%                 | 71%      | 0.2 s          |
-| `qwen3:4b-instruct-2507-q4_K_M` | 100% | 100%                 | 57%      | 0.2 s          |
+| `qwen2.5:3b`                    | 100% | 100%                 | 71%      | 0.2 s          |
+| `qwen3:4b-instruct-2507-q4_K_M` (default) | 100% | 100%       | 57%      | 0.2 s          |
 | `gemma3n:e4b`                   | 100% | 100%                 | 57%      | 0.5 s          |
-| Apple on-device                 | 86%  | 100%                 | 67%      | 0.8 s          |
+| Apple on-device                 | 86%  | 100%                 | 50–67%   | 0.8 s          |
 
-The previous best was 83.3% F1 and 60% deadlines. `qwen2.5:3b` stays the
-default: smallest download, fastest and best on deadlines. `gemma3n:e4b`
+The previous best was 83.3% F1 and 60% deadlines. Apple's deadline score
+moves between runs: on one task-free message it sometimes dates "ASAP".
+
+Chat, on `eval:chat` (18 scripted messages checking the task each change
+lands on and the time it resolves to): `qwen3:4b-instruct-2507` 18/18,
+`qwen2.5:3b` 16/18, `gemma3n:e4b` 15/18, Apple 14/18. Apple's model copies the
+prompt's examples back and acts on questions, so Automatic gives chat to
+Ollama while it runs, and `qwen3:4b-instruct-2507` became the default: equal
+on mail, clearly better at chat, 2.5 GB against 1.9 GB.
+
+Chat was rebuilt after the first device test, where "remind me to shower in
+an hour" made four tasks with no time and "what tasks are done" listed open
+ones. One model call now returns a `kind` (question, change or other), the
+changes, and a reply. Tasks are named by their copied title and times by
+the user's own words, which the Quick Add parser resolves; it learned "in an
+hour", "in 20 minutes", "in two days" and "next week" for this. Code writes
+the confirmation from what really changed, a question can never change the
+list, an add repeated within 15 minutes moves the first one instead, and a
+reply that claims a change it didn't list is asked once more, then replaced
+with "I didn't change anything". `gemma3n:e4b`
 stood in for the plan's `gemma4:e4b`; `qwen3.5:4b` was not benchmarked.
 
 Not done yet, and why:

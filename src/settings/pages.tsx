@@ -376,14 +376,14 @@ export function AiModels({ data: { config, health, ragCount, account }, actions:
           </Row>
         ))}
         {health && (
-          <Row label="Answering now" description="What reads your mail and answers chat at the moment.">
+          <Row label="Answering now" description="What reads your mail at the moment.">
             <Pill tone={health.ai.engine ? 'ok' : 'bad'}>{engineName(health.ai.engine, config.ollamaModel)}</Pill>
           </Row>
         )}
       </Group>
 
       {health?.ai.apple && (
-        <Group title="Engine" footer="Automatic uses Apple Intelligence when it’s ready and Ollama otherwise, including for mail too long for Apple’s model.">
+        <Group title="Engine" footer="Automatic reads mail with Apple Intelligence when it’s ready, and uses Ollama for chat, for mail too long for Apple’s model, and whenever Apple isn’t available.">
           <Row label="Use">
             <Segmented label="AI engine" value={config.aiEngine} options={ENGINES} onChange={(aiEngine) => void patch({ aiEngine })} />
           </Row>

@@ -164,7 +164,8 @@ with greedy sampling; errors come back typed (`guardrail`, `refusal`,
 **The router** (`electron/services/ai.ts`) is the only way the app talks to a
 model. The `aiEngine` setting is `auto`, `apple` or `ollama`:
 
-- `auto` uses Apple when it is ready, otherwise Ollama. A prompt that would not
+- `auto` uses Apple when it is ready, otherwise Ollama. Chat is the
+  exception: it goes to Ollama while Ollama is running (§7.4). A prompt that would not
   fit Apple's 4,096-token window (estimated at 3.2 characters a token plus the
   schema and output budget) goes to Ollama, so a long message is read whole
   rather than cut down. When Apple fails with a refusal, guardrail, overflow
@@ -211,7 +212,7 @@ of that gap.
 | `taskExtraction` | `{ asksUser, tasks: [{ evidence, title, deadline, priority, people, confidence }] }` | Mail → zero or more tasks, each with a quote |
 | `taskEnrichment` | `{ title, deadline, priority, people }` | One typed or spoken line → a structured task |
 | `screenTask` | single task object | One screenshot → at most one task |
-| `chat` | `{ action, query?, title?, deadline?, priority?, until?, weekdays?, time?, reply }` | One conversational turn → one action plus a human reply |
+| `chat` | `{ kind, actions: [{ type, task, title, when, priority }], reply }` | One message → question, change or other; the changes; a reply (§7.4) |
 
 `deadline` is declared as `anyOf: [string, null]`, which is what lets the model
 say "there is no deadline here" rather than inventing one to satisfy the type.
@@ -472,9 +473,11 @@ human prose. Everything downstream of that is arithmetic.**
   labelled corpus. `--model <tag>` picks the Ollama model; `--engine apple`
   runs Apple's model through the locally built helper.
 - `ai:budget` — latency and failure summary from the call log (§3.1a).
-- `npx tsx eval/chatActions.ts` — runs the chat prompt against the **real**
-  model with ten scripted messages and checks which action it chose. This
-  exists because the risk in chat is not the wiring but the model's judgement.
+- `npm run eval:chat` — runs the chat planner against the **real** model
+  with 18 scripted messages and checks what would happen: no change for a
+  question, the right task, the resolved time. `--model` and `--engine apple`
+  as above. This exists because the risk in chat is not the wiring but the
+  model's judgement.
 - `npm run check:migration` — applies pending migrations to a **copy** of the
   live database and reports whether the data survived.
 
@@ -496,7 +499,7 @@ it refers to, `eval/corpus/enron-200.jsonl`, **has never been built** (§12.3).
 | Extraction recall | 71.4% | 5 of 7 |
 | Empty-specificity | 100% | No invented tasks on the 8 controls |
 | Deadline accuracy | 60% | Only 5 matched pairs; mostly noise |
-| Chat action selection | 10/10 | Was 6/10 before worked examples were added |
+| Chat action selection | 10/10 | Was 6/10 before worked examples were added; superseded by `eval:chat` (18/18 on `qwen3:4b-instruct-2507`, see the rebuild plan's Phase 6) |
 | Real-mail precision | No false positives on 13 messages | See §10.2 |
 
 Those were measured on the original Windows machine. After the Phase 6
@@ -744,7 +747,7 @@ timestamp. Outlives the task itself.
 | `syncIntervalMinutes` | `15` | Background sync cadence |
 | `maxTasksVisible` | `7` | Before "+N more · show all" |
 | `aiEngine` | `auto` | `auto`, `apple` or `ollama` (§3.1a) |
-| `ollamaModel` | `qwen2.5:3b` | Ollama's extraction and chat model |
+| `ollamaModel` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama's extraction and chat model |
 | `autoAcceptAbove` | `null` | Off, or 0.7–1: confident mail tasks with a verified quote skip Suggested (§3.2a) |
 | `embeddingModel` | `nomic-embed-text` | RAG embeddings |
 | `whisperModel` | `Xenova/whisper-base.en` | Speech-to-text size |
@@ -1004,6 +1007,28 @@ which task to do first, and cross-source deduplication.
 
 About-me profile, chat panel with real actions, deterministic clash advice, and
 decision memory.
+
+**Chat** (`electron/services/chatPlan.ts`, `chat.ts`) makes one model call per
+message. The model sees open tasks (most urgent first, with due times in
+words), tasks done in the last week, repeating rules and any matching past
+decisions, and returns a `kind` (question, change or other), a list of
+changes, and a reply. Changes name a task by copying its title and a time by
+copying the user's words ("in an hour"); code finds the task (exact title,
+else similarity of at least 0.6) and resolves the time with the Quick Add
+parser. Guards around the model:
+
+- Only `kind: "change"` acts, and a message phrased as a question with no
+  command word never changes anything.
+- The same task added twice in one message is added once; added again within
+  15 minutes of the first, it moves the first.
+- "Move X" where X isn't on the list adds X; "done" on a finished task with
+  "not" in the message reopens it.
+- A reply that claims a change it didn't list is asked once more, then
+  replaced by "I didn't change anything".
+- The confirmation shown is written by code from what really changed.
+
+In Automatic, chat goes to Ollama while it is running and to Apple's model
+otherwise (§3.1a).
 
 ### 7.5 Decision memory and learning
 

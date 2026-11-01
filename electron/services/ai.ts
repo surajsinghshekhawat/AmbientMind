@@ -89,7 +89,7 @@ interface State {
   onCall: ((call: AiCall) => void) | null
 }
 
-const state: State = { apple: null, preference: 'auto', ollamaModel: 'qwen2.5:3b', onCall: null }
+const state: State = { apple: null, preference: 'auto', ollamaModel: 'qwen3:4b-instruct-2507-q4_K_M', onCall: null }
 let appleStatus: { at: number; value: AppleModelStatus | null } | null = null
 
 export function configureAi(next: Partial<State>): void {
@@ -129,7 +129,15 @@ export async function appleModelStatus(fresh = false): Promise<AppleModelStatus 
 }
 
 /** The engine a call would use now, or null when neither can answer. */
-export async function chooseEngine(): Promise<AiEngine | null> {
+/**
+ * Chat plans changes against a whole task list, where Apple's model trailed
+ * both Ollama candidates on `eval:chat` (14/18 against 16 and 17). Automatic
+ * gives chat to Ollama while it is running.
+ */
+const OLLAMA_FIRST: ReadonlySet<AiPurpose> = new Set(['chat'])
+
+export async function chooseEngine(purpose?: AiPurpose): Promise<AiEngine | null> {
+  if (state.preference === 'auto' && purpose && OLLAMA_FIRST.has(purpose) && (await ollamaAvailable())) return 'ollama'
   if (state.preference !== 'ollama' && (await appleModelStatus())?.available) return 'apple'
   if (state.preference !== 'apple' && (await ollamaAvailable())) return 'ollama'
   return null
@@ -179,7 +187,7 @@ async function viaApple(request: GenerateRequest): Promise<string> {
 }
 
 export async function generate(request: GenerateRequest): Promise<GenerateResult> {
-  let engine = request.engine ?? (await chooseEngine())
+  let engine = request.engine ?? (await chooseEngine(request.purpose))
   if (!engine) {
     throw new AiUnavailableError(
       state.preference === 'apple'

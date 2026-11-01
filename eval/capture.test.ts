@@ -76,7 +76,8 @@ test('Quick Add asks the model only when there is something left to find', () =>
   assert.equal(skip('Send the deck before the board meeting'), true)
   assert.equal(skip('Renew passport next month'), true)
   assert.equal(skip('dentist friday morning'), false)
-  assert.equal(skip('dentist in two weeks'), true)
+  assert.equal(skip('dentist in two weeks'), false)
+  assert.equal(skip('dentist before the holidays'), true)
   assert.equal(skip('remember that I need to sort out the thing with the landlord about the deposit and the boiler'), true)
   assert.equal(skip('tuition Tue, Thu, Sat at 5pm'), false)
 })
@@ -113,4 +114,20 @@ test('morning, afternoon and evening set the hour; a greeting does not', () => {
   assert.equal(new Date(afternoon.deadline!).getHours(), 15)
 
   assert.equal(parseCapture('good morning team', NOW).deadline, null)
+})
+
+test('times counted from now', () => {
+  const hour = parseCapture('remind me to shower today in a hour', NOW)
+  assert.equal(hour.title, 'Shower')
+  assert.equal(hour.deadline, new Date(2026, 10, 2, 13, 0).toISOString())
+
+  assert.equal(parseCapture('stretch in 20 minutes', NOW).deadline, new Date(2026, 10, 2, 12, 20).toISOString())
+  assert.equal(parseCapture('tea in half an hour', NOW).deadline, new Date(2026, 10, 2, 12, 30).toISOString())
+
+  const days = parseCapture('renew the parking permit in two days', NOW)
+  assert.equal(days.title, 'Renew the parking permit')
+  assert.equal(days.deadline, new Date(2026, 10, 4, 17, 0).toISOString())
+
+  // NOW is a Monday; next week starts the following Monday.
+  assert.equal(parseCapture('plan the offsite next week', NOW).deadline, new Date(2026, 10, 9, 9, 0).toISOString())
 })

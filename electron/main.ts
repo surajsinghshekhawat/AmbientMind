@@ -1,4 +1,5 @@
 import { isIsolated } from './isolation'
+import { execFileSync } from 'node:child_process'
 import { userInfo } from 'node:os'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -694,13 +695,29 @@ let chatAbort: AbortController | null = null
  * typically address the user by first name. Replaced by an explicit setting
  * once the settings window exists.
  */
+let macName: string | null | undefined
+function macFirstName(): string | null {
+  if (macName !== undefined) return macName
+  macName = null
+  if (process.platform !== 'darwin') return macName
+  try {
+    macName = execFileSync('/usr/bin/id', ['-F'], { encoding: 'utf8', timeout: 1000 }).trim().split(/\s+/)[0] || null
+  } catch {
+    // No full name on the account: fall through to the short one.
+  }
+  return macName
+}
+
 function currentUserName(): string {
   // An explicit setting wins: only the user knows what their mail calls them.
   const configured = loadConfig().displayName.trim()
   if (configured) return configured
 
-  // OS account is usually a real first name ("Suraj"). The Gmail local-part
-  // is often a handle, and the extractor then misses mail that says "Hi Suraj".
+  // The Mac account's full name gives a real first name; the short account
+  // name is often a handle ("jsmith"), as is the Gmail local-part,
+  // and the extractor then misses mail that says "Hi Suraj".
+  const full = macFirstName()
+  if (full) return full
   const os = userInfo().username?.trim()
   if (os) return os
   const account = connectedGoogleAccount()

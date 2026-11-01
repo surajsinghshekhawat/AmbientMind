@@ -12,7 +12,7 @@ import type { LabelledMessage, Metrics } from './types'
 const { values } = parseArgs({
   options: {
     corpus: { type: 'string', default: 'eval/corpus/seed.jsonl' },
-    model: { type: 'string', default: 'qwen2.5:3b' },
+    model: { type: 'string', default: 'qwen3:4b-instruct-2507-q4_K_M' },
     /** `apple` runs Apple's on-device model through the locally built helper. */
     engine: { type: 'string', default: 'ollama' },
     helper: { type: 'string', default: '.local/build/mac-helper/release/ambientmind-helper' },

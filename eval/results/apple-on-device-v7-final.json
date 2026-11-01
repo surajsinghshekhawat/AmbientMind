@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-10-31T21:53:51.706Z",
+  "ranAt": "2026-11-01T11:21:49.943Z",
   "model": "apple-on-device",
   "rag": false,
   "corpus": "eval/corpus/seed.jsonl",
@@ -11,7 +11,7 @@
     "recall": 0.8571428571428571,
     "f1": 0.8571428571428571,
     "emptySpecificity": 1,
-    "deadlineAccuracy": 0.6666666666666666,
+    "deadlineAccuracy": 0.5,
     "messagesScored": 14
   },
   "scored": [
@@ -30,7 +30,7 @@
           "deadline": "2001-03-13T11:30:00.000Z",
           "priority": "high",
           "people": [
-            "Sally Beck"
+            "Sally"
           ],
           "confidence": 0.9,
           "evidence": "Can you pull together the Q1 volume numbers for the East desk and send them over by EOD tomorrow?",
@@ -40,7 +40,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 2528.934
+      "latencyMs": 3025.33425
     },
     {
       "id": "seed-002",
@@ -49,7 +49,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 800.1190419999998
+      "latencyMs": 821.9345000000003
     },
     {
       "id": "seed-003",
@@ -76,7 +76,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1660.0374579999998
+      "latencyMs": 1666.5253750000002
     },
     {
       "id": "seed-004",
@@ -85,7 +85,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 786.6790410000003
+      "latencyMs": 814.0071250000001
     },
     {
       "id": "seed-005",
@@ -112,7 +112,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1424.086875
+      "latencyMs": 1474.605834
     },
     {
       "id": "seed-006",
@@ -121,7 +121,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 801.0054579999996
+      "latencyMs": 836.044832999999
     },
     {
       "id": "seed-007",
@@ -164,7 +164,7 @@
       "truePositives": 2,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 2455.4454590000005
+      "latencyMs": 2567.020957999999
     },
     {
       "id": "seed-008",
@@ -173,7 +173,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 755.0635410000014
+      "latencyMs": 799.8555830000005
     },
     {
       "id": "seed-009",
@@ -182,7 +182,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 764.1415420000012
+      "latencyMs": 804.4333750000005
     },
     {
       "id": "seed-010",
@@ -196,20 +196,20 @@
       "predicted": [
         {
           "title": "Sign off on temporary increase",
-          "deadline": null,
+          "deadline": "2001-03-19T11:30:00.000Z",
           "priority": "urgent",
           "people": [
             "Rick"
           ],
           "confidence": 0.9,
-          "evidence": "I need your sign-off on the temporary increase ASAP",
+          "evidence": "sign-off on the temporary increase ASAP",
           "verified": true
         }
       ],
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1382.834417
+      "latencyMs": 1585.1947500000006
     },
     {
       "id": "seed-011",
@@ -218,7 +218,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 800.9549160000006
+      "latencyMs": 841.0744169999998
     },
     {
       "id": "seed-012",
@@ -227,7 +227,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 775.3490000000002
+      "latencyMs": 805.7798330000005
     },
     {
       "id": "seed-013",
@@ -254,7 +254,7 @@
       "truePositives": 0,
       "falsePositives": 1,
       "falseNegatives": 1,
-      "latencyMs": 1502.3409169999995
+      "latencyMs": 1578.1693750000013
     },
     {
       "id": "seed-014",
@@ -263,7 +263,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 766.3072089999987
+      "latencyMs": 818.0621250000004
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-10-31T21:53:11.442Z",
+  "ranAt": "2026-11-01T11:21:30.988Z",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "rag": false,
   "corpus": "eval/corpus/seed.jsonl",
@@ -40,7 +40,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 2988.891209
+      "latencyMs": 3357.9386250000002
     },
     {
       "id": "seed-002",
@@ -49,7 +49,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 225.29516700000022
+      "latencyMs": 280.48783300000014
     },
     {
       "id": "seed-003",
@@ -76,7 +76,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1206.4111250000005
+      "latencyMs": 1535.6420830000002
     },
     {
       "id": "seed-004",
@@ -85,7 +85,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 222.60208299999977
+      "latencyMs": 296.19095800000014
     },
     {
       "id": "seed-005",
@@ -112,7 +112,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1301.6197920000004
+      "latencyMs": 1645.3239999999996
     },
     {
       "id": "seed-006",
@@ -121,7 +121,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 231.27187500000036
+      "latencyMs": 289.2863749999997
     },
     {
       "id": "seed-007",
@@ -164,7 +164,7 @@
       "truePositives": 2,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 2283.593917
+      "latencyMs": 2751.005292
     },
     {
       "id": "seed-008",
@@ -173,7 +173,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 224.8262909999994
+      "latencyMs": 295.97650000000067
     },
     {
       "id": "seed-009",
@@ -182,7 +182,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 217.37804200000028
+      "latencyMs": 283.0490840000002
     },
     {
       "id": "seed-010",
@@ -209,7 +209,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1153.8653329999997
+      "latencyMs": 1450.0772080000006
     },
     {
       "id": "seed-011",
@@ -218,7 +218,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 228.65637500000048
+      "latencyMs": 299.7238749999997
     },
     {
       "id": "seed-012",
@@ -227,7 +227,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 221.78562500000044
+      "latencyMs": 291.05695800000103
     },
     {
       "id": "seed-013",
@@ -254,7 +254,7 @@
       "truePositives": 1,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 1296.5675840000004
+      "latencyMs": 1641.560374999999
     },
     {
       "id": "seed-014",
@@ -263,7 +263,7 @@
       "truePositives": 0,
       "falsePositives": 0,
       "falseNegatives": 0,
-      "latencyMs": 232.0533749999995
+      "latencyMs": 292.5821670000005
     }
   ]
 }

@@ -23,7 +23,7 @@ function look(busy: boolean): OrbLook {
 
 function Steps({ actions }: { actions: string[] }) {
   return (
-    <ul className="mt-3 flex flex-col gap-1.5" aria-label="What changed">
+    <ul className="flex flex-col gap-1.5 not-first:mt-3" aria-label="What changed">
       {actions.map((action) => (
         <li key={action} className="flex items-start gap-2 text-small text-ink-2">
           <span className="mt-[5px] size-[5px] shrink-0 rounded-full bg-success" />
@@ -79,7 +79,10 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
     const message = text.trim()
     if (!message || busy) return
     // History excludes the message being sent; the main process appends it.
-    const history = entries.filter((e) => !e.stopped && !e.failed).map(({ role, content }) => ({ role, content }))
+    // What was changed goes too, so "I said in an hour" can find the task it means.
+    const history = entries
+      .filter((e) => !e.stopped && !e.failed)
+      .map(({ role, content, actions }) => ({ role, content: [content, ...(actions ?? [])].filter(Boolean).join(' ') }))
     setEntries((current) => [...current, { role: 'user', content: message }])
     setDraft('')
     setBusy(true)
@@ -196,7 +199,7 @@ export function App({ initialEntries, initialBusy = false }: Props = {}) {
                   </div>
                 ) : (
                   <div className="text-title leading-[1.55] text-ink-1">
-                    <Markdown source={entry.content} />
+                    {entry.content && <Markdown source={entry.content} />}
                     {entry.actions && entry.actions.length > 0 && <Steps actions={entry.actions} />}
                   </div>
                 )}

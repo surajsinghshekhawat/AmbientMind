@@ -25,7 +25,7 @@ test('every way of creating, editing or deleting a rule is announced', () => {
 
   const rule = addRule(ruleInput({ title: 'Tuition', weekdays: [2], time: '17:00' }))
   updateRule(rule.id, { time: '18:00' })
-  perform({ action: 'add_rule', title: 'Gym', weekdays: [1, 3], time: '07:00' })
+  perform({ kind: 'repeat', title: 'Gym', weekdays: [1, 3], time: '07:00', priority: 'medium' })
   db.prepare(
     `INSERT INTO recurrence_suggestions (id, signature, title, weekdays, time_of_day, occurrences, status, created_at)
      VALUES ('s1', 'standup:1', 'Standup', '[1,2,3,4,5]', '09:30', 3, 'pending', '2026-11-01T00:00:00.000Z')`

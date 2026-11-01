@@ -18,7 +18,7 @@ export class OllamaUnavailableError extends Error {
   }
 }
 
-const DEFAULT_MODEL = 'qwen2.5:3b'
+const DEFAULT_MODEL = 'qwen3:4b-instruct-2507-q4_K_M'
 
 async function post<T>(
   path: string,

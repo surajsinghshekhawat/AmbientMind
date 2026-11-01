@@ -101,7 +101,7 @@ export function healthyReport(): HealthReport {
     checkedAt: new Date(EPOCH).toISOString(),
     ollama: { running: true, url: 'http://127.0.0.1:11435' },
     models: [
-      { name: 'qwen2.5:3b', role: 'extraction', present: true },
+      { name: 'qwen3:4b-instruct-2507-q4_K_M', role: 'extraction', present: true },
       { name: 'nomic-embed-text', role: 'embedding', present: true }
     ],
     ai: { preference: 'auto', engine: 'apple', apple: { available: true, reason: null } },
@@ -135,7 +135,7 @@ export function manyProblemsReport(): HealthReport {
     google: { connected: false, credentialsConfigured: false },
     problems: [
       ...ollamaDownReport().problems,
-      'The model qwen2.5:3b is not installed.',
+      'The model qwen3:4b-instruct-2507-q4_K_M is not installed.',
       'Google sign-in is not set up yet.'
     ]
   }

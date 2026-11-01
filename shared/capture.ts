@@ -57,6 +57,33 @@ function findDay(text: string, now: Date): (Found & { offset: number }) | null {
   return null
 }
 
+const COUNTS: Record<string, number> = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  fifteen: 15, twenty: 20, thirty: 30, forty: 40, 'forty-five': 45, 'a couple of': 2, 'a few': 3
+}
+
+/** "in an hour", "in 20 minutes", "in two days", "next week": counted from now. */
+function findRelative(text: string, now: Date): { minutes: number; days: number; match: string } | null {
+  const half = text.match(/\bin\s+half\s+an?\s+hour\b/i)
+  if (half) return { minutes: 30, days: 0, match: half[0] }
+  const counted = text.match(
+    /\bin\s+(\d+|a couple of|a few|an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty-five|forty)\s+(min(?:ute)?s?|hours?|hrs?|days?|weeks?)\b/i
+  )
+  if (counted) {
+    const count = Number(counted[1]) || COUNTS[counted[1]!.toLowerCase()] || 1
+    const unit = counted[2]!.toLowerCase()
+    if (unit.startsWith('min')) return { minutes: count, days: 0, match: counted[0] }
+    if (unit.startsWith('h')) return { minutes: count * 60, days: 0, match: counted[0] }
+    return { minutes: 0, days: unit.startsWith('w') ? count * 7 : count, match: counted[0] }
+  }
+  // Next week starts on its Monday.
+  const nextWeek = text.match(/\b(?:by\s+|until\s+)?next\s+week\b/i)
+  if (nextWeek) return { minutes: 0, days: ((8 - now.getDay()) % 7) || 7, match: nextWeek[0] }
+  return null
+}
+
+const ASKING = /^(?:please\s+)?(?:remind me to|remember to|don'?t forget to|i need to|i have to|need to)\s+/i
+
 function findTime(text: string): (Found & { minutes: number }) | null {
   if (/\b(?:at\s+)?noon\b/i.test(text)) {
     return { value: 12, minutes: 0, match: text.match(/\b(?:at\s+)?noon\b/i)![0] }
@@ -150,9 +177,33 @@ export function parseCapture(input: string, now: Date = new Date()): ParsedCaptu
   else if (/\blow priority\b/i.test(text)) priority = 'low'
   title = title.replace(/\s*!+\s*$/, '').replace(/\b(?:asap|high priority|low priority)\b/gi, ' ')
 
-  const day = findDay(title, now)
-  const time = findTime(title)
+  if (ASKING.test(title) && title.replace(ASKING, '').trim()) title = title.replace(ASKING, '')
+
+  const relative = findRelative(title, now)
   let deadline: Date | null = null
+  if (relative) {
+    title = title.replace(relative.match, ' ')
+    if (relative.minutes) {
+      deadline = new Date(now.getTime() + relative.minutes * 60_000)
+      deadline.setSeconds(0, 0)
+      // "today in an hour": the hour already says when.
+      title = title.replace(/\b(?:today|tonight|now)\b/i, ' ')
+    } else {
+      deadline = new Date(now)
+      deadline.setSeconds(0, 0)
+      deadline.setDate(now.getDate() + relative.days)
+      const time = findTime(title)
+      if (time) {
+        deadline.setHours(time.value, time.minutes)
+        title = title.replace(time.match, ' ')
+      } else {
+        deadline.setHours(/next\s+week/i.test(relative.match) ? 9 : END_OF_DAY_HOUR, 0)
+      }
+    }
+  }
+
+  const day = relative ? null : findDay(title, now)
+  const time = relative ? null : findTime(title)
   if (day || time) {
     deadline = new Date(now)
     deadline.setSeconds(0, 0)
