@@ -25,6 +25,14 @@ export function urgencyOf(task: Task, now = Date.now()): Urgency {
   return 'neutral'
 }
 
+/** Overdue, or due before the end of the user's local day. Undated tasks are not. */
+export function isDueToday(task: Task, now = Date.now()): boolean {
+  if (!task.deadline) return false
+  const at = Date.parse(task.deadline)
+  if (Number.isNaN(at)) return false
+  return at <= new Date(now).setHours(23, 59, 59, 999)
+}
+
 export function isImminent(task: Task, now = Date.now()): boolean {
   const hours = hoursUntil(task.deadline, now)
   return hours !== null && hours < IMMINENT_HOURS

@@ -10,7 +10,7 @@
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
 /** A deadline stated as a day means the end of that working day, not midnight. */
-const END_OF_DAY_HOUR = 17
+export const END_OF_DAY_HOUR = 17
 
 function atEndOfDay(date: Date): Date {
   const out = new Date(date)
@@ -20,6 +20,25 @@ function atEndOfDay(date: Date): Date {
 
 /** Date-only strings parse as UTC midnight, which is the wrong instant here. */
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+const DAY_MS = 86_400_000
+const HALF_YEAR_MS = 183 * DAY_MS
+
+/**
+ * Models often get the month and day of a deadline right but take the year
+ * from their training data. A deadline more than half a year from the message
+ * is moved into the message's year, or the next one if that would put it
+ * before the message; anything still far off is left as the model said.
+ */
+export function anchorToMessage(deadline: string | null, sentAt: Date): string | null {
+  if (!deadline || Number.isNaN(sentAt.getTime())) return deadline
+  const date = new Date(deadline)
+  if (Math.abs(date.getTime() - sentAt.getTime()) <= HALF_YEAR_MS) return deadline
+  const moved = new Date(date)
+  moved.setFullYear(sentAt.getFullYear())
+  if (moved.getTime() < sentAt.getTime() - DAY_MS) moved.setFullYear(sentAt.getFullYear() + 1)
+  return Math.abs(moved.getTime() - sentAt.getTime()) <= HALF_YEAR_MS ? moved.toISOString() : deadline
+}
 
 export function resolveDeadline(raw: unknown, now: Date = new Date()): string | null {
   if (typeof raw !== 'string') return null

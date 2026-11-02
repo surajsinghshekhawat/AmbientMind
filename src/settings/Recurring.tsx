@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import {
-  describeRule,
-  parseRecurrence,
-  weekdayLabel,
-  type RecurrenceRule
-} from '@shared/recurrence'
+import { Trash2 } from 'lucide-react'
+import { describeRule, parseRecurrence, weekdayLabel, type RecurrenceRule } from '@shared/recurrence'
 import type { RecurrenceSuggestion } from '@shared/types'
+import { Button } from '@/ui/Button'
+import { cn } from '@/ui/cn'
+import { IconButton } from '@/ui/IconButton'
+import { fieldClass, Group, Page, Row, Toggle } from './controls'
 
 interface Props {
   rules: RecurrenceRule[]
@@ -14,7 +14,11 @@ interface Props {
   onSuggestionsChange: (suggestions: RecurrenceSuggestion[]) => void
 }
 
-const DAYS = [0, 1, 2, 3, 4, 5, 6]
+/** Monday first, as people read a week. */
+const DAYS = [1, 2, 3, 4, 5, 6, 0]
+
+/** 4 Jan 2026 was a Sunday, so day 0 lands on it. */
+const fullDayName = (day: number) => new Date(2026, 0, 4 + day).toLocaleDateString(undefined, { weekday: 'long' })
 
 export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }: Props) {
   const [phrase, setPhrase] = useState('')
@@ -36,16 +40,13 @@ export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }:
   }
 
   const toggleDay = (day: number) => {
-    setWeekdays((current) =>
-      current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort()
-    )
+    setWeekdays((current) => (current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort()))
   }
 
   const save = async () => {
-    if (!title.trim()) return setError('Give the commitment a name.')
+    if (!title.trim()) return setError('Give it a name.')
     if (weekdays.length === 0) return setError('Pick at least one day.')
     setError(null)
-
     const { rules: next } = await window.ambient.rules.add({
       title: title.trim(),
       weekdays,
@@ -62,143 +63,104 @@ export function Recurring({ rules, suggestions, onChange, onSuggestionsChange }:
   }
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-[11px] font-medium tracking-[0.16em] text-white/40 uppercase">
-        Recurring
-      </h2>
-
-      {suggestions.map((suggestion) => (
-        <div
-          key={suggestion.id}
-          className="flex items-center gap-3 rounded-xl border border-urgency-approaching/35 bg-white/5 px-3 py-2.5"
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-sm">{suggestion.title}</p>
-            <p className="text-[12px] text-white/45">
-              Seen {suggestion.occurrences} times · {describeRule(suggestion)}
-            </p>
-          </div>
-          <button
-            type="button"
-            className={btnGhost}
-            onClick={async () => {
-              const result = await window.ambient.rules.acceptSuggestion(suggestion.id)
-              onSuggestionsChange(result.suggestions)
-              onChange(result.rules)
-            }}
-          >
-            Make recurring
-          </button>
-          <button
-            type="button"
-            className={btnGhost}
-            onClick={async () =>
-              onSuggestionsChange(await window.ambient.rules.dismissSuggestion(suggestion.id))
-            }
-          >
-            Not weekly
-          </button>
-        </div>
-      ))}
-
-      {rules.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {rules.map((rule) => (
-            <li
-              key={rule.id}
-              className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5"
+    <Page title="Recurring" description="Commitments that repeat every week. They appear as tasks two weeks ahead.">
+      {suggestions.length > 0 && (
+        <Group title="Noticed a pattern">
+          {suggestions.map((suggestion) => (
+            <Row
+              key={suggestion.id}
+              label={suggestion.title}
+              description={`Seen ${suggestion.occurrences} times · ${describeRule(suggestion)}`}
             >
-              <div className="min-w-0 flex-1">
-                <p className={`text-sm ${rule.enabled ? '' : 'text-white/40 line-through'}`}>
-                  {rule.title}
-                </p>
-                <p className="text-[12px] text-white/45">{describeRule(rule)}</p>
-              </div>
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={async () =>
-                  onChange(await window.ambient.rules.update(rule.id, { enabled: !rule.enabled }))
-                }
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => onSuggestionsChange(await window.ambient.rules.dismissSuggestion(suggestion.id))}
               >
-                {rule.enabled ? 'Pause' : 'Resume'}
-              </button>
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={async () => onChange(await window.ambient.rules.remove(rule.id))}
+                Not weekly
+              </Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  const result = await window.ambient.rules.acceptSuggestion(suggestion.id)
+                  onSuggestionsChange(result.suggestions)
+                  onChange(result.rules)
+                }}
               >
-                Delete
-              </button>
-            </li>
+                Make recurring
+              </Button>
+            </Row>
           ))}
-        </ul>
+        </Group>
       )}
 
-      <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Describe it
+      {rules.length > 0 && (
+        <Group title="Your rules">
+          {rules.map((rule) => (
+            <Row
+              key={rule.id}
+              label={<span className={cn(!rule.enabled && 'text-ink-3')}>{rule.title}</span>}
+              description={rule.enabled ? describeRule(rule) : `Paused · ${describeRule(rule)}`}
+            >
+              <Toggle
+                label={`${rule.title} on`}
+                checked={rule.enabled}
+                onChange={async (enabled) => onChange(await window.ambient.rules.update(rule.id, { enabled }))}
+              />
+              <IconButton label={`Delete ${rule.title}`} size="sm" onClick={async () => onChange(await window.ambient.rules.remove(rule.id))}>
+                <Trash2 />
+              </IconButton>
+            </Row>
+          ))}
+        </Group>
+      )}
+
+      <Group
+        title="Add a rule"
+        footer={
+          <div className="flex items-center gap-3">
+            <span className={cn('flex-1', error && 'text-danger')}>{error ?? 'Write it the way you would say it.'}</span>
+            <Button variant="primary" onClick={() => void save()}>
+              Add rule
+            </Button>
+          </div>
+        }
+      >
+        <Row label="Describe it" htmlFor="rule-phrase" stacked>
           <input
+            id="rule-phrase"
             value={phrase}
             onChange={(e) => applyPhrase(e.target.value)}
-            placeholder="tuition Tue, Thu, Sat at 5pm"
-            className={inputClass}
+            placeholder="Tuition every Tue, Thu and Sat at 5pm"
+            className={cn(fieldClass, 'w-full')}
           />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          Name
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} />
-        </label>
-
-        <div className="flex flex-col gap-1 text-sm">
-          Days
-          <div className="flex flex-wrap gap-1">
+        </Row>
+        <Row label="Name" htmlFor="rule-title">
+          <input id="rule-title" value={title} onChange={(e) => setTitle(e.target.value)} className={cn(fieldClass, 'w-56')} />
+        </Row>
+        <Row label="Days">
+          <div className="flex gap-1" role="group" aria-label="Days">
             {DAYS.map((day) => (
               <button
                 key={day}
                 type="button"
+                aria-pressed={weekdays.includes(day)}
                 onClick={() => toggleDay(day)}
-                className={`rounded-lg border px-2.5 py-1 text-[12px] ${
-                  weekdays.includes(day)
-                    ? 'border-white/50 bg-white/20 text-white'
-                    : 'border-white/15 text-white/55 hover:bg-white/10'
-                }`}
+                className={cn(
+                  'focus-ring size-7 rounded-full text-small font-medium transition-colors duration-150',
+                  weekdays.includes(day) ? 'bg-accent-fill text-on-accent' : 'bg-fill-2 text-ink-2 hover:bg-fill-3'
+                )}
               >
-                {weekdayLabel(day).slice(0, 3)}
+                <span aria-hidden>{weekdayLabel(day).slice(0, 2)}</span>
+                <span className="sr-only">{fullDayName(day)}</span>
               </button>
             ))}
           </div>
-        </div>
-
-        <label className="flex flex-col gap-1 text-sm">
-          Time
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className={inputClass}
-          />
-        </label>
-
-        {error && <p className="text-[12px] text-urgency-overdue">{error}</p>}
-
-        <div className="flex items-center gap-3">
-          <button type="button" className={btnClass} onClick={() => void save()}>
-            Add rule
-          </button>
-          <p className="text-[12px] text-white/40">
-            Occurrences appear as tasks two weeks ahead and refill as days pass.
-          </p>
-        </div>
-      </div>
-    </section>
+        </Row>
+        <Row label="Time" htmlFor="rule-time">
+          <input id="rule-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} className={cn(fieldClass, 'tabular')} />
+        </Row>
+      </Group>
+    </Page>
   )
 }
-
-const btnClass =
-  'rounded-lg bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 disabled:opacity-40'
-const btnGhost =
-  'rounded-lg border border-white/15 px-2.5 py-1 text-[12px] text-white/80 hover:bg-white/10'
-const inputClass =
-  'rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white focus:outline-none'

@@ -1,0 +1,26 @@
+---
+description: Everything for this project stays inside the repo folder; run all tooling through ./dev
+alwaysApply: true
+---
+
+# Stay inside the repo
+
+This is a work machine. Nothing for AmbientMind may be written outside
+`~/AmbientMind`: no global installs, caches, app data, keychain items, login
+items, global git/npm/Cursor config, or models in `~/.ollama`.
+
+- Run every Node/npm/Electron/Swift command through the wrapper:
+  `./dev npm run dev`, `./dev npm test`, `./dev run <cmd>`. Never bare `npm`,
+  `npx`, `node`, `electron`, `swift`, `brew`, `pip`.
+- First-time setup is `./dev setup` (pinned Node from `.node-version` into
+  `.local/node`, then `npm ci` with caches in `.local/cache`).
+- Ollama: `./dev ollama start` runs a project instance on port 11435 with models
+  in `.local/ollama/models`. Never use `ollama pull` against the global server.
+- Packaged builds: launch only with `./dev packaged`, never by double-clicking.
+- MCP servers, skills and rules go in this repo's `.cursor/` only, never in
+  `~/.cursor`. Give MCP servers `npm_config_cache` pointing into `.local/cache`.
+- Scratch files, downloads, screenshots and reference clones go in `.local/`,
+  never `/tmp`.
+- Git identity is repo-local; don't touch `git config --global`.
+- After running the app, `./dev doctor` must report nothing outside the repo;
+  `./dev clean-system` removes the traces macOS keeps for apps that ran.

@@ -4,8 +4,8 @@ const hoursFromNow = (h: number) => new Date(Date.now() + h * 3_600_000).toISOSt
 
 /**
  * Development fixture covering every urgency bucket, so the visual language can
- * be checked without the AI or integration layers existing yet. Only applied to
- * an empty store, and never in a packaged build.
+ * be checked without the AI or integration layers existing yet. Opt-in with
+ * `npm run dev:seed`, only applied to an empty store, never in a packaged build.
  */
 function fixtures(): NewTask[] {
   return [

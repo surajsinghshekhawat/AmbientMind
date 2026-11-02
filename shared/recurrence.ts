@@ -145,6 +145,24 @@ const NAMED_TIMES: { pattern: string; time: string; implies?: number[] }[] = [
   { pattern: 'night', time: '21:00', implies: [0, 1, 2, 3, 4, 5, 6] }
 ]
 
+const SCHEDULE_WORDS = [
+  'day',
+  'morning',
+  'afternoon',
+  'evening',
+  'night',
+  'week',
+  'weekday',
+  'weekend',
+  ...DAY_TOKENS.map(({ pattern }) => pattern)
+]
+
+/**
+ * "every"/"each" is a cue only when it qualifies a day or time: "check every
+ * file before Friday 5pm" is a one-off.
+ */
+const EVERY_CUE = new RegExp(`\\b(?:every|each)\\s+(?:single\\s+)?(?:${SCHEDULE_WORDS.join('|')})s?\\b`)
+
 function parseTime(text: string): { time: string; matched: string } | null {
   const twelve = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/)
   if (twelve) {
@@ -209,7 +227,7 @@ export function parseRecurrence(input: string): ParsedRecurrence | null {
     explicitMarker = true
     consumed.push('weekends', 'weekend')
   }
-  if (/\b(every|each|weekly)\b/.test(text)) {
+  if (EVERY_CUE.test(text) || /\bweekly\b/.test(text)) {
     explicitMarker = true
   }
 
@@ -223,9 +241,14 @@ export function parseRecurrence(input: string): ParsedRecurrence | null {
     }
   }
 
-  // "every evening" carries the schedule as well as the hour — but only when no
-  // weekday was named, so "every Tuesday evening" stays a single Tuesday.
-  if (days.size === 0 && named?.implies) {
+  // "every evening" or "evenings" carries the schedule as well as the hour — but
+  // only when no weekday was named, so "every Tuesday evening" stays a single
+  // Tuesday. A bare "tomorrow morning" or "this evening" is a one-off.
+  const namedIsCued =
+    named !== undefined &&
+    (named.pattern.endsWith('s') ||
+      new RegExp(`\\b(?:every|each)\\s+${named.pattern}\\b`).test(text))
+  if (days.size === 0 && named?.implies && namedIsCued) {
     for (const day of named.implies) days.add(day)
     explicitMarker = true
     consumed.push(named.pattern)

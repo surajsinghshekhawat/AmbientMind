@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "shadcn": {
+      "command": "${workspaceFolder}/dev",
+      "args": ["npx", "-y", "shadcn@latest", "mcp"]
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "sosumi": {
+      "url": "https://sosumi.ai/mcp"
+    }
+  }
+}

@@ -12,7 +12,7 @@ const Database = require('better-sqlite3')
 const sqliteVec = require('sqlite-vec')
 
 app.setName('ambientmind')
-app.setPath('userData', path.join(app.getPath('appData'), 'ambientmind'))
+require('./isolation.cjs').useProjectUserData(app)
 
 app.whenReady().then(() => {
   try {

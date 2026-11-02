@@ -1,127 +1,50 @@
+import { PREP_LOOKAHEAD_HOURS, prepTaskFor, type CalendarEvent } from '@shared/calendarPrep'
+import { describeGoogleError } from '@shared/googleError'
 import { googleFetch } from '../googleAuth'
 import type { NewTask } from '../taskStore'
 
 const API = 'https://www.googleapis.com/calendar/v3'
 
-/** How far ahead of a meeting the preparation task should appear. */
-const PREP_LEAD_HOURS = 1
-const LOOKAHEAD_DAYS = 7
-
-interface CalendarEvent {
-  id: string
-  summary?: string
-  description?: string
-  status?: string
-  start?: { dateTime?: string; date?: string }
-  end?: { dateTime?: string; date?: string }
-  attendees?: { email?: string; displayName?: string; self?: boolean; responseStatus?: string }[]
-  organizer?: { email?: string; displayName?: string; self?: boolean }
-  eventType?: string
-}
-
-export interface CalendarSyncResult {
-  tasks: NewTask[]
-  nextSyncToken: string | null
-}
-
-function attendeeNames(event: CalendarEvent): string[] {
-  return (event.attendees ?? [])
-    .filter((a) => !a.self)
-    .map((a) => a.displayName ?? a.email ?? '')
-    .filter(Boolean)
-    .slice(0, 5)
-}
+/** 250 is the API's page maximum; ten pages is far beyond two days of meetings. */
+const PAGE_SIZE = 250
+const MAX_PAGES = 10
 
 /**
- * Calendar events are structured data, so they are converted directly rather
- * than being sent through the model. Spending a generation call to turn
- * "Call with Sarah at 3pm" into a prep task would be slower and less reliable
- * than the deterministic rule.
+ * Lists the whole lookahead window on every pass rather than following a sync
+ * token. A token only reports changes, so a meeting created weeks ago never
+ * came back as it moved into range, and the window has to be reconciled in
+ * full anyway to notice reschedules and cancellations. `showDeleted` is what
+ * makes cancelled events visible here.
  */
-function toTask(event: CalendarEvent): NewTask | null {
-  if (event.status === 'cancelled') return null
-  if (event.eventType === 'workingLocation' || event.eventType === 'outOfOffice') return null
+export async function fetchPrepTasks(now = new Date()): Promise<{ tasks: NewTask[]; uids: string[] }> {
+  const params = new URLSearchParams({
+    singleEvents: 'true',
+    showDeleted: 'true',
+    orderBy: 'startTime',
+    maxResults: String(PAGE_SIZE),
+    timeMin: now.toISOString(),
+    timeMax: new Date(now.getTime() + PREP_LOOKAHEAD_HOURS * 3_600_000).toISOString()
+  })
 
-  const title = event.summary?.trim()
-  if (!title) return null
-
-  // The user having declined is a clear signal the event is not their problem.
-  if (event.attendees?.some((a) => a.self && a.responseStatus === 'declined')) return null
-
-  const people = attendeeNames(event)
-
-  if (event.start?.date && !event.start.dateTime) {
-    // All-day events are context, not commitments: surfaced quietly.
-    return {
-      title,
-      deadline: new Date(`${event.start.date}T09:00:00`).toISOString(),
-      priority: 'low',
-      source: 'gcalendar',
-      sourceId: event.id,
-      people,
-      rawContext: event.description ?? null,
-      confidence: 1
+  const events: CalendarEvent[] = []
+  for (let page = 0; ; page++) {
+    // A partial window would make reconciliation remove tasks for meetings
+    // that simply were not listed, so running out of pages is an error.
+    if (page === MAX_PAGES) throw new Error('Calendar: too many events to list')
+    const response = await googleFetch(`${API}/calendars/primary/events?${params.toString()}`)
+    if (!response.ok) {
+      throw new Error(describeGoogleError('Calendar', response.status, await response.text()))
     }
+    const data = (await response.json()) as { items?: CalendarEvent[]; nextPageToken?: string }
+    events.push(...(data.items ?? []))
+    if (!data.nextPageToken) break
+    params.set('pageToken', data.nextPageToken)
   }
-
-  const startsAt = event.start?.dateTime
-  if (!startsAt) return null
-
-  const start = new Date(startsAt)
-  const solo = (event.attendees?.length ?? 0) <= 1
 
   return {
-    // A meeting with other people needs preparation; a solo block is the task.
-    title: solo ? title : `Prepare for ${title}`,
-    deadline: new Date(start.getTime() - PREP_LEAD_HOURS * 3_600_000).toISOString(),
-    priority: 'high',
-    source: 'gcalendar',
-    sourceId: event.id,
-    people,
-    rawContext: event.description ?? null,
-    confidence: 1
+    tasks: events.flatMap((event) => prepTaskFor(event, now) ?? []),
+    // Every live event, not only the prep ones, so Apple Calendar can tell
+    // which of its events are Google's.
+    uids: events.flatMap((event) => (event.status !== 'cancelled' && event.iCalUID ? [event.iCalUID] : []))
   }
-}
-
-/**
- * Uses Calendar's syncToken for incremental pulls. Google invalidates the token
- * with a 410 when it is too old, which is a documented signal to fall back to a
- * full resync rather than an error to report.
- */
-export async function fetchUpcoming(syncToken: string | null): Promise<CalendarSyncResult> {
-  const build = (token: string | null) => {
-    const params = new URLSearchParams({
-      singleEvents: 'true',
-      maxResults: '100'
-    })
-    if (token) {
-      params.set('syncToken', token)
-    } else {
-      params.set('timeMin', new Date().toISOString())
-      params.set('timeMax', new Date(Date.now() + LOOKAHEAD_DAYS * 86_400_000).toISOString())
-      params.set('orderBy', 'startTime')
-    }
-    return `${API}/calendars/primary/events?${params.toString()}`
-  }
-
-  let response = await googleFetch(build(syncToken))
-  if (response.status === 410 && syncToken) {
-    response = await googleFetch(build(null))
-  }
-  if (!response.ok) {
-    throw new Error(`Calendar ${response.status}: ${(await response.text()).slice(0, 200)}`)
-  }
-
-  const data = (await response.json()) as {
-    items?: CalendarEvent[]
-    nextSyncToken?: string
-  }
-
-  const tasks: NewTask[] = []
-  for (const event of data.items ?? []) {
-    const task = toTask(event)
-    if (task) tasks.push(task)
-  }
-
-  return { tasks, nextSyncToken: data.nextSyncToken ?? null }
 }

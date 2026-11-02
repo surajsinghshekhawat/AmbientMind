@@ -9,6 +9,11 @@ import retry from '../../db/migrations/007_retry.sql?raw'
 import ruleCalendar from '../../db/migrations/008_rule_calendar.sql?raw'
 import decisions from '../../db/migrations/009_decisions.sql?raw'
 import exampleFeedback from '../../db/migrations/010_example_feedback.sql?raw'
+import taskLifecycle from '../../db/migrations/011_task_lifecycle.sql?raw'
+import exampleDedupe from '../../db/migrations/012_example_dedupe.sql?raw'
+import appleSources from '../../db/migrations/013_apple_sources.sql?raw'
+import screenChatSources from '../../db/migrations/014_screen_chat_sources.sql?raw'
+import dueAlerts from '../../db/migrations/015_due_alerts.sql?raw'
 
 /**
  * Order is the version. Append only; never edit a migration that has shipped.
@@ -25,13 +30,26 @@ const MIGRATIONS: string[] = [
   retry,
   ruleCalendar,
   decisions,
-  exampleFeedback
+  exampleFeedback,
+  taskLifecycle,
+  exampleDedupe,
+  appleSources,
+  screenChatSources,
+  dueAlerts
 ]
 
+/** The schema version a fully migrated database reports. */
+export const MIGRATION_COUNT = MIGRATIONS.length
+
 export function migrate(db: Database.Database) {
+  migrateTo(db, MIGRATIONS.length)
+}
+
+/** Brings a database up to `target`; restore uses it to build a reference schema. */
+export function migrateTo(db: Database.Database, target: number) {
   const current = db.pragma('user_version', { simple: true }) as number
 
-  for (let version = current; version < MIGRATIONS.length; version++) {
+  for (let version = current; version < Math.min(target, MIGRATIONS.length); version++) {
     const sql = MIGRATIONS[version]
     if (!sql) continue
     db.transaction(() => {

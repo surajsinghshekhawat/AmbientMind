@@ -1,7 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { embed, extractTasks, isAvailable, type ExtractedTask } from '../electron/services/ollama'
+import { HelperClient } from '../electron/native/helperClient'
+import { APPLE_MODEL, configureAi } from '../electron/services/ai'
+import { extractTasks, type ExtractedTask } from '../electron/services/extract'
+import { embed, isAvailable } from '../electron/services/ollama'
 import { aggregate, scoreMessage, type ScoredMessage } from './score'
 import { buildIndex, embeddingText, renderFewShot, retrieve, type IndexedExample } from './retrieval'
 import type { LabelledMessage, Metrics } from './types'
@@ -9,7 +12,10 @@ import type { LabelledMessage, Metrics } from './types'
 const { values } = parseArgs({
   options: {
     corpus: { type: 'string', default: 'eval/corpus/seed.jsonl' },
-    model: { type: 'string', default: 'qwen2.5:3b' },
+    model: { type: 'string', default: 'qwen3:4b-instruct-2507-q4_K_M' },
+    /** `apple` runs Apple's on-device model through the locally built helper. */
+    engine: { type: 'string', default: 'ollama' },
+    helper: { type: 'string', default: '.local/build/mac-helper/release/ambientmind-helper' },
     limit: { type: 'string' },
     /** Ablation switch: retrieves leave-one-out few-shot examples from the corpus. */
     rag: { type: 'boolean', default: false },
@@ -51,9 +57,39 @@ function report(metrics: Metrics, scored: ScoredMessage[], model: string, rag: b
   console.log(`  median latency   ${(median / 1000).toFixed(1)}s per message\n`)
 }
 
+/** Share of predicted tasks whose quote the model copied rather than one found for it. */
+function evidenceReport(predicted: ExtractedTask[][]) {
+  const all = predicted.flat()
+  if (all.length === 0) return
+  const verified = all.filter((task) => task.verified).length
+  console.log(`  evidence         ${pct(verified / all.length)} quoted exactly  (${verified}/${all.length})\n`)
+}
+
 async function main() {
-  if (!(await isAvailable())) {
-    console.error('Ollama is not running. Start it with `ollama serve`, then retry.')
+  const apple = values.engine === 'apple'
+  let helper: HelperClient | null = null
+  if (apple) {
+    helper = new HelperClient({ command: resolve(values.helper!), requestTimeoutMs: 120_000 })
+    helper.start()
+    const client = helper
+    configureAi({
+      preference: 'apple',
+      apple: {
+        status: () => client.request('llm.status', {}),
+        generate: (params, timeoutMs) => client.request('llm.generate', params, { timeoutMs })
+      }
+    })
+    const status = await client.request('llm.status', {})
+    if (!status.available) {
+      console.error(`Apple's model is not available: ${status.reason}`)
+      process.exit(1)
+    }
+    values.model = APPLE_MODEL
+  } else {
+    configureAi({ preference: 'ollama', ollamaModel: values.model! })
+  }
+  if ((!apple || values.rag) && !(await isAvailable())) {
+    console.error('Ollama is not running. Start it with `./dev ollama start`, then retry.')
     process.exit(1)
   }
 
@@ -73,6 +109,7 @@ async function main() {
   }
 
   const scored: ScoredMessage[] = []
+  const predictions: ExtractedTask[][] = []
   for (const [position, message] of messages.entries()) {
     let fewShotExamples: string | undefined
     if (values.rag) {
@@ -84,7 +121,7 @@ async function main() {
     let predicted: ExtractedTask[] = []
     try {
       predicted = await extractTasks(message, {
-        model: values.model!,
+        engine: apple ? 'apple' : 'ollama',
         userName: values.userName!,
         userEmail: values.userEmail!,
         minConfidence: Number(values.minConfidence),
@@ -95,6 +132,7 @@ async function main() {
     }
     const latency = performance.now() - started
     scored.push(scoreMessage(message, predicted, latency))
+    predictions.push(predicted)
 
     process.stdout.write(`\r  ${position + 1}/${messages.length}`)
 
@@ -108,6 +146,8 @@ async function main() {
 
   const metrics = aggregate(scored, messages)
   report(metrics, scored, values.model!, values.rag!)
+  evidenceReport(predictions)
+  await helper?.stop()
 
   const outPath =
     values.out ?? `eval/results/${values.model!.replace(/[:/]/g, '-')}${values.rag ? '-rag' : ''}.json`

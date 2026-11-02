@@ -1,0 +1,302 @@
+/**
+ * The wire format between the app and the Swift helper
+ * (native/mac-helper). One JSON object per line, both ways:
+ *
+ *   app → helper   {"id": 7, "method": "context.focused", "params": {...}}
+ *   helper → app   {"id": 7, "ok": true, "result": {...}}
+ *                  {"id": 7, "ok": false, "error": {"code": "...", "message": "..."}}
+ *                  {"event": "...", "data": {...}}
+ *
+ * Bump HELPER_PROTOCOL whenever a method changes shape; the helper reports
+ * its own in `hello`, and a mismatch keeps the app on its fallbacks.
+ */
+export const HELPER_PROTOCOL = 1
+
+export type HelperPermissionKind =
+  | 'microphone'
+  | 'speech'
+  | 'accessibility'
+  | 'screen'
+  | 'calendar'
+  | 'reminders'
+  | 'contacts'
+
+export type HelperAccess = 'granted' | 'denied' | 'restricted' | 'not-determined'
+
+export interface HelloResult {
+  version: string
+  protocol: number
+  macOS: string
+  pid: number
+  /** Who macOS attributes the helper's permissions to. */
+  responsibleApp: string | null
+  responsiblePid: number
+  /** The app that started the helper; differs from the above when run from a terminal. */
+  parentApp: string | null
+  features: string[]
+}
+
+export interface FocusedContext {
+  app: string | null
+  bundleId: string | null
+  pid: number
+  /** True when the app is on the exclusion list; nothing else is read. */
+  excluded: boolean
+  axTrusted: boolean
+  windowId?: number | null
+  bounds?: { x: number; y: number; width: number; height: number } | null
+  title?: string | null
+  url?: string | null
+  selectedText?: string | null
+  text?: string
+  source?: 'ax' | 'none'
+}
+
+export interface OcrResult {
+  text: string
+  width: number
+  height: number
+  title?: string | null
+  app?: string | null
+}
+
+export interface BusyState {
+  idleSeconds: number
+  /** Something is recording from the default input: usually a call. */
+  micInUse: boolean
+  fullscreenApp: string | null
+}
+
+export interface MeCard {
+  name: string
+  emails: string[]
+  source: 'contacts' | 'account'
+}
+
+export type SpeechStatus =
+  | { available: false; reason: string }
+  | { available: true; installed: boolean; downloading: boolean; locale: string }
+
+/** An event from any calendar in macOS Internet Accounts. */
+export interface AppleEvent {
+  /** The iCalendar UID where the account has one, so Google's copy matches. */
+  id: string
+  calendar: string
+  account: string
+  title: string
+  notes: string | null
+  start: string
+  end: string
+  allDay: boolean
+  recurring: boolean
+  cancelled: boolean
+  attendees: { name: string | null; email: string | null; me: boolean; declined: boolean; resource: boolean }[]
+}
+
+export interface AppleReminder {
+  id: string
+  title: string
+  notes: string | null
+  due: string | null
+  /** A date with no time: due that day. */
+  dueAllDay: boolean
+  /** EventKit's 0 (none), 1–4 high, 5 medium, 6–9 low. */
+  priority: number
+  completed: boolean
+  completedAt: string | null
+  modifiedAt: string | null
+  recurring: boolean
+}
+
+/** Only the fields present are written; `expectedModifiedAt` refuses a stale write. */
+export interface ReminderWrite {
+  listId?: string
+  id?: string
+  expectedModifiedAt?: string | null
+  title?: string
+  notes?: string | null
+  due?: string | null
+  priority?: number
+  completed?: boolean
+}
+
+/** Events the helper sends without being asked. */
+export interface HelperEvents {
+  'speech.partial': { text: string; final: boolean }
+  'speech.level': { rms: number }
+  'speech.error': { message: string }
+  'speech.install': { fraction: number }
+  hotkey: { name: string; phase: 'down' | 'up' }
+  /** Calendar or Reminders changed, here or on another device. */
+  'eventstore.changed': Record<string, never>
+}
+
+export interface HelperMethods {
+  hello: { params: Record<string, never>; result: HelloResult }
+  'perms.status': {
+    params: { kinds?: HelperPermissionKind[] }
+    result: Partial<Record<HelperPermissionKind, HelperAccess>>
+  }
+  'perms.request': { params: { kind: HelperPermissionKind }; result: { status: HelperAccess } }
+  'context.focused': {
+    params: { excludePids?: number[]; excludeBundleIds?: string[]; maxChars?: number }
+    result: FocusedContext
+  }
+  'capture.windowOCR': { params: { windowId: number }; result: OcrResult }
+  'capture.displayOCR': { params: { displayId?: number }; result: OcrResult }
+  'ocr.image': { params: { png: string }; result: OcrResult }
+  'system.busy': { params: Record<string, never>; result: BusyState }
+  'contacts.me': { params: Record<string, never>; result: MeCard }
+  'speech.status': { params: Record<string, never>; result: SpeechStatus }
+  /** Downloads the system speech model for this language; macOS manages it. */
+  'speech.install': { params: Record<string, never>; result: SpeechStatus }
+  'speech.start': { params: { hints?: string[] }; result: { locale: string } }
+  'speech.stop': { params: Record<string, never>; result: { text: string } }
+  'speech.cancel': { params: Record<string, never>; result: { cancelled: boolean } }
+  'calendar.events': { params: { from: string; to: string }; result: { events: AppleEvent[] } }
+  'reminders.ensureList': {
+    params: { title: string; id?: string | null }
+    result: { id: string; title: string; account: string; created: boolean }
+  }
+  'reminders.list': { params: { listId: string }; result: { reminders: AppleReminder[] } }
+  'reminders.upsert': { params: ReminderWrite; result: AppleReminder }
+  'reminders.delete': { params: { id: string; expectedModifiedAt?: string | null }; result: { deleted: boolean } }
+  'hotkey.set': { params: { name: string; keyCode: number; modifiers: number }; result: { name: string } }
+  'hotkey.clear': { params: { name: string }; result: { name: string } }
+  'llm.status': { params: Record<string, never>; result: AppleModelStatus }
+  'llm.generate': { params: AppleGenerate; result: { content: string; ms: number } }
+}
+
+export type AppleModelUnavailable =
+  | 'os_too_old'
+  | 'device_not_eligible'
+  | 'not_enabled'
+  | 'model_not_ready'
+  | 'unknown'
+
+export interface AppleModelStatus {
+  available: boolean
+  reason: AppleModelUnavailable | null
+  contextTokens: number
+}
+
+export interface AppleGenerate {
+  system?: string
+  prompt: string
+  /** The same JSON Schema Ollama gets as `format`. */
+  schema?: unknown
+  maxTokens?: number
+  temperature?: number
+  /** Greedy decoding unless false. */
+  greedy?: boolean
+}
+
+export type HelperMethod = keyof HelperMethods
+
+export interface HelperRequest {
+  id: number
+  method: string
+  params: unknown
+}
+
+export type HelperMessage =
+  | { id: number | null; ok: true; result: unknown }
+  | { id: number | null; ok: false; error: { code: string; message: string } }
+  | { event: string; data: unknown }
+
+/** Codes the helper sends, plus the client's own for a helper that is not there. */
+export type HelperErrorCode =
+  | 'bad_request'
+  | 'unknown_method'
+  | 'permission_denied'
+  | 'missing_usage_description'
+  | 'not_found'
+  | 'no_window'
+  | 'capture_failed'
+  | 'ocr_failed'
+  | 'timeout'
+  | 'unavailable'
+  | 'unsupported'
+  | 'not_installed'
+  | 'not_running'
+  | 'speech_failed'
+  | 'install_failed'
+  | 'in_use'
+  | 'register_failed'
+  | 'conflict'
+  | 'list_missing'
+  | 'no_source'
+  | 'save_failed'
+  | 'bad_schema'
+  | 'context_overflow'
+  | 'guardrail'
+  | 'refusal'
+  | 'unsupported_language'
+  | 'busy'
+  | 'generation_failed'
+  | (string & {})
+
+export class HelperError extends Error {
+  constructor(
+    readonly code: HelperErrorCode,
+    message: string
+  ) {
+    super(message)
+    this.name = 'HelperError'
+  }
+}
+
+export function encodeRequest(request: HelperRequest): string {
+  return `${JSON.stringify(request)}\n`
+}
+
+/** Anything that is not a well-formed message is dropped rather than trusted. */
+export function parseMessage(line: string): HelperMessage | null {
+  let value: unknown
+  try {
+    value = JSON.parse(line)
+  } catch {
+    return null
+  }
+  if (!value || typeof value !== 'object') return null
+  const message = value as Record<string, unknown>
+  if (typeof message.event === 'string') return { event: message.event, data: message.data }
+  const id = typeof message.id === 'number' ? message.id : null
+  if (message.ok === true) return { id, ok: true, result: message.result }
+  if (message.ok === false) {
+    const error = (message.error ?? {}) as Record<string, unknown>
+    return {
+      id,
+      ok: false,
+      error: {
+        code: typeof error.code === 'string' ? error.code : 'unknown',
+        message: typeof error.message === 'string' ? error.message : 'The helper reported an error'
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Splits a byte stream into lines. Chunks arrive cut anywhere, including
+ * mid-character, so callers feed it strings from a UTF-8 StringDecoder.
+ */
+export class LineDecoder {
+  private buffer = ''
+
+  constructor(private readonly maxLine = 16 * 1024 * 1024) {}
+
+  push(chunk: string): string[] {
+    this.buffer += chunk
+    const parts = this.buffer.split('\n')
+    this.buffer = parts.pop() ?? ''
+    // A line that never ends is a broken helper, not a big answer.
+    if (this.buffer.length > this.maxLine) this.buffer = ''
+    return parts.map((line) => line.trim()).filter(Boolean)
+  }
+}
+
+/** Restart delay after the nth consecutive failure: 1s, 2s, 4s … capped at 30s. */
+export function restartDelay(failures: number): number {
+  return Math.min(30_000, 1000 * 2 ** Math.max(0, failures - 1))
+}

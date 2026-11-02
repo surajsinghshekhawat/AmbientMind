@@ -1,6 +1,9 @@
-import { ruleToEvent } from '@shared/calendarEvent'
+import { ownCalendarNamed, ruleToEvent, type CalendarListEntry } from '@shared/calendarEvent'
+import { describeGoogleError } from '@shared/googleError'
+import { QA_LIVE_TITLE } from '@shared/qaPolicy'
 import type { RecurrenceRule } from '@shared/recurrence'
 import { googleFetch, hasCalendarWriteScope } from '../googleAuth'
+import { devEnv } from '../../devHooks'
 
 const API = 'https://www.googleapis.com/calendar/v3'
 
@@ -12,7 +15,8 @@ const API = 'https://www.googleapis.com/calendar/v3'
  * the `calendar.app.created` scope so a bug here *cannot* reach a real
  * calendar. Writing into "primary" would have been fewer lines and no way back.
  */
-const CALENDAR_SUMMARY = 'AmbientMind'
+/** A QA instance may only write to a calendar by the QA name. */
+const CALENDAR_SUMMARY = devEnv('AMBIENTMIND_QA') === '1' ? QA_LIVE_TITLE : 'AmbientMind'
 
 let calendarIdCache: string | null = null
 
@@ -26,7 +30,7 @@ export class CalendarScopeError extends Error {
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await googleFetch(`${API}${path}`, init)
   if (!response.ok) {
-    throw new Error(`Calendar ${response.status}: ${(await response.text()).slice(0, 200)}`)
+    throw new Error(describeGoogleError('Calendar', response.status, await response.text()))
   }
   return (await response.json()) as T
 }
@@ -36,10 +40,8 @@ async function calendarId(): Promise<string> {
   if (calendarIdCache) return calendarIdCache
   if (!hasCalendarWriteScope()) throw new CalendarScopeError()
 
-  const list = await call<{ items?: { id: string; summary?: string }[] }>(
-    '/users/me/calendarList?minAccessRole=owner'
-  )
-  const existing = list.items?.find((entry) => entry.summary === CALENDAR_SUMMARY)
+  const list = await call<{ items?: CalendarListEntry[] }>('/users/me/calendarList?minAccessRole=owner')
+  const existing = ownCalendarNamed(list.items ?? [], CALENDAR_SUMMARY)
   if (existing) {
     calendarIdCache = existing.id
     return existing.id
@@ -87,7 +89,7 @@ export async function pushRule(
 
   if (existingEventId) {
     try {
-      await call(`/calendars/${encodeURIComponent(id)}/events/${existingEventId}`, {
+      await call(`/calendars/${encodeURIComponent(id)}/events/${encodeURIComponent(existingEventId)}`, {
         ...init,
         method: 'PUT'
       })
@@ -109,7 +111,7 @@ export async function removeRule(eventId: string | null): Promise<void> {
   if (!eventId || !hasCalendarWriteScope()) return
   const id = await calendarId()
   // Already gone is the desired state, so a 404 is not worth reporting.
-  await googleFetch(`${API}/calendars/${encodeURIComponent(id)}/events/${eventId}`, {
+  await googleFetch(`${API}/calendars/${encodeURIComponent(id)}/events/${encodeURIComponent(eventId)}`, {
     method: 'DELETE'
   }).catch(() => undefined)
 }

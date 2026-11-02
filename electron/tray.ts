@@ -1,8 +1,10 @@
 import { app, dialog, Menu, Tray, nativeImage } from 'electron'
 import { TRAY_ICON_16, TRAY_ICON_32 } from './assets/trayIcon'
 import { showChatWindow } from './chat'
-import { getOverlayWindow, setOverlayExpanded } from './overlay'
+import { getOverlayWindow, isOverlayExpanded, setOverlayExpanded } from './overlay'
+import { trayMenuOnRightClick } from './platform'
 import { listActive } from './services/taskStore'
+import { isAiPaused, pauseEnds, pauseAiForHours, PAUSE_UNTIL_RESUMED, tomorrowMorning } from '@shared/pauseAi'
 import {
   connectGoogle,
   connectedGoogleAccount,
@@ -24,7 +26,8 @@ function trayIcon() {
     scaleFactor: 2,
     dataURL: `data:image/png;base64,${TRAY_ICON_32}`
   })
-  // White glyph on transparency: let Windows/macOS tint it for the current theme.
+  // macOS draws a template image from its alpha alone, in the menu bar's own
+  // colour for light, dark and tinted menu bars. Windows ignores the flag.
   image.setTemplateImage(true)
   return image
 }
@@ -32,13 +35,23 @@ function trayIcon() {
 export interface TrayActions {
   onSyncNow: () => Promise<unknown>
   onOpenSettings: () => void
+  /** Goes through the saved config, which is what applies the login item. */
+  launchAtLogin: () => boolean
+  setLaunchAtLogin: (on: boolean) => void
+  pauseAiUntil: () => string | null
+  setPauseAiUntil: (until: string | null) => void
+  /** Why the orb is hidden right now, or null. */
+  quietLabel: () => string | null
 }
 
 export function createTray(actions: TrayActions) {
   tray = new Tray(trayIcon())
   tray.setToolTip('AmbientMind')
+  let menu: Menu | null = null
   // Left-click is the obvious gesture for "show me the list".
-  tray.on('click', () => setOverlayExpanded(true))
+  tray.on('click', () => setOverlayExpanded(!isOverlayExpanded()))
+  // An attached context menu would swallow left-clicks on the Mac.
+  if (trayMenuOnRightClick) tray.on('right-click', () => menu && tray?.popUpContextMenu(menu))
 
   const rebuild = () => {
     const overlay = getOverlayWindow()
@@ -46,80 +59,96 @@ export function createTray(actions: TrayActions) {
     const email = connectedGoogleAccount()
 
     const pending = listActive().filter((task) => task.status === 'pending').length
-    tray?.setToolTip(`AmbientMind — ${pending} pending`)
+    const pausedUntil = actions.pauseAiUntil()
+    const paused = isAiPaused(pausedUntil)
+    const quiet = actions.quietLabel()
+    tray?.setToolTip(['AmbientMind', `${pending} pending`, paused ? 'AI paused' : null, quiet].filter(Boolean).join(' — '))
 
-    tray?.setContextMenu(
-      Menu.buildFromTemplate([
-        {
-          label: overlay?.isVisible() ? 'Hide overlay' : 'Show overlay',
-          click: () => {
-            if (!overlay) return
-            overlay.isVisible() ? overlay.hide() : overlay.showInactive()
-            rebuild()
-          }
-        },
-        {
-          label: 'Expand overlay',
-          click: () => {
-            setOverlayExpanded(true)
-            rebuild()
-          }
-        },
-        {
-          label: 'Minimize to corner',
-          click: () => {
-            setOverlayExpanded(false)
-            rebuild()
-          }
-        },
-        { type: 'separator' },
-        {
-          label: connected ? `Google: ${email ?? 'connected'}` : 'Google: not connected',
-          enabled: false
-        },
-        {
-          label: connected ? 'Disconnect Google' : 'Connect Google account…',
-          click: async () => {
-            try {
-              if (connected) {
-                await disconnectGoogle()
-              } else if (!loadCredentials()) {
-                dialog.showMessageBox({
-                  type: 'info',
-                  title: 'Google setup required',
-                  message: 'No OAuth client configured',
-                  detail:
-                    'Create a Desktop OAuth client in Google Cloud Console and save it as ' +
-                    'google-credentials.json in the app data folder. See docs/google-setup.md.'
-                })
-              } else {
-                await connectGoogle()
-              }
-            } catch (err) {
-              dialog.showErrorBox('Google connection failed', (err as Error).message)
+    menu = Menu.buildFromTemplate([
+      {
+        label: overlay?.isVisible() ? 'Hide overlay' : 'Show overlay',
+        click: () => {
+          if (!overlay) return
+          overlay.isVisible() ? overlay.hide() : overlay.showInactive()
+          rebuild()
+        }
+      },
+      {
+        label: 'Expand overlay',
+        click: () => {
+          setOverlayExpanded(true)
+          rebuild()
+        }
+      },
+      {
+        label: 'Minimize to corner',
+        click: () => {
+          setOverlayExpanded(false)
+          rebuild()
+        }
+      },
+      { type: 'separator' },
+      {
+        label: connected ? `Google: ${email ?? 'connected'}` : 'Google: not connected',
+        enabled: false
+      },
+      {
+        label: connected ? 'Disconnect Google' : 'Connect Google account…',
+        click: async () => {
+          try {
+            if (connected) {
+              await disconnectGoogle()
+            } else if (!loadCredentials()) {
+              dialog.showMessageBox({
+                type: 'info',
+                title: 'Google setup required',
+                message: 'No OAuth client configured',
+                detail:
+                  'Create a Desktop OAuth client in Google Cloud Console and save it as ' +
+                  'google-credentials.json in the app data folder. See docs/google-setup.md.'
+              })
+            } else {
+              await connectGoogle()
             }
-            rebuild()
+          } catch (err) {
+            dialog.showErrorBox('Google connection failed', (err as Error).message)
           }
-        },
-        {
-          label: 'Sync now',
-          enabled: connected,
-          click: () => void actions.onSyncNow()
-        },
-        { type: 'separator' },
-        { label: 'Ask about my tasks…', click: () => showChatWindow() },
-        { label: 'Settings…', click: () => actions.onOpenSettings() },
-        { type: 'separator' },
-        {
-          label: 'Start at login',
-          type: 'checkbox',
-          checked: app.getLoginItemSettings().openAtLogin,
-          click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked })
-        },
-        { type: 'separator' },
-        { label: 'Quit AmbientMind', click: () => app.quit() }
-      ])
-    )
+          rebuild()
+        }
+      },
+      {
+        label: 'Sync now',
+        enabled: connected,
+        click: () => void actions.onSyncNow()
+      },
+      { type: 'separator' },
+      ...(quiet ? [{ label: quiet, enabled: false }] : []),
+      paused && pausedUntil
+        ? {
+            label: `Resume AI (paused ${pauseEnds(pausedUntil)})`,
+            click: () => actions.setPauseAiUntil(null)
+          }
+        : {
+            label: 'Pause AI',
+            submenu: [
+              { label: 'For 1 hour', click: () => actions.setPauseAiUntil(pauseAiForHours(1)) },
+              { label: 'Until tomorrow', click: () => actions.setPauseAiUntil(tomorrowMorning()) },
+              { label: 'Until I resume', click: () => actions.setPauseAiUntil(PAUSE_UNTIL_RESUMED) }
+            ]
+          },
+      { label: 'Ask about my tasks…', click: () => showChatWindow() },
+      { label: 'Settings…', click: () => actions.onOpenSettings() },
+      { type: 'separator' },
+      {
+        label: 'Start at login',
+        type: 'checkbox',
+        checked: actions.launchAtLogin(),
+        click: (item) => actions.setLaunchAtLogin(item.checked)
+      },
+      { type: 'separator' },
+      { label: 'Quit AmbientMind', click: () => app.quit() }
+    ])
+    if (!trayMenuOnRightClick) tray?.setContextMenu(menu)
   }
 
   rebuild()

@@ -12,7 +12,7 @@ import { KEEP_DECISIONS, KEEP_EXAMPLES, KEEP_PROCESSED_DAYS } from '@shared/rete
 import { isAiPaused } from '@shared/pauseAi'
 import { embed, EMBED_VERSION } from './ollama'
 import { loadConfig } from './config'
-import { getTaskStore } from './taskStore'
+import { getTaskStore, purgeTombstones } from './taskStore'
 import {
   pruneExamples,
   replaceEmbedding,
@@ -29,6 +29,7 @@ export interface MaintenanceReport {
   examplesPruned: number
   processedPruned: number
   decisionsPruned: number
+  tombstonesPurged: number
 }
 
 function pruneProcessed(days: number): number {
@@ -53,10 +54,12 @@ export function runRetention(): MaintenanceReport {
   const report: MaintenanceReport = {
     examplesPruned: pruneExamples(getTaskStore(), KEEP_EXAMPLES),
     processedPruned: pruneProcessed(KEEP_PROCESSED_DAYS),
-    decisionsPruned: pruneDecisions(KEEP_DECISIONS)
+    decisionsPruned: pruneDecisions(KEEP_DECISIONS),
+    tombstonesPurged: purgeTombstones()
   }
 
-  const total = report.examplesPruned + report.processedPruned + report.decisionsPruned
+  const total =
+    report.examplesPruned + report.processedPruned + report.decisionsPruned + report.tombstonesPurged
   if (total > 0) console.log('[maintenance] pruned', report)
   return report
 }

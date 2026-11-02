@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The Swift helper runs under the hardened runtime with no JIT and no
+       foreign libraries. Speech recognition reads the microphone; EventKit
+       and Contacts need their entitlements or macOS refuses without asking. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.personal-information.calendars</key>
+  <true/>
+  <key>com.apple.security.personal-information.addressbook</key>
+  <true/>
+</dict>
+</plist>

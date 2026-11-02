@@ -1,15 +1,30 @@
 appId: com.ambientmind.app
 productName: AmbientMind
-copyright: Copyright © 2026
+copyright: Copyright © 2026 Suraj Singh Shekhawat
 
 directories:
   output: release
   buildResources: build
 
+# Signs the Mac .app with the local identity in .local/signing before the dmg
+# and zip are made (see scripts/mac-sign.cjs). A no-op on other platforms.
+afterPack: scripts/mac-sign.cjs
+
 files:
   - out/**
   - package.json
   - '!**/*.map'
+  - '!**/*.d.ts'
+  - '!**/{README,CHANGELOG,HISTORY}*'
+  # Only the Bare runtime loads these; Node never does.
+  - '!**/node_modules/bare-*/prebuilds/**'
+  # better-sqlite3 loads a prebuilt binary; its C sources are dead weight.
+  - '!**/node_modules/better-sqlite3/{deps,src,build}/**'
+  # Transformers.js runs on onnxruntime-node here. The browser bundles and the
+  # WebAssembly runtime only serve its browser backend.
+  - '!**/node_modules/@xenova/transformers/dist/**'
+  - '!**/node_modules/onnxruntime-web/dist/**'
+  - '**/node_modules/onnxruntime-web/dist/ort-web.node.js'
 
 # Everything here is either a native .node binary or a file something tries to
 # dlopen / spawn at runtime. dlopen cannot read out of an asar archive, so
@@ -26,11 +41,80 @@ asarUnpack:
   - '**/node_modules/tesseract.js/**'
   - '**/node_modules/tesseract.js-core/**'
 
+# The licence notices have to travel with the binary; Settings → About opens
+# the policy, terms and notices from here (see shared/legal.ts).
+extraResources:
+  - from: LICENSE
+    to: legal/LICENSE
+  - from: PRIVACY.md
+    to: legal/PRIVACY.md
+  - from: TERMS.md
+    to: legal/TERMS.md
+  - from: THIRD_PARTY_NOTICES.md
+    to: legal/THIRD_PARTY_NOTICES.md
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  icon: build/icon.png
+  category: public.app-category.productivity
+  darkModeSupport: true
+  # Signing happens in afterPack with rcodesign, which needs no keychain.
+  identity: null
+  electronLanguages: [en]
+  # The Swift helper (native/mac-helper, built by `npm run helper`) sits
+  # beside the app binary, so it is signed with the app and macOS attributes
+  # its permission checks to AmbientMind.
+  extraFiles:
+    - from: .local/build/mac-helper/release/ambientmind-helper
+      to: MacOS/ambientmind-helper
+  extendInfo:
+    # A menu-bar app: no Dock icon until Settings or Chat opens.
+    LSUIElement: true
+    # The helper asks under the app's name, so these strings live here.
+    NSMicrophoneUsageDescription: >-
+      AmbientMind listens only while you use voice capture, to turn what you
+      say into a task. Audio is transcribed on this Mac and never stored.
+    NSSpeechRecognitionUsageDescription: >-
+      AmbientMind turns what you say into text on this Mac, so voice capture
+      can understand you. Nothing is sent anywhere.
+    NSCalendarsFullAccessUsageDescription: >-
+      AmbientMind reads your calendar to show what is coming up and to warn
+      you when a task clashes with an event.
+    NSRemindersFullAccessUsageDescription: >-
+      AmbientMind keeps your tasks and Reminders in step, so finishing one
+      finishes the other.
+    NSContactsUsageDescription: >-
+      AmbientMind reads your own contact card so it knows which name and
+      email address are yours.
+  # A files list with no positive pattern falls back to **/*, which would
+  # pack the whole repo, .local included.
+  files:
+    - out/**
+    - package.json
+    - '!**/node_modules/onnxruntime-node/bin/napi-v3/{linux,win32}/**'
+    - '!**/node_modules/onnxruntime-node/bin/napi-v3/darwin/x64/**'
+    - '!**/node_modules/better-sqlite3/prebuilds/{linux,linuxmusl,win32}-*'
+    - '!**/node_modules/better-sqlite3/prebuilds/darwin-x64.node'
+
+dmg:
+  sign: false
+
 win:
   target:
     - target: nsis
       arch: [x64]
   icon: build/icon.png
+  files:
+    - out/**
+    - package.json
+    - '!**/node_modules/onnxruntime-node/bin/napi-v3/{linux,darwin}/**'
+    - '!**/node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/**'
+    - '!**/node_modules/better-sqlite3/prebuilds/{linux,linuxmusl,darwin}-*'
+    - '!**/node_modules/better-sqlite3/prebuilds/win32-arm64.node'
 
 nsis:
   # Per-user install: no UAC prompt, and the app only ever writes to the

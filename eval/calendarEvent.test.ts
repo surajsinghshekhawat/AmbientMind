@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ruleToEvent } from '../shared/calendarEvent'
+import { ownCalendarNamed, ruleToEvent } from '../shared/calendarEvent'
 
 // A Sunday, so "next Tuesday" is unambiguous in the assertions below.
 const FROM = new Date('2026-09-13T10:00:00')
@@ -51,4 +51,12 @@ test('a rule with no weekdays produces no event', () => {
     }),
     null
   )
+})
+
+test("only the account's own calendar by that name is used", () => {
+  const me = { id: 'me@example.com', primary: true, summary: 'me@example.com' }
+  const theirs = { id: 'c1@group.calendar.google.com', summary: 'AmbientMind', dataOwner: 'someone@example.com' }
+  const mine = { id: 'c2@group.calendar.google.com', summary: 'AmbientMind', dataOwner: 'me@example.com' }
+  assert.equal(ownCalendarNamed([me, theirs], 'AmbientMind'), undefined)
+  assert.equal(ownCalendarNamed([me, theirs, mine], 'AmbientMind')?.id, mine.id)
 })

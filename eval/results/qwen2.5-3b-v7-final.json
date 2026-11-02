@@ -1,0 +1,263 @@
+{
+  "ranAt": "2026-10-31T21:52:59.131Z",
+  "model": "qwen2.5:3b",
+  "rag": false,
+  "corpus": "eval/corpus/seed.jsonl",
+  "metrics": {
+    "truePositives": 7,
+    "falsePositives": 0,
+    "falseNegatives": 0,
+    "precision": 1,
+    "recall": 1,
+    "f1": 1,
+    "emptySpecificity": 1,
+    "deadlineAccuracy": 0.7142857142857143,
+    "messagesScored": 14
+  },
+  "scored": [
+    {
+      "id": "seed-001",
+      "gold": [
+        {
+          "title": "Send Q1 East desk volume numbers to Louise",
+          "deadline": "2001-03-13T17:00:00",
+          "priority": "high"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Prepare and send Q1 volume summary",
+          "deadline": "2001-03-13T11:30:00.000Z",
+          "priority": "high",
+          "people": [],
+          "confidence": 0.9,
+          "evidence": "pull together the Q1 volume numbers for the East desk and send them over by EOD tomorrow",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 2666.396167
+    },
+    {
+      "id": "seed-002",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 204.62670800000024
+    },
+    {
+      "id": "seed-003",
+      "gold": [
+        {
+          "title": "Review ISDA redline and send comments to Mark",
+          "deadline": "2001-03-16T09:00:00",
+          "priority": "medium"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Review redline and send comments",
+          "deadline": "2001-03-16T03:30:00.000Z",
+          "priority": "high",
+          "people": [
+            "Mark Taylor"
+          ],
+          "confidence": 0.9,
+          "evidence": "I'll review the redline and get you comments by Friday morning.",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 1255.417458
+    },
+    {
+      "id": "seed-004",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 206.886125
+    },
+    {
+      "id": "seed-005",
+      "gold": [
+        {
+          "title": "Prepare five-slide credit exposure deck for risk committee",
+          "deadline": "2001-03-15T14:00:00",
+          "priority": "high"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Prepare credit exposure deck",
+          "deadline": "2001-03-14T08:30:00.000Z",
+          "priority": "high",
+          "people": [
+            "sally.beck@enron.com"
+          ],
+          "confidence": 0.9,
+          "evidence": "prepare the credit exposure deck ahead of it - keep it to five slides",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 1183.315125
+    },
+    {
+      "id": "seed-006",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 208.02466699999968
+    },
+    {
+      "id": "seed-007",
+      "gold": [
+        {
+          "title": "Sign counterparty consent form and fax to Kay",
+          "deadline": null,
+          "priority": "high"
+        },
+        {
+          "title": "Call Rob Walls about indemnity language",
+          "deadline": "2001-03-15T17:00:00",
+          "priority": "urgent"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Sign and fax consent form",
+          "deadline": null,
+          "priority": "medium",
+          "people": [],
+          "confidence": 0.9,
+          "evidence": "Please sign the counterparty consent form and fax it back to me.",
+          "verified": true
+        },
+        {
+          "title": "Call Rob Walls about indemnity language",
+          "deadline": "2001-03-15T11:30:00.000Z",
+          "priority": "high",
+          "people": [],
+          "confidence": 0.9,
+          "evidence": "Can you call Rob Walls about the indemnity language? He is expecting to hear from you today.",
+          "verified": true
+        }
+      ],
+      "truePositives": 2,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 1679.9283340000002
+    },
+    {
+      "id": "seed-008",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 198.51016600000003
+    },
+    {
+      "id": "seed-009",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 202.4974169999996
+    },
+    {
+      "id": "seed-010",
+      "gold": [
+        {
+          "title": "Sign off on temporary Dynegy counterparty limit increase",
+          "deadline": null,
+          "priority": "urgent"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Sign off on temporary increase",
+          "deadline": "2001-03-19T11:30:00.000Z",
+          "priority": "urgent",
+          "people": [
+            "sally.beck@enron.com"
+          ],
+          "confidence": 0.9,
+          "evidence": "I need your sign-off on the temporary increase ASAP",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 1148.8057079999999
+    },
+    {
+      "id": "seed-011",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 201.3864169999997
+    },
+    {
+      "id": "seed-012",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 206.44154199999866
+    },
+    {
+      "id": "seed-013",
+      "gold": [
+        {
+          "title": "Send back office headcount plan to John",
+          "deadline": "2001-03-23T17:00:00",
+          "priority": "high"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Prepare headcount plan for back office",
+          "deadline": "2001-03-23T11:30:00.000Z",
+          "priority": "high",
+          "people": [
+            "sally.beck@enron.com"
+          ],
+          "confidence": 0.9,
+          "evidence": "Need your headcount plan for the back office by end of week",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 1239.654124999999
+    },
+    {
+      "id": "seed-014",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 205.15529200000128
+    }
+  ]
+}

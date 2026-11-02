@@ -1,27 +1,23 @@
 import { describePause, isAiPaused } from '@shared/pauseAi'
 import type { Task } from '@shared/types'
 import { rejectDuplicates } from './dedup'
-import { fetchUpcoming } from './integrations/gcalendar'
+import { fetchPrepTasks } from './integrations/gcalendar'
 import { fetchMessage, listRecentMessageIds, shouldSkip } from './integrations/gmail'
-import { connectedGoogleAccount, isGoogleConnected } from './googleAuth'
-import {
-  embed,
-  EMBED_VERSION,
-  extractTasks,
-  isAvailable,
-  OllamaUnavailableError,
-  type ExtractedTask
-} from './ollama'
+import { connectedGoogleAccount, GOOGLE_SCOPES_MESSAGE, isGoogleConnected, isScopeError } from './googleAuth'
+import { shouldAutoAccept } from '@shared/evidence'
+import { AiUnavailableError, chooseEngine } from './ai'
+import { extractTasks, type ExtractedTask } from './extract'
+import { embed, EMBED_VERSION } from './ollama'
 import {
   addTasksIgnoringDuplicates,
   forgetRecentGmail,
-  getSyncState,
   getTaskStore,
   isProcessed,
   listActive,
   listRetryableFailures,
   markFailed,
   markProcessed,
+  reconcileCalendarTasks,
   setSyncState,
   type NewTask
 } from './taskStore'
@@ -29,6 +25,7 @@ import {
   exampleCount,
   nearestExamples,
   renderFewShot,
+  replayable,
   storeExample,
   truncateExample
 } from './vectorStore'
@@ -48,13 +45,14 @@ export interface SyncReport {
 }
 
 export interface SyncOptions {
-  model?: string
   embeddingModel?: string
   userName?: string
   userEmail?: string
   aboutMe?: string
   /** Re-read recent mail instead of skipping IDs already seen. Used by Sync now. */
   force?: boolean
+  /** Confidence at which a mail task skips the suggestion step; null keeps all as suggestions. */
+  autoAcceptAbove?: number | null
   maxExtractionsPerRun?: number
   onProgress?: (message: string) => void
 }
@@ -71,7 +69,7 @@ let running = false
 async function syncGmail(
   report: SyncReport,
   existing: Task[],
-  options: Required<Pick<SyncOptions, 'model' | 'maxExtractionsPerRun'>> & SyncOptions
+  options: Required<Pick<SyncOptions, 'maxExtractionsPerRun'>> & SyncOptions
 ): Promise<NewTask[]> {
   const userEmail = options.userEmail ?? connectedGoogleAccount() ?? 'me'
   const userName = options.userName ?? userEmail.split('@')[0] ?? 'the user'
@@ -118,7 +116,6 @@ async function syncGmail(
     try {
       const fewShotExamples = await retrieveFewShot(fetched.message, options.embeddingModel)
       const extracted = await extractTasks(fetched.message, {
-        model: options.model,
         userName,
         userEmail,
         ...(options.aboutMe ? { aboutMe: options.aboutMe } : {}),
@@ -140,17 +137,24 @@ async function syncGmail(
           // Ties the task back to the message so the same mail can never
           // produce it twice, even across app restarts.
           sourceId: `${id}:${task.title.slice(0, 40)}`,
+          sourceUrl: `https://mail.google.com/mail/u/0/#all/${id}`,
           people: task.people,
           rawContext: `${fetched.message.subject}\n\n${fetched.message.body.slice(0, 2000)}`,
-          confidence: task.confidence
+          confidence: task.confidence,
+          evidence: task.evidence,
+          // A model's reading of someone else's mail is a suggestion until
+          // the user says yes, unless they chose to trust confident ones.
+          status: shouldAutoAccept(task.confidence, task.verified ?? false, options.autoAcceptAbove ?? null)
+            ? 'pending'
+            : 'suggested'
         })
       }
     } catch (err) {
-      // Ollama going away mid-pass says nothing about this message or the ones
-      // behind it. Charging every remaining mail an attempt would spend the
-      // whole retry budget on a single restart, so the pass stops instead.
-      if (err instanceof OllamaUnavailableError) {
-        report.errors.push('Ollama stopped responding; the rest of this pass was left for later')
+      // The model going away mid-pass says nothing about this message or the
+      // ones behind it. Charging every remaining mail an attempt would spend
+      // the whole retry budget on a single restart, so the pass stops instead.
+      if (err instanceof AiUnavailableError) {
+        report.errors.push('The AI model stopped responding; the rest of this pass was left for later')
         break
       }
       const { willRetry } = markFailed('gmail', id)
@@ -186,7 +190,7 @@ async function retrieveFewShot(
     const available = exampleCount(db)
     if (available === 0) return ''
     const vector = await embed(embeddingText(message), embedModel, 'query')
-    return renderFewShot(nearestExamples(db, vector, Math.min(5, available)))
+    return renderFewShot(nearestExamples(db, vector, Math.min(15, available)).filter(replayable).slice(0, 5))
   } catch (err) {
     console.warn('[rag] retrieve failed:', (err as Error).message)
     return ''
@@ -201,7 +205,9 @@ async function rememberExtraction(
   try {
     const text = embeddingText(message)
     const vector = await embed(text, embedModel, 'document')
-    storeExample(getTaskStore(), text, tasks, vector, {
+    // Stored as the model writes them, so examples teach the output shape.
+    const shown = tasks.map(({ verified: _verified, ...task }) => task)
+    storeExample(getTaskStore(), text, shown, vector, {
       source: 'observed',
       // Lets a task rate the example it came from once the user acts on it.
       sourceId: message.id,
@@ -212,16 +218,22 @@ async function rememberExtraction(
   }
 }
 
+/** Updates and removes existing prep tasks; returns only meetings not yet on the list. */
 async function syncCalendar(report: SyncReport): Promise<NewTask[]> {
-  const { cursor } = getSyncState('gcalendar')
   try {
-    const { tasks, nextSyncToken } = await fetchUpcoming(cursor)
-    setSyncState('gcalendar', nextSyncToken)
-    report.scanned += tasks.length
-    return tasks
+    const { tasks: prep, uids } = await fetchPrepTasks()
+    const { fresh, updated, removed, archived } = reconcileCalendarTasks('gcalendar', prep)
+    if (updated + removed + archived > 0) {
+      console.log('[sync] calendar reconciled', { updated, removed, archived })
+    }
+    // Kept as the cursor so the Apple Calendar pass can skip Google's events.
+    setSyncState('gcalendar', JSON.stringify(uids))
+    report.scanned += prep.length
+    return fresh
   } catch (err) {
-    setSyncState('gcalendar', cursor, (err as Error).message)
-    report.errors.push(`calendar: ${(err as Error).message}`)
+    const message = isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message
+    setSyncState('gcalendar', null, message)
+    report.errors.push(named('calendar', message))
     return []
   }
 }
@@ -250,10 +262,7 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
   }
   if (!isGoogleConnected()) {
     report.errors.push('Google account is not connected')
-    return report
-  }
-  if (!(await isAvailable())) {
-    report.errors.push('Ollama is not running; skipping this pass')
+    recordMailOutcome(report)
     return report
   }
 
@@ -261,21 +270,27 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
   try {
     if (options.force) {
       const forgotten = forgetRecentGmail(48)
-      setSyncState('gcalendar', null)
-      console.log(`[sync] force: reopened ${forgotten} gmail ids, calendar full resync`)
+      console.log(`[sync] force: reopened ${forgotten} gmail ids`)
     }
 
     const resolved = {
-      model: options.model ?? 'qwen2.5:3b',
       maxExtractionsPerRun: options.maxExtractionsPerRun ?? DEFAULT_MAX_EXTRACTIONS,
       ...options
     }
 
     const existing = listActive()
-    const candidates = [
-      ...(await syncCalendar(report)),
-      ...(await syncGmail(report, existing, resolved))
-    ]
+    // Calendar import is deterministic and needs no model, so it runs even
+    // when no model is available; only mail waits for one.
+    const candidates = await syncCalendar(report)
+    if (await chooseEngine()) {
+      try {
+        candidates.push(...(await syncGmail(report, existing, resolved)))
+      } catch (err) {
+        report.errors.push(named('gmail', isScopeError((err as Error).message) ? GOOGLE_SCOPES_MESSAGE : (err as Error).message))
+      }
+    } else {
+      report.errors.push('No AI model is available (Apple Intelligence off, Ollama not running); mail was not read this pass')
+    }
 
     const { accepted, rejected } = rejectDuplicates(candidates, existing)
     report.deduped = rejected.length
@@ -287,11 +302,28 @@ export async function runSync(options: SyncOptions = {}): Promise<SyncReport> {
     const wanted = accepted.filter((task) => !suppressionFor(task.title).suppressed)
     report.suppressed = accepted.length - wanted.length
     report.added = addTasksIgnoringDuplicates(wanted).length
-
-    setSyncState('gmail', null, report.errors.length > 0 ? report.errors[0]! : null)
-    return report
+  } catch (err) {
+    // Callers show a spinner until this resolves; a throw would leave it
+    // spinning and the failure unrecorded.
+    report.errors.push(`sync: ${(err as Error).message}`)
   } finally {
     running = false
+  }
+  recordMailOutcome(report)
+  return report
+}
+
+/** "calendar: Calendar 404: …" says the source twice. */
+function named(source: 'gmail' | 'calendar', message: string): string {
+  return message.toLowerCase().startsWith(source) ? message : `${source}: ${message}`
+}
+
+/** Calendar records its own outcome; everything else is the mail pass's. */
+function recordMailOutcome(report: SyncReport) {
+  try {
+    setSyncState('gmail', null, report.errors.find((e) => !/^calendar\b/i.test(e)) ?? null)
+  } catch (err) {
+    console.warn('[sync] could not record outcome:', (err as Error).message)
   }
 }
 
@@ -304,11 +336,19 @@ let timer: NodeJS.Timeout | null = null
  */
 export function startScheduler(
   intervalMinutes: number,
-  options: SyncOptions = {},
+  /** Called on every run, so profile and model changes apply without a restart. */
+  getOptions: () => SyncOptions,
   onReport?: (report: SyncReport) => void
 ) {
   stopScheduler()
   const run = () => {
+    let options: SyncOptions
+    try {
+      options = getOptions()
+    } catch (err) {
+      console.warn('[sync] could not read options:', (err as Error).message)
+      return
+    }
     void runSync(options)
       .then((report) => onReport?.(report))
       .catch(() => undefined)

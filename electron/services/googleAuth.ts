@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { app, shell } from 'electron'
+import { devEnv } from '../devHooks'
 import { getJson, setJson, deleteSecret } from './secrets'
 
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
@@ -16,9 +17,11 @@ const EXPIRY_SKEW_MS = 60_000
 
 export const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created'
 
+/** Without these the app can sign in but read nothing. */
+const READ_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.readonly']
+
 const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  ...READ_SCOPES,
   // Grants access *only* to calendars this app creates, not the user's own.
   // The broader calendar scope would let a bug damage a real calendar; this
   // one makes that impossible rather than merely unlikely.
@@ -37,6 +40,26 @@ export function hasCalendarWriteScope(): boolean {
   return scope.split(' ').includes(CALENDAR_WRITE_SCOPE)
 }
 
+/**
+ * Google's consent page lists Gmail and Calendar as checkboxes, unticked for
+ * an unverified app, and "Continue" works with them unticked. The sign-in
+ * then succeeds and every read fails with 403.
+ */
+export const GOOGLE_SCOPES_MESSAGE =
+  'Google signed in without access to Gmail and Calendar. Disconnect, connect again, and tick both boxes on Google’s page.'
+
+function missingReadScopes(scope: string): string[] {
+  const granted = scope.split(' ')
+  return READ_SCOPES.filter((wanted) => !granted.includes(wanted))
+}
+
+export function hasReadScopes(): boolean {
+  const scope = getJson<StoredTokens>(TOKEN_KEY)?.scope
+  return scope === undefined || missingReadScopes(scope).length === 0
+}
+
+export { isScopeError } from '@shared/googleError'
+
 interface StoredTokens {
   accessToken: string
   refreshToken: string
@@ -50,7 +73,18 @@ export interface GoogleCredentials {
   clientSecret: string
 }
 
-export class GoogleAuthError extends Error {}
+export class GoogleAuthError extends Error {
+  constructor(
+    message: string,
+    /** OAuth error code from the token endpoint, e.g. `invalid_grant`. */
+    readonly code?: string
+  ) {
+    super(message)
+  }
+}
+
+export const GOOGLE_RECONNECT_MESSAGE =
+  'Google sign-in expired or was revoked. Reconnect Google in Settings.'
 
 /**
  * Desktop OAuth clients are not confidential: the "secret" ships with the app
@@ -62,13 +96,9 @@ export function credentialsFilePath() {
 }
 
 export function loadCredentials(): GoogleCredentials | null {
-  const fromEnv = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-  if (fromEnv) {
-    return {
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!
-    }
-  }
+  const clientId = devEnv('GOOGLE_CLIENT_ID')
+  const clientSecret = devEnv('GOOGLE_CLIENT_SECRET')
+  if (clientId && clientSecret) return { clientId, clientSecret }
 
   for (const path of [credentialsFilePath(), join(app.getAppPath(), 'google-credentials.json')]) {
     try {
@@ -158,9 +188,11 @@ function awaitAuthorizationCode(expectedState: string): {
       return
     }
 
+    // Not ours: answered, but the real callback can still arrive. Ending the
+    // sign-in here would let any page that guesses the port cancel it.
     if (url.searchParams.get('state') !== expectedState) {
       respond('Authorisation failed a security check. You can close this tab.')
-      finish(null, new GoogleAuthError('OAuth state mismatch'))
+      console.warn('[oauth] ignored a callback with the wrong state')
       return
     }
 
@@ -196,7 +228,10 @@ async function exchange(body: Record<string, string>): Promise<StoredTokens> {
   }
 
   if (!response.ok || !data.access_token) {
-    throw new GoogleAuthError(data.error_description ?? data.error ?? 'Token exchange failed')
+    throw new GoogleAuthError(
+      data.error_description ?? data.error ?? 'Token exchange failed',
+      data.error
+    )
   }
 
   return {
@@ -255,6 +290,14 @@ export async function connectGoogle(): Promise<{ email?: string }> {
         redirect_uri: redirectUri
       })
 
+      if (missingReadScopes(tokens.scope).length > 0) {
+        // Not kept: a connection that can read nothing only looks like one.
+        await revoke(tokens.refreshToken || tokens.accessToken)
+        throw new GoogleAuthError(
+          'Google didn’t give access to Gmail and Calendar. Connect again and tick both boxes on Google’s page.',
+          'insufficient_scope'
+        )
+      }
       const email = await fetchEmailAddress(tokens.accessToken)
       setJson(TOKEN_KEY, { ...tokens, ...(email ? { email } : {}) })
       return email ? { email } : {}
@@ -289,16 +332,18 @@ export function connectedGoogleAccount(): string | null {
   return getJson<StoredTokens>(TOKEN_KEY)?.email ?? null
 }
 
+/** Best effort: whatever the server replies, the caller carries on. */
+async function revoke(token: string): Promise<void> {
+  await fetch(REVOKE_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token })
+  }).catch(() => undefined)
+}
+
 export async function disconnectGoogle(): Promise<void> {
   const tokens = getJson<StoredTokens>(TOKEN_KEY)
-  if (tokens?.refreshToken) {
-    // Best effort: the local token is cleared regardless of the server's reply.
-    await fetch(REVOKE_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ token: tokens.refreshToken })
-    }).catch(() => undefined)
-  }
+  if (tokens?.refreshToken) await revoke(tokens.refreshToken)
   deleteSecret(TOKEN_KEY)
 }
 
@@ -321,12 +366,24 @@ export async function getAccessToken(): Promise<string> {
     const credentials = loadCredentials()
     if (!credentials) throw new GoogleAuthError('Google OAuth client configuration is missing')
 
-    const refreshed = await exchange({
-      client_id: credentials.clientId,
-      client_secret: credentials.clientSecret,
-      refresh_token: tokens.refreshToken,
-      grant_type: 'refresh_token'
-    })
+    let refreshed: StoredTokens
+    try {
+      refreshed = await exchange({
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        refresh_token: tokens.refreshToken,
+        grant_type: 'refresh_token'
+      })
+    } catch (err) {
+      // The grant is dead (revoked, expired, password changed) and no retry
+      // can revive it. Keeping it made the app look connected while every
+      // sync failed; dropping it lets every surface show "disconnected".
+      if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+        deleteSecret(TOKEN_KEY)
+        throw new GoogleAuthError(GOOGLE_RECONNECT_MESSAGE, err.code)
+      }
+      throw err
+    }
     setJson(TOKEN_KEY, { ...refreshed, ...(tokens.email ? { email: tokens.email } : {}) })
     return refreshed.accessToken
   })().finally(() => {

@@ -3,6 +3,9 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import * as sqliteVec from 'sqlite-vec'
+import { PREP_LEAD_HOURS } from '@shared/calendarPrep'
+import { shouldAlert } from '@shared/dueAlerts'
+import { KEEP_TOMBSTONE_DAYS } from '@shared/retention'
 import type { Task, TaskPriority, TaskSource } from '@shared/types'
 import { migrate } from './migrations'
 
@@ -23,6 +26,8 @@ interface TaskRow {
   created_at: string
   completed_at: string | null
   snoozed_until: string | null
+  source_url: string | null
+  evidence: string | null
 }
 
 export interface NewTask {
@@ -34,6 +39,10 @@ export interface NewTask {
   people?: string[]
   rawContext?: string | null
   confidence?: number
+  sourceUrl?: string | null
+  evidence?: string | null
+  /** AI-found tasks wait as suggestions until accepted. */
+  status?: 'pending' | 'suggested'
 }
 
 function toTask(row: TaskRow): Task {
@@ -50,7 +59,9 @@ function toTask(row: TaskRow): Task {
     status: row.status,
     createdAt: row.created_at,
     completedAt: row.completed_at,
-    snoozedUntil: row.snoozed_until
+    snoozedUntil: row.snoozed_until,
+    sourceUrl: row.source_url ?? null,
+    evidence: row.evidence ?? null
   }
 }
 
@@ -63,12 +74,20 @@ export function openTaskStore(filename?: string) {
   db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+  // Schema objects (triggers, defaults, checks) may only call harmless functions.
+  db.pragma('trusted_schema = OFF')
   // Must precede migrate(): migration 002 creates a vec0 virtual table.
-  // In a packaged build the extension resolves to a path inside app.asar,
-  // which dlopen cannot read; electron-builder unpacks it next door.
-  db.loadExtension(sqliteVec.getLoadablePath().replace('app.asar', 'app.asar.unpacked'))
+  db.loadExtension(vecExtensionPath())
   migrate(db)
   return db
+}
+
+/**
+ * In a packaged build the extension resolves to a path inside app.asar,
+ * which dlopen cannot read; electron-builder unpacks it next door.
+ */
+export function vecExtensionPath(): string {
+  return sqliteVec.getLoadablePath().replace('app.asar', 'app.asar.unpacked')
 }
 
 function handle(): Database.Database {
@@ -94,7 +113,7 @@ export function closeTaskStore() {
 export function listActive(): Task[] {
   return handle()
     .prepare<[], TaskRow>(
-      `SELECT * FROM tasks WHERE status IN ('pending', 'done', 'snoozed') ORDER BY created_at DESC`
+      `SELECT * FROM tasks WHERE status IN ('pending', 'done', 'snoozed', 'suggested') ORDER BY created_at DESC`
     )
     .all()
     .map(toTask)
@@ -111,16 +130,18 @@ export function addTask(input: NewTask): Task {
     people: JSON.stringify(input.people ?? []),
     raw_context: input.rawContext ?? null,
     confidence: input.confidence ?? 1,
-    status: 'pending',
+    status: input.status ?? 'pending',
     created_at: new Date().toISOString(),
     completed_at: null,
-    snoozed_until: null
+    snoozed_until: null,
+    source_url: input.sourceUrl ?? null,
+    evidence: input.evidence ?? null
   }
 
   handle()
     .prepare(
-      `INSERT INTO tasks (id, title, deadline, priority, source, source_id, people, raw_context, confidence, status, created_at, completed_at, snoozed_until)
-       VALUES (@id, @title, @deadline, @priority, @source, @source_id, @people, @raw_context, @confidence, @status, @created_at, @completed_at, @snoozed_until)`
+      `INSERT INTO tasks (id, title, deadline, priority, source, source_id, people, raw_context, confidence, status, created_at, completed_at, snoozed_until, source_url, evidence)
+       VALUES (@id, @title, @deadline, @priority, @source, @source_id, @people, @raw_context, @confidence, @status, @created_at, @completed_at, @snoozed_until, @source_url, @evidence)`
     )
     .run(row)
 
@@ -170,24 +191,153 @@ export function updateTask(id: string, patch: TaskPatch): void {
     params.push(key === 'people' ? JSON.stringify(patch.people ?? []) : patch[key])
   }
   if (assignments.length === 0) return
+  // A new deadline earns a new alert.
+  if ('deadline' in patch) assignments.push('reminded_at = NULL', 'remind_at = NULL')
 
-  params.push(id)
+  // Marks the row as the user's, so background refreshes stop rewriting it.
+  assignments.push('user_edited_at = ?')
+  params.push(new Date().toISOString(), id)
   handle()
-    .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = ?`)
+    .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = ? AND status != 'deleted'`)
     .run(...params)
+}
+
+/**
+ * Writes a background model result onto a task the user just added. Skipped
+ * once the user has edited it or acted on it: the model answers seconds
+ * later, and its guess must not replace what the user typed meanwhile.
+ * Returns whether anything was written.
+ */
+export function applyEnrichment(
+  id: string,
+  enriched: { title: string; deadline: string | null; priority: TaskPriority; people: string[] }
+): boolean {
+  return (
+    handle()
+      .prepare(
+        `UPDATE tasks SET title = ?, deadline = ?, priority = ?, people = ?
+          WHERE id = ? AND user_edited_at IS NULL AND status = 'pending'`
+      )
+      .run(
+        enriched.title.trim(),
+        enriched.deadline,
+        enriched.priority,
+        JSON.stringify(enriched.people),
+        id
+      ).changes > 0
+  )
+}
+
+export interface CalendarReconcile {
+  /** Meetings with no task yet; they still go through dedup and suppression. */
+  fresh: NewTask[]
+  updated: number
+  removed: number
+  archived: number
+}
+
+/**
+ * Brings calendar prep tasks in line with the current lookahead window.
+ * `prep` must be the complete set for the window: an open prep task whose
+ * meeting is not in it was cancelled, declined or moved away, and goes.
+ * Completed and deleted rows are history and are never touched.
+ */
+export function reconcileCalendarTasks(
+  source: 'gcalendar' | 'acalendar',
+  prep: NewTask[],
+  now = new Date()
+): CalendarReconcile {
+  const db = handle()
+  const result: CalendarReconcile = { fresh: [], updated: 0, removed: 0, archived: 0 }
+
+  db.transaction(() => {
+    const seen = new Set<string>()
+    const find = db.prepare<[string], { id: string; status: Task['status']; user_edited_at: string | null }>(
+      `SELECT id, status, user_edited_at FROM tasks WHERE source = '${source}' AND source_id = ?`
+    )
+    const refresh = db.prepare(
+      `UPDATE tasks SET deadline = @deadline, people = @people, raw_context = @raw_context,
+              title = CASE WHEN user_edited_at IS NULL THEN @title ELSE title END
+        WHERE id = @id`
+    )
+
+    for (const task of prep) {
+      if (!task.sourceId) continue
+      seen.add(task.sourceId)
+      const row = find.get(task.sourceId)
+      if (!row) {
+        result.fresh.push(task)
+        continue
+      }
+      if (row.status !== 'pending' && row.status !== 'snoozed') continue
+      result.updated += refresh.run({
+        id: row.id,
+        title: task.title.trim(),
+        deadline: task.deadline ?? null,
+        people: JSON.stringify(task.people ?? []),
+        raw_context: task.rawContext ?? null
+      }).changes
+    }
+
+    const startedBefore = new Date(now.getTime() - PREP_LEAD_HOURS * 3_600_000).toISOString()
+    const open = db
+      .prepare<[], { id: string; source_id: string; deadline: string | null }>(
+        `SELECT id, source_id, deadline FROM tasks
+          WHERE source = '${source}' AND status IN ('pending', 'snoozed')`
+      )
+      .all()
+    for (const row of open) {
+      if (row.deadline && row.deadline < startedBefore) {
+        db.prepare(`UPDATE tasks SET status = 'archived', snoozed_until = NULL WHERE id = ?`).run(row.id)
+        result.archived++
+      } else if (!seen.has(row.source_id)) {
+        db.prepare(`DELETE FROM tasks WHERE id = ?`).run(row.id)
+        result.removed++
+      }
+    }
+  })()
+
+  return result
 }
 
 export function setStatus(id: string, status: Task['status']): void {
   handle()
-    .prepare(`UPDATE tasks SET status = ?, completed_at = ?, snoozed_until = NULL WHERE id = ?`)
+    .prepare(
+      `UPDATE tasks SET status = ?, completed_at = ?, snoozed_until = NULL
+        WHERE id = ? AND status != 'deleted'`
+    )
     .run(status, status === 'done' ? new Date().toISOString() : null, id)
 }
 
 /** Hides the task until `until`; wakeSnoozed() brings it back as pending. */
 export function snoozeTask(id: string, until: string): void {
   handle()
-    .prepare(`UPDATE tasks SET status = 'snoozed', snoozed_until = ? WHERE id = ?`)
+    .prepare(
+      `UPDATE tasks SET status = 'snoozed', snoozed_until = ? WHERE id = ? AND status != 'deleted'`
+    )
     .run(until, id)
+}
+
+/** Pending tasks whose due-soon notification should go out now. */
+export function tasksToAlert(now: number, leadMinutes: number): Task[] {
+  const rows = handle()
+    .prepare<[], TaskRow & { reminded_at: string | null; remind_at: string | null }>(
+      `SELECT * FROM tasks
+        WHERE status = 'pending' AND (remind_at IS NOT NULL OR (deadline IS NOT NULL AND reminded_at IS NULL))`
+    )
+    .all()
+  return rows
+    .filter((row) => shouldAlert({ deadline: row.deadline, remindedAt: row.reminded_at, remindAt: row.remind_at }, now, leadMinutes))
+    .map(toTask)
+}
+
+export function markAlerted(id: string, at = new Date()): void {
+  handle().prepare(`UPDATE tasks SET reminded_at = ?, remind_at = NULL WHERE id = ?`).run(at.toISOString(), id)
+}
+
+/** "Snooze 1 hour" from an alert: out of sight until then, and announced again. */
+export function remindAgainAt(id: string, at: string): void {
+  handle().prepare(`UPDATE tasks SET remind_at = ? WHERE id = ?`).run(at, id)
 }
 
 export function wakeSnoozed(now = Date.now()): number {
@@ -206,8 +356,37 @@ export function getTask(id: string): Task | null {
   return row ? toTask(row) : null
 }
 
+/**
+ * Leaves a tombstone rather than removing the row: the row is what holds the
+ * (source, source_id) slot, so removing it let the next sync import the same
+ * email, event or recurring occurrence again.
+ */
 export function deleteTask(id: string): void {
-  handle().prepare(`DELETE FROM tasks WHERE id = ?`).run(id)
+  handle()
+    .prepare(
+      `UPDATE tasks SET status = 'deleted', deleted_at = ?, snoozed_until = NULL WHERE id = ?`
+    )
+    .run(new Date().toISOString(), id)
+}
+
+/**
+ * Undo for complete, snooze and delete: the row comes back exactly as an open
+ * task. Archived rows are left alone; they aged out, nobody just acted on them.
+ */
+export function reopenTask(id: string): void {
+  handle()
+    .prepare(
+      `UPDATE tasks SET status = 'pending', completed_at = NULL, snoozed_until = NULL, deleted_at = NULL
+        WHERE id = ? AND status IN ('done', 'snoozed', 'deleted')`
+    )
+    .run(id)
+}
+
+export function purgeTombstones(now = Date.now(), days = KEEP_TOMBSTONE_DAYS): number {
+  const cutoff = new Date(now - days * 86_400_000).toISOString()
+  return handle()
+    .prepare(`DELETE FROM tasks WHERE status = 'deleted' AND deleted_at < ?`)
+    .run(cutoff).changes
 }
 
 export type ProcessOutcome = 'extracted' | 'skipped' | 'failed'
@@ -294,11 +473,18 @@ export function listRetryableFailures(source: TaskSource, limit = 25): string[] 
     .map((row) => row.source_id)
 }
 
-/** Manual Sync now must re-read recent mail; otherwise a 0-task extraction is sticky forever. */
+/**
+ * Manual Sync re-reads recent mail that yielded nothing, so a 0-task extraction
+ * is not sticky forever. Messages that did produce tasks are left alone:
+ * re-reading them is how deleted and edited tasks used to come back.
+ */
 export function forgetRecentGmail(hours = 48): number {
   const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString()
   return handle()
-    .prepare(`DELETE FROM processed_messages WHERE source = 'gmail' AND processed_at >= ?`)
+    .prepare(
+      `DELETE FROM processed_messages
+        WHERE source = 'gmail' AND processed_at >= ? AND tasks_found = 0`
+    )
     .run(cutoff).changes
 }
 

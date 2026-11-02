@@ -7,7 +7,7 @@ const path = require('node:path')
 // package.json, so userData would default to the generic "Electron" folder
 // rather than the app's. Pin the name before anything resolves a path.
 app.setName('ambientmind')
-app.setPath('userData', path.join(app.getPath('appData'), 'ambientmind'))
+require('./isolation.cjs').useProjectUserData(app)
 
 app.whenReady().then(() => {
   try {

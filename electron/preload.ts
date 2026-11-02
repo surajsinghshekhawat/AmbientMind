@@ -1,20 +1,30 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type {
+  AppleSourcesStatus,
   ChatReply,
   ChatTurn,
   Config,
   HealthReport,
   RecurrenceSuggestion,
+  SpeechEngineInfo,
   SyncSummary,
   Task
 } from '@shared/types'
 import type { NewRecurrenceRule, RecurrenceRule } from '@shared/recurrence'
+import type { PermissionKind, PermissionState } from '@shared/permissions'
+import type { ShortcutStatus } from '@shared/shortcuts'
+import type { DataInventory, ErasableSource } from '@shared/privacy'
+import type { NetworkSummary } from '@shared/network'
+import type { LegalDoc } from '@shared/legal'
+
+type Confirmed = { canceled: boolean; removed: number }
 
 const api = {
-  setMouseCapture: (capture: boolean) => ipcRenderer.send(IPC.SetMouseCapture, capture),
+  setPanelHeight: (height: number) => ipcRenderer.send(IPC.SetPanelHeight, height),
   setOverlayExpanded: (expanded: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.SetOverlayExpanded, expanded),
+  getOverlayExpanded: (): Promise<boolean> => ipcRenderer.invoke(IPC.GetOverlayExpanded),
   onOverlayExpanded: (handler: (expanded: boolean) => void): (() => void) => {
     const listener = (_event: unknown, expanded: boolean) => handler(expanded)
     ipcRenderer.on(IPC.OverlayExpandedChanged, listener)
@@ -32,6 +42,8 @@ const api = {
     patch: { title?: string; deadline?: string | null; priority?: Task['priority'] }
   ): Promise<Task[]> => ipcRenderer.invoke(IPC.UpdateTask, id, patch),
   /** `until` is ISO-8601; the task returns to pending on its own. */
+  reopenTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.ReopenTask, id),
+  acceptTask: (id: string): Promise<Task[]> => ipcRenderer.invoke(IPC.AcceptTask, id),
   snoozeTask: (id: string, until: string): Promise<Task[]> =>
     ipcRenderer.invoke(IPC.SnoozeTask, id, until),
 
@@ -62,6 +74,14 @@ const api = {
     }
   },
 
+  onScreenStatus: (handler: (status: { state: 'running' | 'idle' }) => void): (() => void) => {
+    const listener = (_event: unknown, status: { state: 'running' | 'idle' }) => handler(status)
+    ipcRenderer.on(IPC.ScreenStatus, listener)
+    return () => {
+      ipcRenderer.off(IPC.ScreenStatus, listener)
+    }
+  },
+
   accounts: {
     status: (): Promise<{
       google: boolean
@@ -79,6 +99,8 @@ const api = {
   }> => ipcRenderer.invoke(IPC.RunSyncNow),
 
   openChat: () => ipcRenderer.send(IPC.OpenChat),
+  closeChat: () => ipcRenderer.send(IPC.CloseChat),
+  stopChat: () => ipcRenderer.send(IPC.ChatStop),
   chat: (message: string, history: ChatTurn[]): Promise<ChatReply> =>
     ipcRenderer.invoke(IPC.ChatSend, message, history),
   getChatHistory: (): Promise<ChatTurn[]> => ipcRenderer.invoke(IPC.GetChatHistory),
@@ -127,15 +149,53 @@ const api = {
   ): Promise<{ canceled: true } | { canceled: false; path: string }> =>
     ipcRenderer.invoke(IPC.ExportBackup, passphrase),
 
+  /** Relaunches the app on success, so a resolved promise means it was cancelled. */
+  restoreBackup: (passphrase: string): Promise<{ canceled: true }> => ipcRenderer.invoke(IPC.RestoreBackup, passphrase),
+  /** False when nothing has crashed yet. */
+  openCrashLog: (): Promise<boolean> => ipcRenderer.invoke(IPC.OpenCrashLog),
+  openLegal: (doc: LegalDoc): Promise<void> => ipcRenderer.invoke(IPC.OpenLegal, doc),
+  onShowSection: (handler: (section: string) => void): (() => void) => {
+    const listener = (_event: unknown, section: string) => handler(section)
+    ipcRenderer.on(IPC.SettingsShowSection, listener)
+    return () => {
+      ipcRenderer.off(IPC.SettingsShowSection, listener)
+    }
+  },
+
+  privacy: {
+    inventory: (): Promise<DataInventory> => ipcRenderer.invoke(IPC.DataInventory),
+    /** Each asks for confirmation in a native dialog first. */
+    forgetSource: (source: ErasableSource): Promise<Confirmed> => ipcRenderer.invoke(IPC.ForgetSource, source),
+    forgetBefore: (days: number): Promise<Confirmed> => ipcRenderer.invoke(IPC.ForgetBefore, days),
+    clearChat: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearChatHistory),
+    clearAiLog: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearAiLog),
+    eraseAll: (): Promise<{ canceled: boolean }> => ipcRenderer.invoke(IPC.EraseAllData),
+    exportData: (): Promise<{ canceled: true } | { canceled: false; path: string }> => ipcRenderer.invoke(IPC.ExportData),
+    network: (): Promise<NetworkSummary> => ipcRenderer.invoke(IPC.NetworkLog),
+    clearNetwork: (): Promise<Confirmed> => ipcRenderer.invoke(IPC.ClearNetworkLog)
+  },
+
   getAppInfo: (): Promise<{ version: string; userData: string }> =>
     ipcRenderer.invoke(IPC.GetAppInfo),
 
   openUserData: () => ipcRenderer.invoke(IPC.OpenUserData),
+  getShortcuts: (): Promise<ShortcutStatus[]> => ipcRenderer.invoke(IPC.GetShortcuts),
+  suspendShortcuts: (suspended: boolean) => ipcRenderer.send(IPC.SuspendShortcuts, suspended),
+  getPermissions: (): Promise<PermissionState[]> => ipcRenderer.invoke(IPC.GetPermissions),
+  openPermissionSettings: (kind: PermissionKind): Promise<void> =>
+    ipcRenderer.invoke(IPC.OpenPermissionSettings, kind),
+  requestPermission: (kind: PermissionKind): Promise<PermissionState> =>
+    ipcRenderer.invoke(IPC.RequestPermission, kind),
   getRagCount: (): Promise<number> => ipcRenderer.invoke(IPC.GetRagCount),
   openSettings: () => ipcRenderer.send(IPC.OpenSettings),
+  openOnboarding: () => ipcRenderer.send(IPC.OpenOnboarding),
+  finishOnboarding: () => ipcRenderer.send(IPC.FinishOnboarding),
 
   quickAdd: {
-    submit: (title: string) => ipcRenderer.send(IPC.QuickAddSubmit, title),
+    open: () => ipcRenderer.send(IPC.OpenQuickAdd),
+    submit: (title: string, options?: { keepOpen?: boolean; spoken?: boolean }) =>
+      ipcRenderer.send(IPC.QuickAddSubmit, title, options),
+    setHeight: (height: number) => ipcRenderer.send(IPC.QuickAddHeight, height),
     cancel: () => ipcRenderer.send(IPC.QuickAddCancel),
     setRecording: (recording: boolean) =>
       ipcRenderer.send(IPC.QuickAddRecording, recording),
@@ -147,6 +207,51 @@ const api = {
       ipcRenderer.on(IPC.QuickAddOpened, listener)
       return () => {
         ipcRenderer.off(IPC.QuickAddOpened, listener)
+      }
+    },
+    onShortcutAgain: (handler: () => void): (() => void) => {
+      const listener = () => handler()
+      ipcRenderer.on(IPC.QuickAddShortcutAgain, listener)
+      return () => {
+        ipcRenderer.off(IPC.QuickAddShortcutAgain, listener)
+      }
+    },
+    /** The shortcut is held down ('start') or let go after a hold ('end'). */
+    onHold: (handler: (phase: 'start' | 'end') => void): (() => void) => {
+      const listener = (_event: unknown, phase: 'start' | 'end') => handler(phase)
+      ipcRenderer.on(IPC.QuickAddHold, listener)
+      return () => {
+        ipcRenderer.off(IPC.QuickAddHold, listener)
+      }
+    }
+  },
+
+  appleSources: {
+    status: (): Promise<AppleSourcesStatus> => ipcRenderer.invoke(IPC.AppleSources),
+    /** Turning one on asks macOS for access first, and rejects with why if it is refused. */
+    set: (source: 'calendar' | 'reminders', on: boolean): Promise<AppleSourcesStatus> =>
+      ipcRenderer.invoke(IPC.SetAppleSource, source, on)
+  },
+
+  speech: {
+    engine: (): Promise<SpeechEngineInfo> => ipcRenderer.invoke(IPC.SpeechEngine),
+    /** Downloads Apple's speech model; macOS stores it with its other language assets. */
+    install: (): Promise<SpeechEngineInfo> => ipcRenderer.invoke(IPC.SpeechInstall),
+    start: (): Promise<void> => ipcRenderer.invoke(IPC.SpeechStart),
+    stop: (): Promise<string> => ipcRenderer.invoke(IPC.SpeechStop),
+    cancel: () => ipcRenderer.send(IPC.SpeechCancel),
+    onPartial: (handler: (partial: { text: string; final: boolean }) => void): (() => void) => {
+      const listener = (_event: unknown, partial: { text: string; final: boolean }) => handler(partial)
+      ipcRenderer.on(IPC.SpeechPartial, listener)
+      return () => {
+        ipcRenderer.off(IPC.SpeechPartial, listener)
+      }
+    },
+    onLevel: (handler: (rms: number) => void): (() => void) => {
+      const listener = (_event: unknown, rms: number) => handler(rms)
+      ipcRenderer.on(IPC.SpeechLevel, listener)
+      return () => {
+        ipcRenderer.off(IPC.SpeechLevel, listener)
       }
     }
   }

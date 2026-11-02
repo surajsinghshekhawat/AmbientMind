@@ -25,5 +25,15 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["electron", "src", "shared", "electron.vite.config.ts"]
+  "include": [
+    "electron",
+    "src",
+    "shared",
+    "e2e",
+    "db/tests",
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "gallery.config.ts",
+    "playwright.config.ts"
+  ]
 }

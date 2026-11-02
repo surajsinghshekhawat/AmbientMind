@@ -1,0 +1,37 @@
+---
+description: Electron main-process conventions for the Mac-first, Windows-compatible app
+globs: electron/**,shared/**
+alwaysApply: false
+---
+
+# Electron main process
+
+Source of truth: `docs/REBUILD_PLAN.md` §4.
+
+- **Platform layer.** Anything that differs by OS (window options, levels,
+  tray icon, shortcut defaults, permissions, login items) lives in
+  `electron/platform/{mac,win}.ts` behind `electron/platform/index.ts`. Feature
+  code never checks `process.platform` itself.
+- **Windows keeps working.** Every Mac-only feature (Swift helper, EventKit,
+  SpeechAnalyzer, Vision) has a fallback path; the Windows build must not
+  regress.
+- **Swift helper calls** go through `electron/native/helper.ts`, are typed,
+  time out, and degrade gracefully when the helper is missing or crashed.
+- **IPC.** Channels are listed only in `shared/ipc.ts`. Validate inputs in
+  main. State-change events (`tasks:changed`, `config:changed`, `sync:status`)
+  broadcast to every open window, never just the overlay.
+- **Never crash on one error.** Wrap every `ipcMain.on` handler, timer and
+  scheduled job; log and report instead of exiting.
+- **Mac windows.** Overlay and Quick Capture are non-activating panels
+  (`type: 'panel'`, `showInactive()`), `setVisibleOnAllWorkspaces(true,
+  { visibleOnFullScreen: true, skipTransformProcessType: true })`. Every window
+  must be closable at quit, or `app.quit()` is cancelled.
+- **Shortcuts** must not shadow standard Mac keys (⌘⇧S, ⌘⇧A, ⌘⇧C). Default
+  capture is ⌃⌥Space; all are rebindable with conflict detection.
+- **Permissions.** Grant media only to our own windows and only for the
+  microphone. Check permission status before capture and explain what to do
+  when it is missing.
+- **Data.** Never derive paths from `APPDATA` or `cwd`; use `app.getPath()`.
+  `electron/isolation.ts` stays the first import in `main.ts`.
+- **Schema changes** ship as numbered migrations in `services/migrations.ts`
+  and are rehearsed with `./dev npm run check:migration`.

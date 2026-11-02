@@ -2,6 +2,7 @@
 // cosine KNN returns sane neighbours. This is the ChromaDB replacement, so it
 // needs to be proven before the RAG layer is built on it.
 const { app } = require('electron')
+require('./isolation.cjs').useProjectUserData(app)
 
 app.whenReady().then(() => {
   try {

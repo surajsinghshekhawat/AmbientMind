@@ -1,13 +1,14 @@
 export const IPC = {
-  /** Renderer -> main, fired on hover transitions to toggle click-through. */
-  SetMouseCapture: 'overlay:set-mouse-capture',
-
   GetTasks: 'tasks:get',
   AddTask: 'tasks:add',
   CompleteTask: 'tasks:complete',
   DeleteTask: 'tasks:delete',
   UpdateTask: 'tasks:update',
   SnoozeTask: 'tasks:snooze',
+  /** Undo for complete, snooze and delete. */
+  ReopenTask: 'tasks:reopen',
+  /** A suggested task becomes a real one. */
+  AcceptTask: 'tasks:accept',
   /** Main -> renderer, pushed whenever the task store changes. */
   TasksChanged: 'tasks:changed',
 
@@ -15,6 +16,9 @@ export const IPC = {
   SetOverlayExpanded: 'overlay:set-expanded',
   /** Main -> renderer, after the overlay is collapsed or expanded. */
   OverlayExpandedChanged: 'overlay:expanded-changed',
+  GetOverlayExpanded: 'overlay:get-expanded',
+  /** Renderer -> main: the panel's content height, so the window fits it. */
+  SetPanelHeight: 'overlay:set-panel-height',
 
   GetConfig: 'config:get',
   SetConfig: 'config:set',
@@ -27,6 +31,8 @@ export const IPC = {
   RunSyncNow: 'sync:run-now',
   /** Main -> renderer, so the overlay can show a quiet sync indicator. */
   SyncStatus: 'sync:status',
+  /** Main -> renderer. Separate from sync so neither can end the other's indicator. */
+  ScreenStatus: 'screen:status',
 
   /** Patterns the app noticed; shown for confirmation, never auto-applied. */
   GetSuggestions: 'rules:suggestions',
@@ -34,6 +40,9 @@ export const IPC = {
   DismissSuggestion: 'rules:suggestion-dismiss',
 
   ChatSend: 'chat:send',
+  ChatStop: 'chat:stop',
+  /** Renderer -> main: the chat card's close button and Esc. */
+  CloseChat: 'chat:close',
   OpenChat: 'chat:open',
 
   GetRules: 'rules:get',
@@ -51,27 +60,66 @@ export const IPC = {
   ForgetLearned: 'learned:forget',
   ExportCorpus: 'eval:export-corpus',
 
+  /** Each global shortcut, its label, and whether it could be registered. */
+  GetShortcuts: 'shortcuts:get',
+  /** Microphone and screen recording status, with what to do when refused. */
+  GetPermissions: 'permissions:get',
+  OpenPermissionSettings: 'permissions:open-settings',
+  RequestPermission: 'permissions:request',
+
   OpenUserData: 'settings:open-user-data',
   GetRagCount: 'settings:rag-count',
   OpenSettings: 'settings:open',
+  OpenOnboarding: 'onboarding:open',
+  FinishOnboarding: 'onboarding:finish',
   GetAppInfo: 'app:info',
   ExportBackup: 'settings:export-backup',
+  /** Decrypts a backup, swaps it in for the database, and relaunches. */
+  RestoreBackup: 'settings:restore-backup',
+  OpenCrashLog: 'settings:open-crash-log',
+  OpenLegal: 'settings:open-legal',
+  /** Main -> settings renderer: jump to a section. */
+  SettingsShowSection: 'settings:show-section',
+  /** What's stored, by source; and the ways to forget it. */
+  DataInventory: 'privacy:inventory',
+  ForgetSource: 'privacy:forget-source',
+  ForgetBefore: 'privacy:forget-before',
+  ClearChatHistory: 'privacy:clear-chat',
+  ClearAiLog: 'privacy:clear-ai-log',
+  EraseAllData: 'privacy:erase-all',
+  ExportData: 'privacy:export',
+  /** Every request that left the Mac, summarised by destination. */
+  NetworkLog: 'privacy:network',
+  ClearNetworkLog: 'privacy:clear-network',
+  SuspendShortcuts: 'settings:suspend-shortcuts',
   GetChatHistory: 'chat:history-get',
   SaveChatHistory: 'chat:history-save',
 
+  OpenQuickAdd: 'quickadd:open',
   QuickAddSubmit: 'quickadd:submit',
   QuickAddCancel: 'quickadd:cancel',
   /** Main -> quick-add renderer, so it can reset and focus its input. */
   QuickAddOpened: 'quickadd:opened',
   /** Renderer -> main: keep the window open while the mic is live. */
   QuickAddRecording: 'quickadd:recording',
+  /** Main -> quick-add renderer: the capture shortcut was pressed while open. */
+  QuickAddShortcutAgain: 'quickadd:shortcut-again',
+  /** Renderer -> main: the composer's height, so the window fits it. */
+  QuickAddHeight: 'quickadd:height',
+  /** Main -> quick-add renderer: the shortcut is held ('start') or let go ('end'). */
+  QuickAddHold: 'quickadd:hold',
   /** Renderer -> main: float32 PCM @ 16 kHz ArrayBuffer in, transcript out. */
-  TranscribeAudio: 'speech:transcribe'
+  TranscribeAudio: 'speech:transcribe',
+  /** Which voice engine is in use, and the state of Apple's speech model. */
+  SpeechEngine: 'speech:engine',
+  SpeechInstall: 'speech:install',
+  /** Live dictation through the helper: start, stop (returns the text), cancel. */
+  SpeechStart: 'speech:start',
+  SpeechStop: 'speech:stop',
+  SpeechCancel: 'speech:cancel',
+  /** Main -> quick-add renderer while listening: the words so far, and the input level. */
+  AppleSources: 'sources:apple',
+  SetAppleSource: 'sources:apple-set',
+  SpeechPartial: 'speech:partial',
+  SpeechLevel: 'speech:level'
 } as const
-
-export const QUICK_ADD_SHORTCUT = 'CommandOrControl+Shift+A'
-/** Reads the current screen and turns it into a task. */
-export const CAPTURE_SCREEN_SHORTCUT = 'CommandOrControl+Shift+S'
-export const SETTINGS_SHORTCUT = 'CommandOrControl+Shift+,'
-/** Opens the chat panel, which can both answer about and change the list. */
-export const CHAT_SHORTCUT = 'CommandOrControl+Shift+C'

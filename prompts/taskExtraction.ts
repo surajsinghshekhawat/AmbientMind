@@ -40,6 +40,8 @@ DO NOT extract:
 - Anything the message describes as already completed
 
 Each task must:
+- Begin with its evidence: the words in the message that ask for or promise
+  this action, copied exactly as written (under 25 words, never paraphrased)
 - Start with a concrete action verb (send, review, call, prepare, submit, book, reply)
 - Be under 12 words, phrased the way {userName} would write it
 - Name the person involved when the action is directed at someone
@@ -55,7 +57,8 @@ CONFIDENCE:
 - 0.7 to 0.9 when clearly implied but requiring mild inference
 - Below 0.6 is speculative: omit the task entirely
 
-Return an empty array when the message contains no actionable task.`
+First set asksUser: true only if the message asks {userName} to do something or records {userName}'s own promise.
+When asksUser is false, return an empty tasks array.`
 
 export const TASK_EXTRACTION_USER = `{fewShotExamples}--- MESSAGE ---
 From: {sender}
@@ -102,20 +105,31 @@ export function buildExtractionPrompt(vars: ExtractionVars) {
 export const EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
+    // Decided before any task is written. Measured on Apple's model: without
+    // it, FYI notes, receipts and newsletters became tasks (25% of task-free
+    // mail left alone); with it, 87.5%.
+    asksUser: {
+      type: 'boolean',
+      description:
+        'True only if the message asks the user to do something, or records a promise the user made. FYI notes, newsletters, receipts, automated reminders and social chat are false.'
+    },
     tasks: {
       type: 'array',
       items: {
         type: 'object',
+        // Evidence first: the model quotes the message before it writes the
+        // task, so the task is grounded in what was actually said.
         properties: {
+          evidence: { type: 'string' },
           title: { type: 'string' },
           deadline: { anyOf: [{ type: 'string' }, { type: 'null' }] },
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
           people: { type: 'array', items: { type: 'string' } },
           confidence: { type: 'number' }
         },
-        required: ['title', 'deadline', 'priority', 'people', 'confidence']
+        required: ['evidence', 'title', 'deadline', 'priority', 'people', 'confidence']
       }
     }
   },
-  required: ['tasks']
+  required: ['asksUser', 'tasks']
 } as const

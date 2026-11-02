@@ -7,7 +7,15 @@
  * (a few seconds of speech) do not need worklet latency.
  */
 
+import { SilenceGate } from '@shared/silence'
+import { clientOs } from '@/ui/device'
+
 const TARGET_RATE = 16_000
+
+const MIC_BLOCKED =
+  clientOs === 'mac'
+    ? 'The microphone is blocked. Allow AmbientMind in System Settings → Privacy & Security → Microphone.'
+    : 'The microphone is blocked. Allow it in Settings → Privacy & security → Microphone.'
 
 export type RecorderState = 'idle' | 'recording' | 'busy'
 
@@ -20,33 +28,39 @@ export class PcmRecorder {
   private _state: RecorderState = 'idle'
 
   private onSilence: (() => void) | null = null
-  private heardSpeech = false
-  private lastLoudAt = 0
-  private silenceMs = 3000
-  private maxMs = 25_000
-  private startedAt = 0
+  private onLevel: ((rms: number) => void) | null = null
+  private gate: SilenceGate | null = null
 
   get state() {
     return this._state
   }
 
-  async start(options?: { onSilence?: () => void; silenceMs?: number }): Promise<void> {
+  async start(options?: {
+    onSilence?: () => void
+    silenceMs?: number
+    /** Called per audio block with the input level, for a live waveform. */
+    onLevel?: (rms: number) => void
+  }): Promise<void> {
     if (this._state !== 'idle') return
 
     this.onSilence = options?.onSilence ?? null
-    this.silenceMs = options?.silenceMs ?? 3000
-    this.heardSpeech = false
-    this.lastLoudAt = 0
-    this.startedAt = Date.now()
+    this.onLevel = options?.onLevel ?? null
+    this.gate = new SilenceGate({ silenceMs: options?.silenceMs ?? 3000 })
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    })
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      })
+    } catch (err) {
+      // Chromium's own text here is a bare "Permission denied".
+      if ((err as Error).name === 'NotAllowedError') throw new Error(MIC_BLOCKED)
+      throw err
+    }
 
     this.context = new AudioContext()
     this.source = this.context.createMediaStreamSource(this.stream)
@@ -61,20 +75,8 @@ export class PcmRecorder {
       let sum = 0
       for (let i = 0; i < input.length; i += 8) sum += input[i]! * input[i]!
       const rms = Math.sqrt(sum / (input.length / 8))
-      const now = Date.now()
-
-      // Ignore the first 400ms: opening the mic often spikes as "speech".
-      if (now - this.startedAt < 400) return
-
-      if (rms > 0.018) {
-        this.heardSpeech = true
-        this.lastLoudAt = now
-      }
-
-      const silentLongEnough =
-        this.heardSpeech && this.lastLoudAt > 0 && now - this.lastLoudAt >= this.silenceMs
-      const tooLong = now - this.startedAt >= this.maxMs
-      if ((silentLongEnough || tooLong) && this.onSilence) {
+      this.onLevel?.(rms)
+      if (this.gate?.push(rms, Date.now()) && this.onSilence) {
         const done = this.onSilence
         this.onSilence = null
         done()
@@ -126,7 +128,7 @@ export class PcmRecorder {
     this.context = null
     this.chunks = []
     this.onSilence = null
-    this.heardSpeech = false
+    this.gate = null
   }
 }
 

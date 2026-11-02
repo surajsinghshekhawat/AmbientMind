@@ -2,21 +2,41 @@ import { join } from 'node:path'
 import { app, desktopCapturer, screen } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import { resolveDeadline } from '@shared/deadline'
+import { HelperError } from '@shared/helperProtocol'
 import { formatPromptTime } from '@shared/promptTime'
+import {
+  AX_ENOUGH_CHARS,
+  EXCLUDED_BUNDLE_IDS,
+  MIN_SCREEN_CHARS,
+  denoiseOcr,
+  focusedText,
+  userExcluded,
+  windowTitle,
+  type ScreenReading
+} from '@shared/screenRead'
 import type { TaskPriority } from '@shared/types'
 import { SCREEN_TASK_SCHEMA, buildScreenTaskPrompt } from '../../prompts/screenTask'
-import { chat } from './ollama'
+import { helperReady, helperRequest } from '../native/helper'
+import { accessStatus, isMac } from '../platform'
+import { appleTextBudget, chooseEngine, generate } from './ai'
 
 /**
  * Reads the current screen and turns it into a task.
+ *
+ * On the Mac the Swift helper reads the window in front: its text through
+ * Accessibility when the app exposes it (exact, and no pixels involved), or
+ * that one window through ScreenCaptureKit and Vision OCR. Everywhere else,
+ * and whenever the helper cannot, the whole display under the cursor is
+ * captured and OCR'd.
  *
  * OCR rather than a vision model, deliberately. A VLM that could read a
  * screenshot well (qwen2.5vl:3b and up) needs ~3.2GB of VRAM, which on a 4GB
  * card means evicting the extraction model on every capture and reloading it
  * afterwards. Screens are overwhelmingly text, so OCR gets the same signal for
- * ~15MB and no VRAM at all. The seam is `readScreenText`, so a VLM backend can
- * replace it later without touching the rest of the pipeline.
+ * ~15MB and no VRAM at all.
  */
+
+const SCREEN_TOKENS = 300
 
 export interface ScreenTask {
   title: string
@@ -24,6 +44,14 @@ export interface ScreenTask {
   deadline: string | null
   priority: TaskPriority
   people: string[]
+}
+
+/** The window in front belongs to an app that is never read. */
+export class ScreenRefused extends Error {
+  constructor(readonly appName: string) {
+    super(`AmbientMind doesn’t read ${appName}.`)
+    this.name = 'ScreenRefused'
+  }
 }
 
 let worker: Worker | null = null
@@ -57,11 +85,6 @@ export interface Capture {
  * The cursor rather than the primary display: on a two-monitor desk the thing
  * worth capturing is the one being worked on, and capturing the wrong screen
  * fails silently — you get a task about whatever was idle on monitor one.
- *
- * Capturing only the foreground *window* would be better still, but Electron
- * cannot identify it: `desktopCapturer` window sources arrive in no documented
- * order, and guessing wrong is worse than capturing too much, since the prompt
- * is already written to ignore chrome and find the substance.
  */
 export async function captureScreen(): Promise<Capture> {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
@@ -83,55 +106,102 @@ export async function captureScreen(): Promise<Capture> {
   return { png: source.thumbnail.toPNG(), windowTitle: source.name }
 }
 
-/** Drops OCR lines that are too short or too garbled to carry meaning. */
-function denoise(text: string): string {
-  const lines = text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => {
-      if (line.length < 3) return false
-      const letters = (line.match(/[a-zA-Z]/g) ?? []).length
-      // Toolbars and icon rows OCR into punctuation soup; require real words.
-      return letters / line.length > 0.5
-    })
-
-  return lines.join('\n').slice(0, 6000)
+/** Vision through the helper when it is there; Tesseract otherwise. */
+export async function readScreenText(png: Buffer): Promise<string> {
+  if (helperReady()) {
+    try {
+      const { text } = await helperRequest('ocr.image', { png: png.toString('base64') }, { timeoutMs: 20_000 })
+      return denoiseOcr(text)
+    } catch (err) {
+      console.warn('[screen] helper OCR failed; using tesseract:', (err as Error).message)
+    }
+  }
+  const { data } = await (await getWorker()).recognize(png)
+  return denoiseOcr(data.text)
 }
 
-export async function readScreenText(png: Buffer): Promise<string> {
-  const { data } = await (await getWorker()).recognize(png)
-  return denoise(data.text)
+/** Accessibility, then that window's pixels, then the whole display. */
+export async function readScreen(excludedApps: readonly string[] = []): Promise<ScreenReading> {
+  let fallbackTitle = ''
+  let axText = ''
+  if (isMac && helperReady()) {
+    try {
+      const context = await helperRequest('context.focused', {
+        excludeBundleIds: [...EXCLUDED_BUNDLE_IDS, ...excludedApps.filter((entry) => entry.includes('.'))],
+        maxChars: 12_000
+      })
+      if (context.excluded) throw new ScreenRefused(context.app ?? 'this app')
+      // Names are matched here, after the read; the text is dropped unused.
+      if (userExcluded(excludedApps, { name: context.app, bundleId: context.bundleId })) {
+        throw new ScreenRefused(context.app ?? 'this app')
+      }
+      fallbackTitle = windowTitle(context)
+      axText = focusedText(context)
+      console.log(`[screen] ${context.app}: ${axText.length} chars through accessibility`)
+      if (axText.length >= AX_ENOUGH_CHARS) return { text: axText, windowTitle: fallbackTitle, source: 'accessibility' }
+
+      if (context.windowId && accessStatus('screen') === 'granted') {
+        const ocr = await helperRequest('capture.windowOCR', { windowId: context.windowId }, { timeoutMs: 20_000 })
+        const text = denoiseOcr(ocr.text)
+        console.log(`[screen] window OCR produced ${text.length} chars`)
+        if (text.length >= MIN_SCREEN_CHARS) return { text, windowTitle: fallbackTitle, source: 'window-ocr' }
+      }
+      // Some text beats a Screen Recording prompt the user cannot act on.
+      if (axText.length >= MIN_SCREEN_CHARS && accessStatus('screen') !== 'granted') {
+        return { text: axText, windowTitle: fallbackTitle, source: 'accessibility' }
+      }
+    } catch (err) {
+      if (err instanceof ScreenRefused) throw err
+      if (!(err instanceof HelperError)) throw err
+      console.warn('[screen] helper could not read the window:', err.message)
+    }
+  }
+
+  const capture = await captureScreen()
+  const refused = fallbackTitle ? null : userExcluded(excludedApps, { windowTitle: capture.windowTitle })
+  if (refused) throw new ScreenRefused(refused)
+  console.log(`[screen] captured "${capture.windowTitle}" (${capture.png.length} bytes)`)
+  const text = await readScreenText(capture.png)
+  console.log(`[screen] display OCR produced ${text.length} chars`)
+  if (text.length < MIN_SCREEN_CHARS && axText.length > text.length) {
+    return { text: axText, windowTitle: fallbackTitle, source: 'accessibility' }
+  }
+  return { text, windowTitle: fallbackTitle || capture.windowTitle, source: 'display-ocr' }
 }
 
 export async function screenToTask(
   instruction: string,
-  options: { model?: string; userName?: string; aboutMe?: string } = {}
+  options: { userName?: string; aboutMe?: string; excludedApps?: readonly string[] } = {}
 ): Promise<ScreenTask | null> {
-  const capture = await captureScreen()
-  console.log(`[screen] captured "${capture.windowTitle}" (${capture.png.length} bytes)`)
+  const reading = await readScreen(options.excludedApps)
+  if (reading.text.length < MIN_SCREEN_CHARS) return null
 
-  const screenText = await readScreenText(capture.png)
-  console.log(`[screen] ocr produced ${screenText.length} chars`)
-
-  if (screenText.length < 40) return null
-
-  const { system, user } = buildScreenTaskPrompt({
+  const vars = {
     // Without a name the model cannot tell which of the people on screen is
     // the one being asked to do something, and it returns nothing.
     userName: options.userName?.trim() || 'the user',
     ...(options.aboutMe ? { aboutMe: options.aboutMe } : {}),
     instruction: instruction.trim() || 'none given; use your judgement',
     currentTime: formatPromptTime(),
-    windowTitle: capture.windowTitle,
-    screenText
-  })
+    windowTitle: reading.windowTitle || 'unknown',
+    screenText: reading.text,
+    source: reading.source === 'accessibility' ? 'accessibility' : 'ocr'
+  } as const
+  // Apple's window holds about 6,000 characters of screen beside the prompt;
+  // past that, OCR text is mostly other windows and chrome anyway.
+  let screenText = reading.text
+  if ((await chooseEngine()) === 'apple') {
+    const empty = buildScreenTaskPrompt({ ...vars, screenText: '' })
+    screenText = screenText.slice(0, appleTextBudget(empty.system + empty.user, SCREEN_TASK_SCHEMA, SCREEN_TOKENS))
+  }
+  const { system, user } = buildScreenTaskPrompt({ ...vars, screenText })
 
-  const raw = await chat({
-    ...(options.model ? { model: options.model } : {}),
+  const { content: raw } = await generate({
+    purpose: 'screen',
     system,
     user,
-    format: SCREEN_TASK_SCHEMA,
-    numPredict: 300
+    schema: SCREEN_TASK_SCHEMA,
+    maxTokens: SCREEN_TOKENS
   })
 
   console.log('[screen] model returned:', raw.slice(0, 400))

@@ -33,8 +33,11 @@ Version 0.2.0. Last updated: 16 September 2026.
 
 ## 1. What this product is
 
-AmbientMind is a **Windows desktop overlay** that keeps a short, urgency-sorted
-todo list on screen at all times. The list is meant to fill *itself*: a local
+AmbientMind is a **desktop overlay for macOS and Windows** that keeps a short,
+urgency-sorted todo list on screen at all times. The Mac is the primary
+platform: a menu-bar app with a Swift helper for Apple's on-device model,
+speech, Calendar, Reminders and screen reading. Windows runs the same app
+without the helper. The list is meant to fill *itself*: a local
 language model reads Gmail and Google Calendar, extracts only the things the
 user personally has to do, and writes them into a local SQLite database. Tasks
 can also arrive by typing, by speaking, by asking the app to read whatever is
@@ -50,8 +53,9 @@ the full list when clicked.
 - **Local by default.** Extraction, embeddings, speech-to-text and OCR all run
   on this machine. Mail and calendar come from Google because that is where the
   data already is, but message bodies are never sent to a cloud language model.
-- **Ambient, not demanding.** Click-through overlay, no taskbar presence, tray
-  resident. It must not steal focus from whatever is being typed.
+- **Ambient, not demanding.** A small orb that never takes focus until you
+  open it, no taskbar presence, tray resident. It must not steal focus from
+  whatever is being typed.
 - **Never lie.** An empty list should say *why* it is empty. A wrong action is
   worse than no action. Anything the app learns should be inspectable and
   reversible.
@@ -60,8 +64,8 @@ the full list when clicked.
 
 The original brief asked for the list to sit *above the wallpaper and below
 applications*, and also to be clickable. On Windows those two things cannot
-both be true — see §8.1. The implemented compromise is always-on-top plus
-click-through.
+both be true — see §8.1. The implemented compromise is an always-on-top
+window that is only ever as big as the orb or the open panel.
 
 ---
 
@@ -141,7 +145,45 @@ external service, which is precisely why the health check in §7.3 exists.
 | `num_ctx` | `8192` | Context window. Large enough for a long email plus five few-shot examples plus the system prompt. |
 | `num_predict` | `800` | Output cap. A runaway generation is bounded rather than hoped against. |
 | `stream` | `false` | Nothing here renders token-by-token, and a non-streamed call is simpler to time out. |
-| timeout | 120 s | A stalled model must not wedge the sync loop forever. |
+| timeout | 60 s for mail, 120 s otherwise | A stalled model must not wedge the sync loop. One message takes seconds; past a minute the server is stuck and the pass stops, leaving the rest for the next one. |
+
+### 3.1a Apple's on-device model and the router (Mac)
+
+On a Mac with Apple Intelligence turned on, the same calls can go to Apple's
+on-device Foundation Model instead of Ollama. The Swift helper exposes it as
+`llm.status` and `llm.generate` (`native/mac-helper/Sources/Helper/Language.swift`).
+FoundationModels is weak-linked, so the helper still starts on macOS releases
+without it and simply reports the model as unavailable, with a reason
+(`device_not_eligible`, `not_enabled`, `model_not_ready`, `os_too_old`).
+
+**Same schema, both engines.** `llm.generate` takes the JSON Schema we already
+send Ollama and translates it into a `DynamicGenerationSchema`: properties in
+the order of `required`, `anyOf` with null as an optional property, enums as
+string choices. Apple's decoder is schema-constrained too, so the rest of the
+pipeline cannot tell which engine answered. Each call gets a fresh session
+with greedy sampling; errors come back typed (`guardrail`, `refusal`,
+`context_overflow`, `unsupported_language`, `busy`, `generation_failed`).
+
+**The router** (`electron/services/ai.ts`) is the only way the app talks to a
+model. The `aiEngine` setting is `auto`, `apple` or `ollama`:
+
+- `auto` uses Apple when it is ready, otherwise Ollama. Chat is the
+  exception: it goes to Ollama while Ollama is running (§7.4). A prompt that would not
+  fit Apple's 4,096-token window (estimated at 3.2 characters a token plus the
+  schema and output budget) goes to Ollama, so a long message is read whole
+  rather than cut down. When Apple fails with a refusal, guardrail, overflow
+  or timeout, the call is retried on Ollama.
+- `apple` or `ollama` uses only that engine and reports it as unavailable
+  otherwise.
+
+When Apple does answer an extraction, few-shot examples are left out and the
+message is clipped to what fits; that is the price of the 4K window, and the
+reason `auto` prefers Ollama for long mail.
+
+**Every call is logged** to `ai-calls.jsonl` in the data folder (purpose,
+engine, model, milliseconds, prompt size, success, whether it fell back),
+trimmed at 1 MB. `./dev npm run ai:budget` summarises it per purpose and
+engine: calls, failures, fallbacks, p50, p95 and the longest call.
 
 ### 3.2 Grammar-constrained decoding
 
@@ -170,13 +212,62 @@ of that gap.
 
 | Prompt | Schema shape | Purpose |
 | --- | --- | --- |
-| `taskExtraction` | `{ tasks: [{ title, deadline, priority, people, confidence }] }` | Mail → zero or more tasks |
+| `taskExtraction` | `{ asksUser, tasks: [{ evidence, title, deadline, priority, people, confidence }] }` | Mail → zero or more tasks, each with a quote |
 | `taskEnrichment` | `{ title, deadline, priority, people }` | One typed or spoken line → a structured task |
 | `screenTask` | single task object | One screenshot → at most one task |
-| `chat` | `{ action, query?, title?, deadline?, priority?, until?, weekdays?, time?, reply }` | One conversational turn → one action plus a human reply |
+| `chat` | `{ kind, actions: [{ type, task, title, when, priority }], reply }` | One message → question, change or other; the changes; a reply (§7.4) |
 
 `deadline` is declared as `anyOf: [string, null]`, which is what lets the model
 say "there is no deadline here" rather than inventing one to satisfy the type.
+
+**Order is a technique, too.** Decoding runs left to right, so a field written
+first conditions everything after it. The extraction schema opens with
+`asksUser`: does this message ask the user for anything, or record their own
+promise? A "no" discards whatever tasks the model writes anyway. Each task
+then starts with its `evidence` quote, so the title is written from the words
+it cites. The gate took Apple's model from 25% to 100% on task-free mail and
+made `qwen2.5:3b` usable again under Ollama 0.40, where it had begun returning
+nothing for the old prompt.
+
+Every response is parsed with zod after decoding (`electron/services/extract.ts`):
+the grammar holds the shape, zod holds the code to it, and a field that slips
+through malformed drops one task rather than the whole message.
+
+### 3.2a Evidence, confidence and suggestions
+
+A schema-valid task can still be invented. Every extracted task therefore
+carries a quote, and `shared/evidence.ts` checks it against the message
+(case, whitespace and curly quotes ignored):
+
+- **Found**: the quote is shown as the message wrote it, and marked verified.
+  A quote that wraps a real sentence in a greeting ("Sally, I'll review…")
+  counts as found.
+- **Not found**: models paraphrase even when told to copy. The quote is
+  replaced by the message's own sentence that best supports the task, and the
+  task's confidence is capped at 0.84, just under "high".
+- **Nothing supports it**: the task is dropped.
+
+So evidence shown to the user is always text that really is in the message.
+Confidence falls into buckets: **high** at 0.85 and above with a verified
+quote, **medium** from 0.7, **low** below that.
+
+**Deadlines come from the quote.** When the model gives a deadline and the
+quote contains timing words ("by EOD tomorrow", "Friday morning", "end of
+week"), the deadline is re-derived from those words by the Quick Add parser,
+anchored to the message's sent date. Code does date arithmetic more reliably
+than a 3B model: this took deadline accuracy on the seed corpus from 43% to
+71% for `qwen2.5:3b`. A model deadline with no timing words in the quote is
+kept, moved into the message's year if the model got the year wrong.
+"ASAP", "immediately", "right away" and "urgently" make a task **urgent**
+rather than giving it a deadline, and a deadline at the very minute the
+message was sent (the model echoing the date) is dropped: either would show
+the task overdue the moment it arrived.
+
+**Mail tasks arrive as suggestions** (`status = 'suggested'`), with a link to
+the message in Gmail and the quote. With `autoAcceptAbove` set (Settings → AI
+& Models → "Add confident tasks straight away", 0.9), a task at or above it
+*with a verified quote* goes straight to the list; a quote that had to be
+found for the model is never auto-accepted.
 
 ### 3.3 Prompt architecture
 
@@ -190,8 +281,8 @@ Each prompt is assembled from named blocks:
   needs to know it is reading *Suraj's* mail to decide whether "can you send
   this over?" is addressed to him. Identity uses an explicit display name from
   Settings, falling back to the OS username — never the Gmail local part.
-  Extracting as `firstnamelastname08` made the model miss messages opening
-  "Hi Suraj".
+  Extracting as a handle like `firstnamelastname08` made the model miss
+  messages opening "Hi Suraj".
 - **About-me block.** Optional free text describing the user's life, injected
   into the **system** prompt beside the identity. Labelled as background that
   must never itself become a task. When the field is empty it contributes
@@ -315,7 +406,10 @@ reliable filter than any prompt.
 **Why not whisper.cpp.** A native addon compiled against Electron's ABI, which
 is the same class of pain as `better-sqlite3`. Transformers.js downloads a
 model once and runs in-process with no build step. The cost is a slow first
-load, which is hidden by warming the model shortly after launch.
+load, which is hidden by warming the model when Quick Capture opens: the
+second or so before the first word is usually enough. It is not loaded at
+launch, because with the ONNX runtime it holds about half a gigabyte that a
+user who never talks would pay for.
 
 ### 3.6 OCR: Tesseract
 
@@ -384,11 +478,16 @@ human prose. Everything downstream of that is arithmetic.**
   snooze arithmetic, decision memory, retry policy, calendar event shaping,
   voice intent, scoring).
 - `npm run eval` — the extraction harness. Reports precision, recall, F1,
-  empty-specificity (does it correctly return *nothing* for mail with no task)
-  and deadline accuracy against a labelled corpus.
-- `npx tsx eval/chatActions.ts` — runs the chat prompt against the **real**
-  model with ten scripted messages and checks which action it chose. This
-  exists because the risk in chat is not the wiring but the model's judgement.
+  empty-specificity (does it correctly return *nothing* for mail with no task),
+  deadline accuracy, and how many quotes the model copied exactly, against a
+  labelled corpus. `--model <tag>` picks the Ollama model; `--engine apple`
+  runs Apple's model through the locally built helper.
+- `ai:budget` — latency and failure summary from the call log (§3.1a).
+- `npm run eval:chat` — runs the chat planner against the **real** model
+  with 18 scripted messages and checks what would happen: no change for a
+  question, the right task, the resolved time. `--model` and `--engine apple`
+  as above. This exists because the risk in chat is not the wiring but the
+  model's judgement.
 - `npm run check:migration` — applies pending migrations to a **copy** of the
   live database and reports whether the data survived.
 
@@ -410,8 +509,23 @@ it refers to, `eval/corpus/enron-200.jsonl`, **has never been built** (§12.3).
 | Extraction recall | 71.4% | 5 of 7 |
 | Empty-specificity | 100% | No invented tasks on the 8 controls |
 | Deadline accuracy | 60% | Only 5 matched pairs; mostly noise |
-| Chat action selection | 10/10 | Was 6/10 before worked examples were added |
+| Chat action selection | 10/10 | Was 6/10 before worked examples were added; superseded by `eval:chat` (18/18 on `qwen3:4b-instruct-2507`, see the rebuild plan's Phase 6) |
 | Real-mail precision | No false positives on 13 messages | See §10.2 |
+
+Those were measured on the original Windows machine. After the Phase 6
+changes (the `asksUser` gate, evidence, deadlines from the quote), on an
+M-series Mac (`eval/results/*-v7-final.json`):
+
+| Engine | F1 | Empty-specificity | Deadline | Median latency |
+| --- | --- | --- | --- | --- |
+| `qwen2.5:3b` | 100% | 100% | 71% | 0.2 s |
+| `qwen3:4b-instruct-2507-q4_K_M` | 100% | 100% | 57% | 0.2 s |
+| `gemma3n:e4b` | 100% | 100% | 57% | 0.5 s |
+| Apple on-device | 86% | 100% | 67% | 0.8 s |
+
+The latencies are for the short hand-written messages of that corpus. On the
+longer, realistic mail of the November 2026 QA run, `qwen3:4b-instruct-2507`
+took 0.51 s median and 1.7 s at the 95th percentile (n = 20).
 
 Every one of those numbers comes from a corpus small enough that a single
 message changes the second digit. They are useful for catching regressions —
@@ -437,30 +551,30 @@ which they did, twice — and useless as an absolute claim of quality.
     │              │               │              │
     ▼              ▼               ▼              ▼
 SQLite +        Ollama         Google APIs     OS APIs
-sqlite-vec      localhost      Gmail,          safeStorage/DPAPI,
-%APPDATA%       :11434         Calendar        desktopCapturer, mic
+sqlite-vec      127.0.0.1      Gmail,          safeStorage (Keychain/DPAPI),
+userData        :11434         Calendar        Swift helper (Mac), mic
 ```
 
 ### 4.1 Windows
 
 | Surface | Trigger | Behaviour |
 | --- | --- | --- |
-| **Overlay** | Always present | Starts as a ~70 px circle in the configured corner. Click expands to the full-height list. Transparent, always-on-top, click-through except over real controls. |
-| **QuickAdd** | `Ctrl+Shift+A` | Palette for typed or spoken capture. Mic opens with the window; three seconds of silence after speech ends recording and submits. |
-| **Settings** | `Ctrl+Shift+,`, tray, or the gear | Google connection, models, profile, recurring rules, health, learned suppressions, corpus export. |
-| **Chat** | `Ctrl+Shift+C`, tray, or the overlay header | Conversational panel that can both answer about and modify the list. |
+| **Overlay** | Always present | A 64 px glass orb (`ThinkingOrb` inside) in the configured corner that never takes focus. Click expands it into a 380 px panel sized to its content, which takes focus so the keyboard works; Esc collapses it. |
+| **QuickAdd** | `Ctrl+Shift+A` (Mac `⌃⌥Space`) | A composer card: type, or press the shortcut again (or ⌘L, or the mic) to talk. Live chips show what was understood. Enter saves, ⌘Enter saves and stays open, Esc cancels. |
+| **Settings** | `Ctrl+Shift+,` (Mac `⌃⌥,`), tray, or the gear | A sidebar window: General, Sources, AI & Models, Capture, Shortcuts (with a recorder), Recurring, Learned, Privacy, Your data, Permissions, About. Follows the system theme unless set to Light or Dark. |
+| **Chat** | `Ctrl+Shift+C` (Mac `⌃⌥C`), tray, or the overlay header | A frameless glass card that answers about the list and changes it, showing each change as a step. Stop cancels a running answer. |
+| **Onboarding** | First launch, or Settings → About | Welcome, privacy, sources, permissions, model check and shortcuts. Finishing sets `onboarded` in the config. |
 | **Tray** | Always | Show/hide, sync now, chat, settings, quit. There is no main window, so closing the overlay must never quit the process. |
 
-### 4.2 The click-through mechanism
+### 4.2 Overlay sizing and focus
 
-The overlay calls `setIgnoreMouseEvents(true, { forward: true })`, which makes
-the window transparent to the mouse while still receiving move events. The
-renderer hit-tests `data-ambient-interactive` on every mousemove and asks main
-to enable capture only while the cursor is genuinely over a control. That is
-why empty transparent space does not swallow clicks on the desktop behind it.
-
-The collapsed orb is the exception: it always accepts clicks, since a
-click-through orb cannot be opened.
+The overlay window is always exactly the size of what it shows, so there is no
+transparent area to swallow clicks meant for the desktop. Collapsed, it is the
+64 px orb and is not focusable, so clicking it never takes focus from the app
+you are in. Expanded, it is 380 px wide and as tall as the panel: the renderer
+measures the panel and sends `SetPanelHeight`, and main grows the window away
+from its corner, capped at the work area. The expanded window is focusable and
+focused, so keyboard shortcuts and inline edits work.
 
 ### 4.3 Windows 11 transparency
 
@@ -483,26 +597,76 @@ and renderer cannot drift apart. Renderers have `nodeIntegration: false` and
 object built in `electron/preload.ts`.
 
 Channel groups: tasks (get/add/complete/delete/update/snooze, plus a pushed
-`TasksChanged`), overlay (mouse capture, expand state), config, accounts,
-sync, rules, suggestions, chat, health, learned suppressions, corpus export,
-quick-add, and speech transcription.
+`TasksChanged`), overlay (expand state, panel height), config, accounts,
+sync, rules, suggestions, chat (send, stop, close), health, learned
+suppressions, corpus export, quick-add (including hold start/end), speech
+(Whisper transcription, plus Apple live speech: engine, install, start,
+stop, cancel and pushed partials and levels), shortcuts
+(suspended while Settings records one), permissions (status, open System
+Settings, and request where macOS still shows a prompt), and onboarding.
 
 A production-only Content Security Policy is applied as a response header
 rather than a meta tag, so the dev server's HMR websocket is not blocked during
 development.
 
+### 4.5 The Mac helper
+
+`native/mac-helper` is a small Swift executable for what Electron cannot do
+on the Mac: read the window in front through Accessibility, capture one
+window with ScreenCaptureKit, OCR with Vision, check and request every
+privacy permission, report idle time, mic use and full-screen apps, stream
+speech with SpeechAnalyzer, and hold a global hotkey that sees the key being
+let go. Next it will read Calendar and Reminders.
+
+- **Process.** Main starts it at launch (`electron/native/helper.ts`) and
+  talks newline-delimited JSON over stdin/stdout (`shared/helperProtocol.ts`).
+  It exits when stdin closes or its parent dies, so it cannot outlive the
+  app.
+- **Resilience.** `electron/native/helperClient.ts` handshakes with `hello`,
+  times out every request, and restarts a crashed helper with backoff (1 s
+  doubling to 30 s). A missing binary or another protocol version makes it
+  `unavailable`, and every caller has a fallback, so the app works the same
+  without it.
+- **Attribution.** Packaged, it lives in `Contents/MacOS` and is signed with
+  the app. Launched through LaunchServices, macOS holds AmbientMind
+  responsible for it, so prompts name AmbientMind and one grant in System
+  Settings covers both. `test:packaged` checks this on every build with
+  `--helper-check`. Run from a terminal, the terminal is responsible
+  instead, which is why dev runs see the terminal's permissions and why
+  `./dev packaged` launches through `open` rather than the binary.
+- **Events.** Besides replies, the helper pushes `speech.partial`,
+  `speech.level`, `speech.error`, `speech.install` and `hotkey` (down/up).
+  It runs an `NSApplication` loop with the `.prohibited` activation policy
+  (no Dock icon, menu or focus) because Carbon hotkey events only arrive
+  through one. On stdin EOF it waits up to 3 s for replies still in flight.
+- **EventKit.** `calendar.events`, `reminders.ensureList`, `reminders.list`,
+  `reminders.upsert` (only the fields sent are written; `expectedModifiedAt`
+  refuses a stale write with `conflict`) and `reminders.delete`, all on one
+  serial queue, plus a debounced `eventstore.changed` event. See §6.2a and
+  §6.3a.
+- **Live speech.** `electron/services/liveSpeech.ts` picks the engine:
+  Apple's SpeechAnalyzer when the helper is up and the language's model is
+  installed, Whisper otherwise (and on Windows). The model is a macOS asset
+  stored with Dictation's, outside the app, so it is only downloaded from
+  the button in Settings → Capture. Whisper is then not loaded at all.
+- **Build.** `./dev npm run helper` (SwiftPM, caches in `.local/`);
+  `dist:mac` builds it first. `ambientmind-helper --selftest` reports
+  permissions and proves Vision OCR works.
+
 ---
 
 ## 5. Data model
 
-Everything lives under `%APPDATA%\ambientmind\`, not the generic Electron
-folder:
+Everything lives in Electron's `userData` folder: `~/Library/Application
+Support/AmbientMind/` on an installed Mac, `%APPDATA%\AmbientMind\` on
+Windows, and `.local/data/` in the repo for any run through `./dev`
+(`electron/isolation.ts`), so development never touches the real folders:
 
 | File | Contents |
 | --- | --- |
 | `ambientmind.db` | Tasks, RAG examples and vectors, processed message ids, sync cursors, rules, suggestions, decisions. WAL mode. |
 | `config.json` | All user preferences (§5.3). |
-| `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (DPAPI on Windows). |
+| `secrets.json` | OAuth tokens, encrypted with Electron `safeStorage` (Keychain on macOS, DPAPI on Windows; a mock keychain under `./dev`). |
 | `google-credentials.json` | Desktop OAuth client JSON from Google Cloud Console. |
 | `corpus-*.jsonl` | Optional export of the user's own mail for accuracy measurement. |
 | `whisper/` | Cached ONNX weights and tokenizer for the selected Whisper size. |
@@ -526,6 +690,11 @@ them from a path would fail.
 | 8 | `008_rule_calendar.sql` | `recurrence_rules.gcal_event_id` |
 | 9 | `009_decisions.sql` | `decisions` |
 | 10 | `010_example_feedback.sql` | `examples.source_id`, `examples.embed_version`, retention index |
+| 11 | `011_task_lifecycle.sql` | Rebuild of `tasks`: tombstones (`deleted_at`), `suggested` status, `user_edited_at`, `source_url`, `evidence` |
+| 12 | `012_example_dedupe.sql` | Unique `examples (source, source_id)` |
+| 13 | `013_apple_sources.sql` | Rebuild of `tasks` so `source` admits `acalendar` and `reminders`; `updated_at` kept by triggers; `task_links` |
+| 14 | `014_screen_chat_sources.sql` | Rebuild of `tasks` so `source` admits `screen` and `chat`, which were saved as `manual` before |
+| 15 | `015_due_alerts.sql` | `tasks.reminded_at` (the due-soon notification went out) and `tasks.remind_at` (snoozed from that notification); both reset when the deadline changes |
 
 Migration 005 is the interesting one. SQLite cannot alter a `CHECK`
 constraint, so adding `'rule'` to the allowed task sources required copying the
@@ -539,8 +708,13 @@ caught a real problem (§9.1), which is the argument for keeping it.
 **`tasks`** — the only object the overlay understands.
 
 - `title`, `deadline` (ISO-8601 or null), `priority` (low/medium/high/urgent)
-- `source` — `gmail` | `gcalendar` | `manual` | `voice` | `rule`, with
-  `outlook`/`teams` reserved
+- `source` — `gmail` | `gcalendar` | `acalendar` (Apple Calendar) |
+  `reminders` (made in Apple Reminders) | `manual` (typed) | `voice` (spoken
+  in Quick Capture) | `screen` | `chat` | `rule`, with `outlook`/`teams`
+  reserved
+- `updated_at` — set by triggers on any change to title, deadline, priority
+  or status, so no writer can forget it; Reminders sync uses it to let the
+  later edit win
 - `sourceId` — unique per source. A partial unique index stops the same Gmail
   message inserting the same title twice, and makes materialising a rule
   occurrence (`ruleId:YYYY-MM-DD`) idempotent.
@@ -559,8 +733,15 @@ Storing it would mean a task's colour could go stale relative to the clock.
 **attempts** counter. The attempts column is what makes a failure retryable
 rather than permanent (§9.1).
 
-**`sync_state`** — per-source cursor, last run and last error. Calendar stores
-its incremental `syncToken` here.
+**`sync_state`** — per-source cursor, last run and last error. Google
+Calendar's cursor holds the iCalendar UIDs of the events it last listed (so
+Apple Calendar can skip Google's copies); Reminders' holds the list it owns.
+
+**`task_links`** — a task's copy in Reminders: the reminder id, its
+modification stamp at the last sync, and what both sides' synced fields
+(title, deadline, priority, done) looked like then. No foreign key, because a
+calendar prep task is removed outright when its meeting goes, and the link has
+to outlive it so the reminder goes too.
 
 **`recurrence_rules`** — title, weekdays as a JSON array (0 = Sunday), local
 `HH:MM`, priority, lead minutes, enabled flag, origin (`explicit` |
@@ -584,22 +765,34 @@ timestamp. Outlives the task itself.
 | `workHoursStart` / `End` | `9` / `18` | Used when resolving vague deadlines |
 | `syncIntervalMinutes` | `15` | Background sync cadence |
 | `maxTasksVisible` | `7` | Before "+N more · show all" |
-| `ollamaModel` | `qwen2.5:3b` | Extraction and chat model |
+| `aiEngine` | `auto` | `auto`, `apple` or `ollama` (§3.1a) |
+| `ollamaModel` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama's extraction and chat model |
+| `autoAcceptAbove` | `null` | Off, or 0.7–1: confident mail tasks with a verified quote skip Suggested (§3.2a) |
 | `embeddingModel` | `nomic-embed-text` | RAG embeddings |
 | `whisperModel` | `Xenova/whisper-base.en` | Speech-to-text size |
-| `launchAtLogin` | `true` | Start with Windows |
+| `launchAtLogin` | `false` | Start at sign-in (opt-in) |
 | `calendarWriteBack` | `false` | Mirror rules to Google Calendar (opt-in) |
+| `appleCalendar` | `false` | Prep tasks from Apple Calendar (Mac, opt-in, asks for Calendar access) |
+| `remindersSync` | `false` | Two-way sync with an "AmbientMind" list in Reminders (Mac, opt-in) |
 | `displayName` | `''` | What your mail calls you; beats the OS guess |
 | `aboutMe` | `''` | Free-text profile, max 1200 characters |
+| `pauseAiUntil` | `null` | ISO time AI stays off until; `9999-12-31` means until resumed |
+| `screenReading` | `false` | The capture shortcut and screen intent may read the front window (opt-in) |
+| `excludedApps` | `[]` | App names or bundle ids never read, on top of the built-in password managers |
+| `contentProtection` | `false` | Windows are blank in screenshots, recordings and screen sharing |
+| `quietMode` | `true` | On a call or in a full-screen app, the orb hides and notifications wait (Mac) |
+| `remindBeforeMinutes` | `15` | Due-soon notification lead: `null` (off), 0, 5, 15, 30 or 60 minutes |
 
 ### 5.4 Background timers
 
 | Sweep | Interval | Work |
 | --- | --- | --- |
-| Snooze | 30 s | Wake due tasks, top up rule occurrences |
+| Snooze | 30 s | Wake due tasks, top up rule occurrences, send due-soon notifications |
 | Archive | 15 min | Archive stale completed tasks, refresh habit suggestions |
 | Sync | 15 min (configurable) | Gmail and Calendar, first run delayed 60 s after launch |
 | Resume | on wake | Everything above, immediately |
+| Apple sources | 5 min, and on every EventKit change | Apple Calendar prep tasks and Reminders sync, when switched on |
+| Reminders push | 1.5 s after a local change | The changed tasks reach Reminders |
 
 The 60-second delay after launch is deliberate: login is the worst possible
 moment to pull a 2 GB model into memory, because the user is still waiting for
@@ -614,7 +807,8 @@ the desktop to settle.
 1. **Retry first.** Message ids that previously failed and still have attempts
    remaining are fetched by id, ahead of everything else. Without this they
    would age out of the recent listing and never be retried at all (§9.1).
-2. **List** `newer_than:2d -in:chats`, capped by the API at 50 per call.
+2. **List** `newer_than:2d -in:chats`, 100 ids per page and at most 5 pages
+   (500 messages) per pass.
    Promotions are deliberately *included* — excluding that tab hid real
    first-time senders.
 3. **Skip** ids already processed, unless this is a forced sync.
@@ -624,13 +818,15 @@ the desktop to settle.
    `Auto-Submitted`, no-reply sender patterns, bodies under 40 characters or
    over 20,000.
 6. **Retrieve** up to five nearest past examples from sqlite-vec.
-7. **Extract** against Qwen under the extraction schema.
+7. **Extract** through the router (§3.1a) under the extraction schema, then
+   check every quote against the message (§3.2a).
 8. **Record** the outcome, store the example and its embedding.
 9. **Deduplicate** against existing tasks — Dice similarity ≥ 0.72 with
    deadlines within 24 hours catches mail and calendar describing the same
    work.
 10. **Suppress** anything the user has repeatedly deleted (§7.5).
-11. **Insert.**
+11. **Insert** as a suggestion with a Gmail link and the quote, or straight
+    into the list when auto-accept is on and the task clears it.
 
 The pass is capped at **15 extractions**, so one busy morning cannot peg the
 GPU. Extraction is strictly serialised: the model holds around 2 GB on a 4 GB
@@ -645,6 +841,19 @@ at 09:00. Declined events and working-location entries are dropped. Sync is
 incremental via `syncToken`, and an HTTP 410 — Google's documented signal that
 the token is too old — triggers a full resync rather than surfacing as an
 error.
+
+### 6.2a Apple Calendar (read, Mac)
+
+The helper's `calendar.events` lists the next 48 hours from every calendar in
+macOS Internet Accounts. Each event is mapped onto the Google event shape and
+goes through the same rule (`prepTaskFor`): one-off, timed meetings with
+other people that you haven't declined become "Prepare for …" an hour before.
+They are reconciled like Google's, as source `acalendar`, so a moved or
+cancelled meeting moves or removes its task. When Google is connected too,
+events whose iCalendar UID Google already listed, or with the same title at
+the same minute as a Google prep task, are skipped: the same meeting seen
+through both must not become two tasks. Turning the source off removes its
+open prep tasks.
 
 ### 6.3 Calendar (write)
 
@@ -666,11 +875,53 @@ without any mobile app. The details that matter:
   recreated rather than lost.
 - Off by default, and calendar pushes are never awaited by the UI.
 
+### 6.3a Reminders (two-way, Mac)
+
+AmbientMind owns one list, "AmbientMind", in the account where new reminders
+go by default (iCloud when signed in, so iPhone and Watch see it). The pure
+planner in `shared/remindersSync.ts` compares each linked pair with the
+snapshot stored at the last sync:
+
+- A field changed on one side is copied to the other. The same field changed
+  on both goes to the later edit (`tasks.updated_at` against the reminder's
+  modification date).
+- Open tasks without a reminder are created there, with the task's evidence
+  and link as notes. Incomplete reminders without a task become tasks
+  (source `reminders`); completed history is not imported.
+- Deleted here: the reminder is removed, unless it was edited after the
+  delete, in which case the task comes back. Deleted there: the open task is
+  tombstoned; a finished one just lets go.
+- Every write names the version it was planned against
+  (`expectedModifiedAt`); the helper refuses a stale write, and the next pass
+  starts from the new state instead of overwriting it.
+- If more than half the links (and at least five) vanish at once, it looks
+  like a deleted list or a signed-out account, so nothing is deleted here and
+  the tasks are offered to Reminders again. A list deleted outright is made
+  again the same way.
+
+Priorities map to Reminders' three marks (urgent and high → high, low → low,
+medium → none); a date-only reminder is due at 17:00 that day, the same as a
+typed "Friday". Recurring reminders get no special case: completing one on
+the iPhone should arrive either as a changed due date or as a new reminder,
+and both are ordinary changes. Not yet tried against a real device.
+
+Passes run on EventKit's change notification (iPhone edits arrive through
+iCloud), 1.5 s after any change here, and every five minutes as a backstop.
+Both Apple sources are opt-in from Settings → Sources, which asks macOS for
+access first.
+
 ### 6.4 Voice and QuickAdd
 
 Typed text is inserted **immediately**, then `enrichTask` upgrades the title,
 deadline and priority in place. The insert never waits on the model, so the
-palette stays instant and keeps working with Ollama stopped.
+palette stays instant and keeps working with no model running.
+
+The model is only asked when it could add something (`needsEnrichment` in
+`shared/capture.ts`): timing words the parser didn't understand are still in
+the title, or the line is long enough to need tidying. "Call mum tomorrow
+morning" is fully parsed (tomorrow at 09:00) and never reaches a model. The
+parser knows today, tonight, tomorrow, EOD, end of day/week/month, weekdays,
+morning/afternoon/evening, noon and clock times.
 
 Spoken audio follows §3.5. Phrases meaning "look at my screen"
 (`shared/voiceIntent.ts`) route to the screen capture path instead of creating
@@ -678,10 +929,17 @@ a task with those words as its title.
 
 ### 6.5 Screen capture
 
-`Ctrl+Shift+S` or a spoken screen intent. Captures the display **the cursor is
-on** — on a two-monitor desk, capturing the primary screen silently produces a
-task about whatever was idle on the other one. OCR, denoise, then a one-task
-extraction. Deadlines like `"Thursday"` are normalised in
+`Ctrl+Shift+S` (Mac `⌃⌥S`) or a spoken screen intent, once **Read the
+screen** is on in Settings → Capture (off by default; the shortcut otherwise
+says how to turn it on). Apps listed under "Never read" are refused by bundle
+id in the helper, or by name before anything reaches the model. On the Mac the helper
+reads the window you were looking at: its Accessibility text when there is
+enough, otherwise that one window by ScreenCaptureKit and Vision. Password
+managers are refused outright. Failing both, and always on Windows, it
+captures the display **the cursor is on** — on a two-monitor desk, capturing
+the primary screen silently produces a task about whatever was idle on the
+other one. OCR, denoise, then a one-task extraction; the prompt is told
+whether its text is exact or OCR. Details in `docs/screen-capture.md`. Deadlines like `"Thursday"` are normalised in
 `shared/deadline.ts` (weekday → next occurrence at 17:00), because the schema
 can require a string but cannot require a *real datetime*.
 
@@ -756,26 +1014,121 @@ delete, complete, derived urgency colours, hover for full title and context,
 "+N more · show all" for the complete scrollable list, clash warnings naming
 which task to do first, and cross-source deduplication.
 
+**Due-soon notifications** (`shared/dueAlerts.ts`). A task with a deadline
+raises one system notification `remindBeforeMinutes` before it (Settings →
+General → Remind me), with **Done** and **Snooze 1 hour** buttons on both
+platforms. A deadline already more than an hour gone is not announced after
+the fact, at most three go out at once, and moving the deadline re-arms it.
+Snoozing from the notification hides the task and alerts again when it comes
+back. They are not AI, so Pause AI doesn't hold them; quiet mode does. The
+banner style is macOS's default; switching AmbientMind to *Alerts* in System
+Settings → Notifications keeps them on screen until answered.
+
+The sync notification only reports news: tasks added, or an error it hasn't
+already shown. A pass that found nothing says so in the panel, not on screen.
+
 ### 7.3 Trust
 
-- **Health check** — is Ollama running, are the configured models actually
-  pulled (matching Ollama's implicit `:latest`), is Google connected, does the
-  calendar scope need a reconnect. The overlay names the reason the list is
+- **Health check** — which engine would answer right now, and if none, why
+  (Apple Intelligence off and with what reason, Ollama stopped); are the
+  models that engine needs actually pulled (matching Ollama's implicit
+  `:latest`; the extraction model isn't required while Apple answers); is
+  Google connected; does the calendar scope need a reconnect. The overlay names the reason the list is
   empty instead of showing a blank panel. Re-runs on a timer, because Ollama
   gets stopped on an 8 GB machine all the time.
 - **Sync summary** — last run, counts and errors, surviving long after the
   toast has gone.
 - **Learned suppressions panel** — everything the app has decided to hide, with
   counts and an undo.
+- **Network log** — the main process's `fetch` is wrapped and the windows'
+  session watched; every request that leaves the Mac is a line in
+  `network.jsonl` (time, method, host, path without query or long ids,
+  status). Requests to this Mac are only counted. Settings → Privacy groups
+  them by destination (Google, model downloads, this Mac, anywhere else).
+- **Your data** — counts by source and of everything else kept; forget a
+  source (tasks become content-free tombstones so a sync doesn't re-add them;
+  Gmail also drops its learned examples), forget everything older than 30
+  days / 3 months / a year (the open list and rules stay), clear chat history
+  and the AI log, export JSON without tokens, and encrypted backup with
+  restore (checked, swapped in, the old file kept as
+  `ambientmind.before-restore.db`, then a relaunch). **Erase everything**
+  revokes Google and relaunches with `--erase-data`; the new process empties
+  the data folder and the crash log before anything opens them, keeping only
+  `google-credentials.json` (`electron/services/eraseData.ts`). Windows won't
+  delete a file the exiting instance still holds, so each removal retries for
+  two seconds; whatever is left is named in a dialog once the app is up.
+- **Policy and notices** — `PRIVACY.md`, `TERMS.md`, `LICENSE` and
+  `THIRD_PARTY_NOTICES.md` ship in `Resources/legal` and open from Settings →
+  About. The privacy policy's retention table and destination list describe
+  this section and `shared/retention.ts`; change them together.
+  `scripts/notices.cjs` lists every package that ships (production
+  dependencies plus what Vite bundles into the windows) with its licence text,
+  and `npm run dist` fails if the file is stale or a licence is copyleft or
+  unknown and not reviewed. Per-platform binaries (`sqlite-vec-darwin-arm64`)
+  are named from the lockfile, and line endings normalised, so the file is
+  the same whether it is generated on a Mac or on Windows. Build the Windows
+  release on Windows: from a Mac, electron-builder packs the Mac's
+  `node_modules`, with the Mac builds of sqlite-vec and sharp's libvips.
+- **Privacy switches** — Pause AI for an hour, until tomorrow or until
+  resumed (Settings and the menu bar); screen reading off by default;
+  content protection; quiet mode from the helper's `system.busy` (mic in use
+  by another app, or a full-screen app), polled every 15 s.
+- **Crash log** — `logs/crash.log`, opened from Settings → Privacy.
 - **Corpus export** — dump recent mail to JSONL, pre-filled with the model's
   current extractions, so labelling is correcting a draft rather than authoring
   one. Pre-filtered mail is written to a *separate* audit file with its skip
   reason.
 
+### 7.3a Accessibility and idle cost
+
+- Every text colour in `src/ui/tokens.css` meets WCAG AA (4.5:1) on the
+  window, sidebar and panel glass in both themes; placeholders meet 3:1.
+  `eval/contrast.test.ts` computes this from the tokens, so a colour change
+  that breaks it fails the build. Filled buttons use `--accent-fill`, a darker
+  blue than the accent used for text.
+- `src/test/a11y.test.tsx` runs axe on every Settings section, every
+  onboarding step, the task panel, Quick Capture and Chat.
+- The task panel is a labelled region of real lists; the keyboard cursor is
+  `aria-current` on the row and spoken through a polite live region. Chat is
+  a `log`, onboarding moves focus to each new step's heading, and a toast
+  stays up while the pointer or focus is on it.
+- At rest the orb draws one frame and stops after 8 s of calm; hovering wakes
+  it. The collapsed overlay polls the clock every minute and health every five.
+  Measured idle (`./dev npm run measure:idle`): 0.06% CPU across all
+  processes, down from 2.96%, with a budget of 2%.
+
 ### 7.4 Brain
 
 About-me profile, chat panel with real actions, deterministic clash advice, and
 decision memory.
+
+**Chat** (`electron/services/chatPlan.ts`, `chat.ts`) makes one model call per
+message. The model sees open tasks (most urgent first, with due times in
+words), tasks done in the last week, repeating rules and any matching past
+decisions, and returns a `kind` (question, change or other), a list of
+changes, and a reply. Changes name a task by copying its title and a time by
+copying the user's words ("in an hour"); code finds the task (exact title,
+else similarity of at least 0.6) and resolves the time with the Quick Add
+parser. Guards around the model:
+
+- Only `kind: "change"` acts, and a message phrased as a question with no
+  command word never changes anything.
+- The same task added twice in one message is added once; added again within
+  15 minutes of the first, it moves the first.
+- "Move X" where X isn't on the list adds X; "done" on a finished task with
+  "not" in the message reopens it.
+- A reply that claims a change it didn't list is asked once more, then
+  replaced by "I didn't change anything".
+- Done, delete, snooze and move only touch a task the user's own words (or
+  the reply they are answering) point at, by a distinctive word of its title
+  or "all"/"everything" (`referencedByUser`). Titles and mail can carry
+  instructions; a plan aimed at a task nobody mentioned is refused.
+- Suggestions are listed for context but are never a target: their titles
+  come straight from mail.
+- The confirmation shown is written by code from what really changed.
+
+In Automatic, chat goes to Ollama while it is running and to Apple's model
+otherwise (§3.1a).
 
 ### 7.5 Decision memory and learning
 
@@ -795,8 +1148,11 @@ and everything learned is listed in Settings with an undo.
 
 ### 7.6 Platform
 
-Per-user NSIS installer, launch at login, tray icon rendered from code, global
-shortcuts, and two headless CLI modes:
+A `.app` signed with a local identity on the Mac (Developer ID comes with a public release) (menu-bar resident, no Dock icon
+except while Settings or Chat is open) and a per-user NSIS installer on
+Windows. Launch at login, tray icon rendered from code, global shortcuts, and
+two headless CLI modes, which a release build (`npm run dist:release`, see
+SECURITY.md) compiles out along with every developer environment override:
 
 ```powershell
 npm run corpus:export -- --days=30 --limit=120
@@ -811,8 +1167,9 @@ npm run sync:now
 
 "Above wallpaper, below apps" requires the WorkerW/Progman hack on Windows, and
 that window **cannot receive normal input**. An interactive list that vanishes
-under every maximised browser is equally not ambient. Always-on-top plus
-click-through is the only pair that stays both visible and clickable.
+under every maximised browser is equally not ambient. An always-on-top window
+sized exactly to the orb or the open panel stays both visible and clickable,
+and covers nothing else.
 
 *Drawback.* It is a HUD floating over applications, not wallpaper.
 
@@ -1035,9 +1392,9 @@ connected, and the privacy story stays "the LLM never leaves localhost".
 - **Mobile, read-only first.** List, then complete and snooze, then chat — and
   only if the phone reaches the same backend rather than running a second model
   on the device.
-- **Phase F hardening.** Crash UX, encrypted export of the database without
-  tokens, privacy copy explaining what is local versus Google, a "pause AI for
-  an hour" switch, and a reboot test for start-at-login.
+- **Phase F hardening.** Done in rebuild Phase 7 (crash log, encrypted
+  backup and restore, privacy copy, pause AI), except the reboot test for
+  start-at-login, which needs a real reboot.
 - **Feedback on RAG examples themselves**, closing the one learning loop that
   is still open.
 
@@ -1362,12 +1719,18 @@ npm run corpus:export -- --days=30 --limit=120
 
 ### 13.3 Shortcuts
 
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+Shift+A` | QuickAdd; mic starts; 3 s of silence submits |
-| `Ctrl+Shift+S` | Capture the screen as a task |
-| `Ctrl+Shift+C` | Ask about your tasks |
-| `Ctrl+Shift+,` | Settings |
+Defaults live in `shared/shortcuts.ts`. Settings → Shortcuts records a new
+one from the physical keys (so ⌥S is S, not ß), requires ⌃, ⌥ or ⌘ (or a
+function key), and stores only the changed ones in `config.shortcuts`. Main
+re-registers them at once and says when one conflicts or another app holds
+the keys.
+
+| Windows | Mac | Action |
+| --- | --- | --- |
+| `Ctrl+Shift+A` | `⌃⌥Space` | QuickAdd; press again to talk |
+| `Ctrl+Shift+S` | `⌃⌥S` | Capture the screen as a task |
+| `Ctrl+Shift+C` | `⌃⌥C` | Ask about your tasks |
+| `Ctrl+Shift+,` | `⌃⌥,` | Settings |
 
 ### 13.4 Packaging configuration
 
@@ -1382,8 +1745,11 @@ than the app's scratch space. See §10.3 for the two hazards.
 
 ```
 electron/             main, overlay, tray, quickAdd, settings, chat, preload
+electron/native/      Swift helper process, client and attribution check
+native/mac-helper/    the Swift helper (SwiftPM)
 electron/services/    taskStore, ruleStore, suggestionStore, decisionStore,
-                      sync, calendarSync, ollama, chat, health, googleAuth,
+                      sync, calendarSync, ai (router), aiLog, appleModel,
+                      extract, ollama, chat, health, googleAuth,
                       vectorStore, speech, screenContext, corpusExport,
                       config, secrets, dedup, migrations
 electron/services/integrations/   gmail, gcalendar, gcalendarWrite
@@ -1393,7 +1759,7 @@ src/settings/         preferences, status, rules, profile, learned
 src/chat/             ask-about-your-tasks panel
 shared/               types, ipc, urgency, similarity, deadline, voiceIntent,
                       recurrence, recurrenceDetect, snooze, clash, decisions,
-                      calendarEvent, promptTime
+                      calendarEvent, promptTime, capture, evidence, aiStatus
 prompts/              taskExtraction, taskEnrichment, screenTask, chat
 db/migrations/        9 append-only SQL files
 eval/                 harness, corpus, unit tests, chat action eval
@@ -1790,11 +2156,13 @@ ordinary testable code takes over.
 | --- | --- | --- | --- |
 | Qwen2.5-3B | GPU | ~2.5–2.7 GB | While Ollama keeps it loaded |
 | nomic-embed-text | GPU | ~0.27 GB | During sync only |
-| Whisper base.en | CPU RAM | ~150 MB | Warmed at launch, kept |
+| Whisper base.en | CPU RAM | ~150 MB weights, ~0.5 GB with the runtime | From the first Quick Capture, kept |
 | Tesseract | CPU RAM | ~30 MB | One cached worker per session |
 
 The GPU total is the binding constraint and the reason for nearly every
-substitution in §2. The CPU models are small enough to stay resident
-permanently, which is why both are warmed once and cached rather than loaded
-per use — for Whisper in particular, a cold load is several seconds and would
-land squarely in the middle of the user trying to speak.
+substitution in §2. Once loaded, the CPU models stay resident rather than
+being loaded per use — for Whisper in particular, a cold load is several
+seconds and would land squarely in the middle of the user trying to speak.
+Whisper is warmed when Quick Capture opens rather than at launch; the QA run
+of November 2026 measured the app at about 1 GB ten seconds after launch when
+it was warmed there, settling to about 450 MB.

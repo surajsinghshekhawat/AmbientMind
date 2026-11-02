@@ -1,0 +1,259 @@
+{
+  "ranAt": "2026-10-31T21:53:34.148Z",
+  "model": "gemma3n:e4b",
+  "rag": false,
+  "corpus": "eval/corpus/seed.jsonl",
+  "metrics": {
+    "truePositives": 7,
+    "falsePositives": 0,
+    "falseNegatives": 0,
+    "precision": 1,
+    "recall": 1,
+    "f1": 1,
+    "emptySpecificity": 1,
+    "deadlineAccuracy": 0.5714285714285714,
+    "messagesScored": 14
+  },
+  "scored": [
+    {
+      "id": "seed-001",
+      "gold": [
+        {
+          "title": "Send Q1 East desk volume numbers to Louise",
+          "deadline": "2001-03-13T17:00:00",
+          "priority": "high"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Pull together Q1 volume numbers for East desk",
+          "deadline": "2001-03-13T11:30:00.000Z",
+          "priority": "high",
+          "people": [],
+          "confidence": 0.95,
+          "evidence": "Can you pull together the Q1 volume numbers for the East desk and send them over by EOD tomorrow?",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 6240.519041
+    },
+    {
+      "id": "seed-002",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 423.7145420000006
+    },
+    {
+      "id": "seed-003",
+      "gold": [
+        {
+          "title": "Review ISDA redline and send comments to Mark",
+          "deadline": "2001-03-16T09:00:00",
+          "priority": "medium"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Review redline and get comments",
+          "deadline": "2001-03-16T03:30:00.000Z",
+          "priority": "high",
+          "people": [
+            "Mark Taylor"
+          ],
+          "confidence": 0.95,
+          "evidence": "I'll review the redline and get you comments by Friday morning",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 2262.7610000000004
+    },
+    {
+      "id": "seed-004",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 455.8223340000004
+    },
+    {
+      "id": "seed-005",
+      "gold": [
+        {
+          "title": "Prepare five-slide credit exposure deck for risk committee",
+          "deadline": "2001-03-15T14:00:00",
+          "priority": "high"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Prepare credit exposure deck",
+          "deadline": "2001-03-14T14:00:00.000Z",
+          "priority": "high",
+          "people": [],
+          "confidence": 0.95,
+          "evidence": "Sally, please prepare the credit exposure deck ahead of it",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 2181.4050000000007
+    },
+    {
+      "id": "seed-006",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 453.25945800000045
+    },
+    {
+      "id": "seed-007",
+      "gold": [
+        {
+          "title": "Sign counterparty consent form and fax to Kay",
+          "deadline": null,
+          "priority": "high"
+        },
+        {
+          "title": "Call Rob Walls about indemnity language",
+          "deadline": "2001-03-15T17:00:00",
+          "priority": "urgent"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Sign counterparty consent form",
+          "deadline": "2001-03-15T11:30:00.000Z",
+          "priority": "high",
+          "people": [],
+          "confidence": 0.95,
+          "evidence": "Please sign the counterparty consent form and fax it back to me",
+          "verified": true
+        },
+        {
+          "title": "Call Rob Walls about indemnity language",
+          "deadline": "2001-03-15T11:30:00.000Z",
+          "priority": "high",
+          "people": [
+            "Rob Walls"
+          ],
+          "confidence": 0.9,
+          "evidence": "Can you call Rob Walls about the indemnity language? He is expecting to hear from you today.",
+          "verified": true
+        }
+      ],
+      "truePositives": 2,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 3779.3273339999996
+    },
+    {
+      "id": "seed-008",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 417.26845800000046
+    },
+    {
+      "id": "seed-009",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 426.83954200000153
+    },
+    {
+      "id": "seed-010",
+      "gold": [
+        {
+          "title": "Sign off on temporary Dynegy counterparty limit increase",
+          "deadline": null,
+          "priority": "urgent"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Sign off on the temporary increase",
+          "deadline": "2001-03-19T17:00:00.000Z",
+          "priority": "urgent",
+          "people": [],
+          "confidence": 0.95,
+          "evidence": "I need your sign-off on the temporary increase ASAP - trading is blocked until it clears.",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 2315.1951660000013
+    },
+    {
+      "id": "seed-011",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 457.5167909999982
+    },
+    {
+      "id": "seed-012",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 451.34279199999946
+    },
+    {
+      "id": "seed-013",
+      "gold": [
+        {
+          "title": "Send back office headcount plan to John",
+          "deadline": "2001-03-23T17:00:00",
+          "priority": "high"
+        }
+      ],
+      "predicted": [
+        {
+          "title": "Submit headcount plan for back office",
+          "deadline": "2001-03-23T11:30:00.000Z",
+          "priority": "high",
+          "people": [],
+          "confidence": 0.95,
+          "evidence": "Need your headcount plan for the back office by end of week",
+          "verified": true
+        }
+      ],
+      "truePositives": 1,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 2163.1510839999974
+    },
+    {
+      "id": "seed-014",
+      "gold": [],
+      "predicted": [],
+      "truePositives": 0,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "latencyMs": 414.68116700000246
+    }
+  ]
+}

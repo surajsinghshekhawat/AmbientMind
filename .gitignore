@@ -1,5 +1,9 @@
 node_modules/
 out/
+
+# Project-contained toolchain, caches, dev app data, models and scratch files.
+# Nothing for this project is allowed to live outside the repo folder.
+.local/
 dist/
 release/
 .vite/
@@ -26,4 +30,17 @@ Thumbs.db
 *.amb
 secrets.json
 google-credentials.json
+client_secret*.json
 chat-history.json
+helper-check.json
+corpus-*.jsonl
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.mobileprovision
+*.provisionprofile

@@ -16,12 +16,42 @@ export function isAiPaused(until: string | null | undefined, now = Date.now()): 
   return Number.isFinite(ms) && ms > now
 }
 
+/** Far enough ahead to mean "until resumed" while staying a timestamp. */
+export const PAUSE_UNTIL_RESUMED = '9999-12-31T00:00:00.000Z'
+
+export function isPausedUntilResumed(until: string | null | undefined): boolean {
+  return !!until && Date.parse(until) >= Date.parse(PAUSE_UNTIL_RESUMED)
+}
+
+/** 8 am tomorrow, local time. */
+export function tomorrowMorning(now = Date.now()): string {
+  const next = new Date(now)
+  next.setDate(next.getDate() + 1)
+  next.setHours(8, 0, 0, 0)
+  return next.toISOString()
+}
+
 export function pauseAiForHours(hours = 1, now = Date.now()): string {
   return new Date(now + hours * 3_600_000).toISOString()
 }
 
-export function describePause(until: string): string {
+export function describePause(until: string, now = Date.now()): string {
+  return `AI paused ${pauseEnds(until, now)}. Recurring tasks still appear.`
+}
+
+/** "until 3:00 PM", "until tomorrow at 8:00 AM", "until you resume it". */
+export function pauseEnds(until: string, now = Date.now()): string {
+  if (isPausedUntilResumed(until)) return 'until you resume it'
   const when = new Date(until)
   const time = when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-  return `AI paused until ${time}. Recurring tasks still appear.`
+  const today = new Date(now)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const day =
+    when.toDateString() === today.toDateString()
+      ? ''
+      : when.toDateString() === tomorrow.toDateString()
+        ? 'tomorrow at '
+        : `${when.toLocaleDateString(undefined, { weekday: 'long' })} at `
+  return `until ${day}${time}`
 }

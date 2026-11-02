@@ -51,3 +51,23 @@ export function ruleToEvent(
     recurrence: [`RRULE:FREQ=WEEKLY;BYDAY=${days.join(',')}`]
   }
 }
+
+export interface CalendarListEntry {
+  id: string
+  summary?: string
+  primary?: boolean
+  /** Set on secondary calendars: the owner's address. */
+  dataOwner?: string
+}
+
+/**
+ * The account's own calendar by this name. Owner access alone is not enough:
+ * someone else's calendar, shared with full rights and given the same name,
+ * would otherwise receive the user's routine.
+ */
+export function ownCalendarNamed(entries: CalendarListEntry[], summary: string): CalendarListEntry | undefined {
+  const account = entries.find((entry) => entry.primary)?.id
+  return entries.find(
+    (entry) => entry.summary === summary && (!entry.dataOwner || !account || entry.dataOwner === account)
+  )
+}
